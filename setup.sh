@@ -2,14 +2,12 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v21: the slick-terminal pass, from inspecting Sin-cy/dotfiles: every
-#      window gets slightly rounded corners at the compositor level
-#      (niri geometry-corner-radius 8 + clip-to-geometry — alacritty
-#      cannot round its own corners, and borders/focus ring follow the
-#      radius automatically); alacritty padding grows to 10 (the value
-#      that repo's ghostty and alacritty configs agree on) and the
-#      window is fully opaque by preference; zellij drops pane frames,
-#      splits separated by gap alone.
+# v22: the bar becomes split pills (option B of the rendered set): the
+#      waybar surface goes transparent and the two module clusters ride
+#      in opaque rounded pills — radius 8 and hairline border matching
+#      the windows — inset 8 from the screen edges, height 28 so the
+#      rounded ends are not pinched. Workspaces pill left, stats pill
+#      right, bare screen edge between them.
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -467,7 +465,10 @@ EOF
 {
     "layer": "top",
     "position": "top",
-    "height": 22,
+    "height": 28,
+    "margin-top": 8,
+    "margin-left": 8,
+    "margin-right": 8,
     "modules-left": ["custom/workspaces"],
     "modules-center": [],
     "modules-right": ["cpu", "memory", "network", "pulseaudio", "battery", "clock"],
@@ -510,9 +511,21 @@ EOF
     min-height: 0;
 }
 
+/* Split pills: the bar surface itself is transparent and each module
+   cluster rides in an opaque rounded pill matching the windows'
+   geometry — radius 8, hairline border, inset 8 from the edges via the
+   margins in config.jsonc. */
 window#waybar {
-    background: #0d0d0d;
+    background: transparent;
     color: #c0c0c0;
+}
+
+.modules-left,
+.modules-right {
+    background: #0d0d0d;
+    border: 1px solid #333333;
+    border-radius: 8px;
+    padding: 0 6px;
 }
 
 #custom-workspaces {
