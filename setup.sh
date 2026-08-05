@@ -2,13 +2,12 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v16: the two-line frame prompt returns (v14's rounded ╭─(...)╰─
-#      layout, bracketed segments), keeping nix-prompt's rounded hook
-#      arrow as the prompt character: Nerd Font U+F17A9, bold, detached
-#      after the ╰─ elbow, bright green on success and red on failure.
-#      nix-prompt itself retires — the vendored copy is gone from this
-#      file, ~/.nixprompt.bash is removed on upgrade, and starship owns
-#      the prompt again.
+# v17: the prompt's second line is the hook arrow alone. U+F17A9
+#      already contains the rounded turn (it is ╰→ drawn as one glyph),
+#      so the explicit ╰─ elbow before it doubled the turn and read as a
+#      squiggle; now the arrow's stem sits at column 0 directly under
+#      the ╭ corner and closes the frame by itself, the nix-prompt
+#      placement under this setup's frame line.
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -676,7 +675,7 @@ write_starship() {
 add_newline = false
 format = """
 [╭─\\(](#5a6f5d)$time[\\)](#5a6f5d)$status[─\\(](#5a6f5d)$hostname[\\)─\\(](#5a6f5d)$directory[\\)](#5a6f5d)$git_branch
-[╰─](#5a6f5d)$character"""
+$character"""
 
 [time]
 disabled = false
@@ -704,11 +703,12 @@ truncate_to_repo = false
 style = "#666666"
 format = "[─\\[$branch\\]]($style)"
 
-# The nix-prompt hook arrow (Nerd Font U+F17A9, TOML \U escape), kept
-# by preference from the nix-prompt experiment: a detached bold mark
-# after the rounded elbow (a font glyph welded to a box-drawn bar can
-# never be guaranteed to align — see git history for the four attempts).
-# Requires the Nerd Font build, which this script installs.
+# The nix-prompt hook arrow (Nerd Font U+F17A9, TOML \U escape) standing
+# alone as the whole second line, exactly as nix-prompt renders it: the
+# glyph already contains the rounded turn, so it IS the frame's return
+# elbow — an explicit ╰─ before it doubled the turn and read as clutter.
+# Bold; bright green on success, red on failure. Requires the Nerd Font
+# build, which this script installs.
 [character]
 success_symbol = "[\U000F17A9](bold #98b898)"
 error_symbol = "[\U000F17A9](bold #b5626a)"
