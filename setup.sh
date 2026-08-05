@@ -2,8 +2,13 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v27: the prompt's directory segment drops its bold weight — regular
-#      like the rest of the frame line; only the λ stays bold.
+# v28: the hover pass. The bar adopts the hover grammar (pill border
+#      steps up one grey, actionable module text brightens, 150 ms
+#      ease) and its modules gain real actions: scroll the workspaces
+#      pill to switch workspaces, click it for the overview, click
+#      cpu/mem for the btop popup, click vol to mute. The pointer is
+#      pinned to one cursor theme and size compositor-wide (GTK apps
+#      follow via gsettings) and hides while typing.
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -207,6 +212,15 @@ input {
         accel-speed 0.4
     }
     focus-follows-mouse max-scroll-amount="0%"
+}
+
+// Pointer polish: one cursor theme at one size everywhere (GTK apps
+// follow via the gsettings in apply_desktop_prefs), and the cursor
+// hides the moment typing starts.
+cursor {
+    xcursor-theme "Adwaita"
+    xcursor-size 24
+    hide-when-typing
 }
 EOF
 
@@ -472,10 +486,15 @@ EOF
     "custom/workspaces": {
         "exec": "~/.config/waybar/workspaces.sh",
         "restart-interval": 3,
-        "format": "{}"
+        "format": "{}",
+        "on-click": "niri msg action toggle-overview",
+        "on-scroll-up": "niri msg action focus-workspace-up",
+        "on-scroll-down": "niri msg action focus-workspace-down"
     },
-    "cpu": { "format": "cpu {usage}%", "interval": 3 },
-    "memory": { "format": "mem {percentage}%", "interval": 5 },
+    "cpu": { "format": "cpu {usage}%", "interval": 3,
+             "on-click": "alacritty --class btop-float -e btop" },
+    "memory": { "format": "mem {percentage}%", "interval": 5,
+                "on-click": "alacritty --class btop-float -e btop" },
     "network": {
         "format-wifi": "wifi {signalStrength}%",
         "format-ethernet": "eth up",
@@ -483,7 +502,8 @@ EOF
     },
     "pulseaudio": {
         "format": "vol {volume}%",
-        "format-muted": "vol mute"
+        "format-muted": "vol mute",
+        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
     },
     "battery": {
         "format": "bat {capacity}%",
@@ -516,12 +536,22 @@ window#waybar {
     color: #c0c0c0;
 }
 
+/* Hover grammar: surfaces sharpen on hover, 150 ms ease — the pill
+   border steps up one grey, actionable module text brightens. The
+   actions themselves (scroll workspaces, click for overview / btop /
+   mute) are bound in config.jsonc. */
 .modules-left,
 .modules-right {
     background: #0d0d0d;
     border: 1px solid #333333;
     border-radius: 8px;
     padding: 0 6px;
+    transition: border-color 150ms ease;
+}
+
+.modules-left:hover,
+.modules-right:hover {
+    border-color: #666666;
 }
 
 #custom-workspaces {
@@ -532,6 +562,11 @@ window#waybar {
 #cpu, #memory, #network, #pulseaudio, #battery, #clock {
     color: #c0c0c0;
     padding: 0 10px;
+    transition: color 150ms ease;
+}
+
+#cpu:hover, #memory:hover, #pulseaudio:hover {
+    color: #e8e8e8;
 }
 
 #battery.critical {
@@ -806,6 +841,10 @@ apply_desktop_prefs() {
     # login sees the same fonts until they are reset there.
     gsettings set org.gnome.desktop.interface font-name "'$MONO_FONT 10'" 2>/dev/null || true
     gsettings set org.gnome.desktop.interface monospace-font-name "'$MONO_FONT 11'" 2>/dev/null || true
+    # GTK apps follow the compositor's cursor choice (cursor block in
+    # input.kdl), so the pointer is one theme at one size everywhere.
+    gsettings set org.gnome.desktop.interface cursor-theme "'Adwaita'" 2>/dev/null || true
+    gsettings set org.gnome.desktop.interface cursor-size 24 2>/dev/null || true
 }
 
 # ------------------------------------------------------------- 9. summary ---
