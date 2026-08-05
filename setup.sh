@@ -2,12 +2,11 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v22: the bar becomes split pills (option B of the rendered set): the
-#      waybar surface goes transparent and the two module clusters ride
-#      in opaque rounded pills — radius 8 and hairline border matching
-#      the windows — inset 8 from the screen edges, height 28 so the
-#      rounded ends are not pinched. Workspaces pill left, stats pill
-#      right, bare screen edge between them.
+# v23: the bar is a flush chrome strip with rounded bottom corners
+#      (option D of the rendered set, replacing v22's split pills):
+#      full-bleed against the screen's top edge, opaque, radius 8 on
+#      the bottom corners only — square where it meets the screen
+#      edge, round where it meets the windows.
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -465,10 +464,7 @@ EOF
 {
     "layer": "top",
     "position": "top",
-    "height": 28,
-    "margin-top": 8,
-    "margin-left": 8,
-    "margin-right": 8,
+    "height": 24,
     "modules-left": ["custom/workspaces"],
     "modules-center": [],
     "modules-right": ["cpu", "memory", "network", "pulseaudio", "battery", "clock"],
@@ -511,21 +507,12 @@ EOF
     min-height: 0;
 }
 
-/* Split pills: the bar surface itself is transparent and each module
-   cluster rides in an opaque rounded pill matching the windows'
-   geometry — radius 8, hairline border, inset 8 from the edges via the
-   margins in config.jsonc. */
+/* Flush chrome strip: full-bleed against the screen's top edge, only
+   the bottom corners rounded — radius 8, matching the windows below. */
 window#waybar {
-    background: transparent;
-    color: #c0c0c0;
-}
-
-.modules-left,
-.modules-right {
     background: #0d0d0d;
-    border: 1px solid #333333;
-    border-radius: 8px;
-    padding: 0 6px;
+    color: #c0c0c0;
+    border-radius: 0 0 8px 8px;
 }
 
 #custom-workspaces {
