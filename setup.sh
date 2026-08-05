@@ -2,15 +2,13 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v9: the waybar clock gains seconds (and the 1 s tick that requires); the
-#     starship prompt drops its seconds (the bar is the clock now, the
-#     prompt stamp only marks when a command ran); the prompt glyph becomes
-#     "→" (U+2192) — JetBrains Mono carries U+276F "❯" but draws it as a
-#     thin quotation chevron that reads as a stray paren at prompt size,
-#     while U+2192 is a true arrow in the family, the same glyph its ->
-#     ligature produces; GTK apps join the monospace look via the
-#     interface font gsettings (note: dconf is shared, so a Cinnamon login
-#     sees the same fonts until reset).
+# v10: the prompt arrowhead becomes "▶" (U+25B6) — JetBrains Mono draws its
+#      arrows (U+2192/U+279C/U+21D2) small on the text baseline, detached
+#      from box-drawing height, while U+25B6 is cell-centered and the └─
+#      bar flows into it with no gap (verified by rendering the face);
+#      named workspaces are gone — the session starts on one dynamic
+#      workspace, and the firefox open-on-workspace rule went with them
+#      (it referenced the removed "web").
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -180,13 +178,17 @@ install_binaries() {
 write_niri() {
     put "$CFG/niri/config.kdl" <<'EOF'
 include "input.kdl"
-include "workspaces.kdl"
 include "layout.kdl"
 include "animations.kdl"
 include "misc.kdl"
 include "binds.kdl"
 include "decorations.kdl"
 EOF
+
+    # v10 migration: named workspaces are gone (the session starts on one
+    # dynamic workspace); drop the no-longer-included file so nothing stale
+    # lingers beside the live config.
+    rm -f "$CFG/niri/workspaces.kdl" "$CFG/niri/workspaces.kdl.prev"
 
     put "$CFG/niri/input.kdl" <<'EOF'
 input {
@@ -205,11 +207,6 @@ input {
     }
     focus-follows-mouse max-scroll-amount="0%"
 }
-EOF
-
-    put "$CFG/niri/workspaces.kdl" <<'EOF'
-workspace "term"
-workspace "web"
 EOF
 
     put "$CFG/niri/layout.kdl" <<'EOF'
@@ -276,11 +273,6 @@ window-rule {
     match app-id="^btop-float$"
     open-floating true
     default-column-width { proportion 0.7; }
-}
-
-window-rule {
-    match app-id="firefox"
-    open-on-workspace "web"
 }
 EOF
 
@@ -695,11 +687,12 @@ truncate_to_repo = false
 style = "#666666"
 format = "[─\\[$branch\\]]($style)"
 
-# U+2192, native to JetBrains Mono (the -> ligature glyph); U+276F renders
-# as a thin quotation chevron in this family and reads as a stray paren.
+# U+25B6: cell-centered in JetBrains Mono, so the └─ bar flows into it as
+# an arrowhead with no gap. The family's arrows (→ ➜ ⇒) sit small on the
+# text baseline, detached from box-drawing height — hence not those.
 [character]
-success_symbol = "[→](#e8e8e8)"
-error_symbol = "[→](#b5626a)"
+success_symbol = "[▶](#e8e8e8)"
+error_symbol = "[▶](#b5626a)"
 EOF
 }
 
