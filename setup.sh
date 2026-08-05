@@ -2,10 +2,14 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v20: the prompt character is λ (U+03BB), bold, after the rounded
-#      elbow — same reasoning as the $ it replaces: a text glyph of
-#      the family, full x-height and crisp at 11 pt, where symbol and
-#      icon glyphs vanish. Green on success, red on failure.
+# v21: the slick-terminal pass, from inspecting Sin-cy/dotfiles: every
+#      window gets slightly rounded corners at the compositor level
+#      (niri geometry-corner-radius 8 + clip-to-geometry — alacritty
+#      cannot round its own corners, and borders/focus ring follow the
+#      radius automatically); alacritty padding grows to 10 (the value
+#      that repo's ghostty and alacritty configs agree on) and the
+#      window is fully opaque by preference; zellij drops pane frames,
+#      splits separated by gap alone.
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -261,6 +265,15 @@ spawn-at-startup "sh" "-c" "$HOME/.local/bin/battwatch.sh"
 EOF
 
     put "$CFG/niri/decorations.kdl" <<'EOF'
+// Slightly rounded corners on every window, clipped so window content
+// follows the curve. Compositor-level: alacritty cannot round its own
+// corners, niri rounds any window; borders and the focus ring follow
+// the radius automatically. A rule with no match applies to all.
+window-rule {
+    geometry-corner-radius 8
+    clip-to-geometry true
+}
+
 window-rule {
     match app-id="^Alacritty$"
     match app-id="^Alacritty-floating$"
@@ -353,10 +366,12 @@ EOF
 
 write_terminal_stack() {
     put "$CFG/alacritty/alacritty.toml" <<'EOF'
+# Padding 10 is the Sin-cy dotfiles breathing room (their ghostty and
+# alacritty configs agree on it); fully opaque by preference.
 [window]
-padding = { x = 2, y = 2 }
+padding = { x = 10, y = 10 }
 dynamic_padding = true
-opacity = 0.92
+opacity = 1.0
 
 [font]
 size = 11
@@ -579,7 +594,8 @@ themes {
 }
 
 simplified_ui true
-pane_frames true
+// no boxes around panes — splits separate by gap alone, the slick look
+pane_frames false
 EOF
 
     put "$CFG/zellij/layouts/files.kdl" <<'EOF'
