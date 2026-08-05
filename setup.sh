@@ -2,15 +2,14 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v14: rounded prompt. The frame corners become the arc box-drawing pair
-#      ╭ ╰ (U+256D/U+2570 — inside alacritty's built-in box-drawing
-#      range, so they join the bars seamlessly), and the prompt mark is
-#      JetBrains Mono's own round-tipped arrow ➜ (U+279C), placed after
-#      the ╰─ elbow as a detached mark. That detachment is the design,
-#      not a defect: welding a font glyph onto a box-drawn bar can never
-#      be guaranteed (font metrics drift with size/DPI — U+2192, U+25B6,
-#      U+F0054, U+E0B1 all tried), and the reference prompts float their
-#      arrows the same way. Bright green on success, red on failure.
+# v15: the prompt is nix-prompt (github.com/nix-tricks/nix-prompt),
+#      vendored at commit f464ad1e3105 into write_nixprompt and themed
+#      through four marked NIX-SETUP deviations (three palette colors,
+#      24-hour timestamp): badge segments with Nerd Font rounded caps,
+#      git status, error/ssh/root-aware identity, and the rounded arrow
+#      prompt line. It replaces starship, which owned the same
+#      PS1/PROMPT_COMMAND; starship's config is removed on upgrade (the
+#      binary stays, harmless) and the frame-style prompt retires.
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -662,58 +661,314 @@ set_default_apps() {
     fi
 }
 
-# ---------------------------------------------------- 6d. prompt & colors ---
-install_starship() {
-    if ! have starship; then
-        log "installing starship prompt"
-        fetch "$WORK/starship-install.sh" https://starship.rs/install.sh
-        sh "$WORK/starship-install.sh" -y
+# ------------------------------------------------------------- 6d. prompt ---
+# nix-prompt (github.com/nix-tricks/nix-prompt) vendored below at commit
+# f464ad1e3105 under put() ownership — fetch-and-patch at install time
+# would put the theme outside this file, and the single-source-of-truth
+# rule wins. Deviations from upstream are marked NIX-SETUP inside the
+# vendored text; everything else is byte-identical to upstream for easy
+# diffing. It owns PS1/PS2/PROMPT_COMMAND and is sourced from the
+# managed .bashrc block.
+write_nixprompt() {
+    # starship previously owned the prompt; retire its config
+    rm -f "$CFG/starship.toml" "$CFG/starship.toml.prev"
+    put "$HOME/.nixprompt.bash" <<'NIXPROMPT_EOF'
+#!/bin/bash
+# Copyright (c) 2026 NIX tricks
+# Released under the MIT License
+# SPDX-License-Identifier: MIT
+#
+# Vendored into setup.sh from github.com/nix-tricks/nix-prompt
+# (scripts/nixprompt.sh @ f464ad1e3105, MIT, header retained).
+# Deviations from upstream are marked NIX-SETUP: three colors mapped to
+# this setup's terminal palette, and the timestamp in 24-hour form.
+
+
+### Setup
+
+config() {
+    # Define prompt segments
+    declare -ag segments=(identity timestamp path git prompt)
+    declare -ag dynamics=(identity git)
+
+    # Define active features
+    declare -g use_colors=true
+    declare -g use_glyphs=true
+    declare -g use_badges=true
+
+    # Define custom colors
+    declare -g color_primary="#98b898"   # NIX-SETUP: themed (upstream #f5992e)
+    declare -g color_secondary="#b5626a" # NIX-SETUP: themed (upstream #785cea)
+    declare -g color_neutral="#666666"   # NIX-SETUP: themed (upstream #5f5f87)
+    declare -g color_global
+
+    declare -g glyph_badge_left=""
+    declare -g glyph_badge_right=""
+
+    # Define main color
+    if is_root; then
+        color_global=$color_secondary
+    else
+        color_global=$color_primary
+    fi
+
+    # Prevent NF glyphs on console sessions
+    if is_console; then use_glyphs=false; fi
+
+    # Define prompt variables
+    PS1=""
+    PS2="→ "
+    PROMPT_DIRTRIM=2
+    export GIT_PS1_SHOWUNTRACKEDFILES=1
+    export GIT_PS1_SHOWDIRTYSTATE=1
+
+    # Preserve prompt command (i.e. not to break VTE)
+    if [[ $PROMPT_COMMAND != *__print_blank* ]]; then
+        PROMPT_COMMAND="${PROMPT_COMMAND%;}"
+        PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }__print_blank"
     fi
 }
 
-write_starship() {
-    put "$CFG/starship.toml" <<'EOF'
-add_newline = false
-format = """
-[╭─\\(](#5a6f5d)$time[\\)](#5a6f5d)$status[─\\(](#5a6f5d)$hostname[\\)─\\(](#5a6f5d)$directory[\\)](#5a6f5d)$git_branch
-[╰─](#5a6f5d)$character"""
+init() {
+    for segment in "${segments[@]}"; do
+        local renderer="render_$segment"
 
-[time]
-disabled = false
-format = "[$time]($style)"
-time_format = "%H:%M"
-style = "#666666"
+        # Skip segments without renderers
+        if ! declare -F "$renderer" > /dev/null; then continue; fi
 
-[status]
-disabled = false
-format = "[─\\(](#5a6f5d)[$status]($style)[\\)](#5a6f5d)"
-style = "#b5626a"
+        if [[ "${dynamics[*]}" =~ $segment ]]; then
+            # Evaluate every time
+            PS1+="\$($renderer) "
+        else
+            # Evaluate only once
+            PS1+="$($renderer) "
+        fi
+    done
+}
 
-[hostname]
-ssh_only = false
-style = "#7f9f7f"
-format = "[$hostname]($style)"
 
-[directory]
-style = "bold #93aabf"
-format = "[$path]($style)"
-truncation_length = 4
-truncate_to_repo = false
+### Renderers
 
-[git_branch]
-style = "#666666"
-format = "[─\\[$branch\\]]($style)"
+render_identity() {
+    local cmd_status=$?
+    local glyph
+    local label
 
-# JetBrains Mono's own round-tipped arrow U+279C, a detached mark after
-# the rounded elbow (the reference style: the arrow floats, it is not
-# welded to the bar — a font glyph fused onto a box-drawn line can never
-# be guaranteed to align, since alacritty rasterizes box drawing itself
-# while glyph metrics drift with size and DPI). Bright green on success,
-# theme red on failure.
-[character]
-success_symbol = "[➜](#98b898)"
-error_symbol = "[➜](#b5626a)"
-EOF
+    # Define glyph
+    if is_error "$cmd_status"; then
+        if $use_glyphs; then glyph=""; else glyph="!"; fi
+        # Add blinking effect to error state glyph
+        glyph="\001\033[5m\002$glyph\001\033[25m\002"
+    elif is_ssh; then
+        if $use_glyphs; then glyph="󰌘"; else glyph="*"; fi
+    elif is_root; then
+        if $use_glyphs; then glyph=""; else glyph="#"; fi
+    else
+        if $use_glyphs; then glyph=""; else glyph="$"; fi
+    fi
+
+    # Define label
+    if is_ssh || is_su; then
+        label="$USER@$HOSTNAME"
+    elif is_git; then
+        label=$(get_git_project)
+    else
+        label="${HOSTNAME%%.*}"
+        # or "$(date +%I:%M:%S)"
+    fi
+
+    # Rendering logic
+    if $use_badges; then
+        make_badge "$glyph $label"
+    else
+        make_label "$glyph $label"
+    fi
+}
+
+render_timestamp() {
+    local label="\t" # NIX-SETUP: 24-hour (upstream \T)
+
+    # Rendering logic
+    if $use_badges; then
+        make_label "$label"
+    else
+        make_label "[$label]" "$color_neutral"
+    fi
+}
+
+render_path() {
+    local glyph=""
+    local label="\w"
+
+    # Rendering logic
+    if $use_glyphs; then
+        printf "%s %s" "$(make_label "$glyph")" "$label"
+    else
+        printf "%s" "$label"
+    fi
+}
+
+render_git() {
+    local glyph=""
+    local label="%s"
+    local format
+
+    # Prevent if not a repository
+    if ! is_git; then return 1; fi
+
+    # Use brackets instead of badges
+    if ! $use_badges; then
+        label="($label)"
+    fi
+
+    # Prepend glyph to label
+    if $use_glyphs; then
+        label="$glyph $label"
+    fi
+
+    # Build format string
+    if $use_badges; then
+        format="$(make_badge "$label" "$color_neutral")"
+    elif $use_colors; then
+        format="$(make_label "$label" "$color_secondary")"
+    else
+        format="$label"
+    fi
+
+    # Safe git prompt
+    if command -v __git_ps1 > /dev/null 2>&1; then
+        __git_ps1 "$format"
+    fi
+}
+
+render_prompt() {
+    local glyph
+
+    # Define glyph
+    if $use_glyphs && $use_badges; then glyph="󱞩"; else glyph="→"; fi
+
+    # Prepend space character to match badge
+    if $use_badges; then glyph=" $glyph"; fi
+
+    # Use bold glyph
+    if $use_glyphs && $use_badges; then
+        glyph="\001\033[1m\002$glyph\001\033[0m\002"
+    fi
+
+    # Prepend newline character
+    printf "\n%s" "$(make_label "$glyph")"
+}
+
+
+### Helpers
+
+hex_to_ansi() {
+    local hex=${1#\#}
+    local include_bg=${2:-false}
+
+    local r=$((16#${hex:0:2}))
+    local g=$((16#${hex:2:2}))
+    local b=$((16#${hex:4:2}))
+
+    if $include_bg; then
+        printf "30;48;2;%s;%s;%s" "$r" "$g" "$b"
+    else
+        printf "2;%s;%s;%s" "$r" "$g" "$b"
+    fi
+}
+
+make_label() {
+    local content=$1
+    local color=${2:-$color_global}
+
+    # Prevent empty content
+    if [[ -z $content ]]; then return 1; fi
+
+    if $use_colors; then
+        printf "\001\033[38;%sm\002" "$(hex_to_ansi "$color")"
+    fi
+
+    printf "%b" "$content"
+
+    if $use_colors; then
+        printf "\001\033[0m\002"
+    fi
+}
+
+make_badge() {
+    local content=$1
+    local color=${2:-$color_global}
+    local glyph_left
+    local glyph_right
+    local ansi_sequence
+
+    # Prevent empty content
+    if [[ -z $content ]]; then return 1; fi
+
+    if $use_glyphs; then
+        # Use NF rounded corners
+        glyph_left=$glyph_badge_left
+        glyph_right=$glyph_badge_right
+    else
+        # Use plain padding
+        content=" $content "
+    fi
+
+    if $use_colors; then
+        ansi_sequence=$(hex_to_ansi "$color" true)
+    else
+        # Reverse video
+        ansi_sequence=7
+    fi
+
+    printf "%s" "$(make_label "$glyph_left" "$color")"
+    printf "\001\033[%sm\002" "$ansi_sequence"
+    printf "%b" "$content"
+    printf "\001\033[0m\002"
+    printf "%s" "$(make_label "$glyph_right" "$color")"
+}
+
+
+### Predicates
+
+is_root() { [[ $EUID -eq 0 ]]; }
+
+is_su() { [[ -n $LOGNAME && $USER != "$LOGNAME" ]]; }
+
+is_ssh() { [[ -n "$SSH_CLIENT" ]]; }
+
+is_console() { [[ -t 1 && $TERM == linux ]]; }
+
+is_error() { [[ $1 -ne 0 && $1 -ne 130 ]]; }
+
+is_git() { [[ -n $(get_git_project) ]]; }
+
+# Get top-level repository name
+get_git_project() {
+    # Skip execution if `git` is not available
+    if ! command -v git > /dev/null 2>&1; then return 1; fi
+
+    local git_root
+    if git_root=$(git rev-parse --show-toplevel 2>/dev/null); then
+        # Return the directory basename
+        printf "%s" "${git_root##*/}"
+    fi
+}
+
+
+### Hooks
+
+# Prepend blank line except after startup or clear
+__print_blank() { [[ -n $__was_printed ]] && echo; __was_printed=1; }
+
+# The clear command should also reset the flag
+alias clear="command clear; unset __was_printed"
+
+
+### Initialize
+
+config && init
+NIXPROMPT_EOF
 }
 
 configure_git() {
@@ -769,7 +1024,9 @@ export MANPAGER="sh -c 'col -bx | batcat -l man -p'"
 
 [ -f /usr/share/doc/fzf/examples/key-bindings.bash ] && source /usr/share/doc/fzf/examples/key-bindings.bash
 eval "$(zoxide init bash)"
-eval "$(starship init bash)"
+
+# Custom Bash prompt script from NIX tricks
+[ -f ~/.nixprompt.bash ] && source ~/.nixprompt.bash
 # <<< niri-setup managed block <<<
 EOF
 
@@ -818,7 +1075,7 @@ print_summary() {
     summary_row "Yazi"          "terminal file manager (+ ya)"           have yazi
     summary_row "Zellij"        "terminal multiplexer"                   have zellij
     summary_row "Cliphist"      "clipboard history"                      have cliphist
-    summary_row "Starship"      "shell prompt"                           have starship
+    summary_row "nix-prompt"    "bash prompt (vendored, themed)"         test -f "$HOME/.nixprompt.bash"
     summary_row "Btop"          "system monitor"                         have btop
     summary_row "Micro"         "text editor"                            have micro
     summary_row "Zathura"       "PDF viewer"                             have zathura
@@ -851,8 +1108,8 @@ niri_socket() {
 }
 
 # Restart the daemons whose config this run actually rewrote — niri reloads
-# itself and starship is per-prompt, but waybar and mako hold config in
-# memory. Waybar is respawned through niri's IPC, never exec'd directly:
+# itself and the prompt is sourced per shell (new terminals pick up a
+# nix-prompt change), but waybar and mako hold config in memory. Waybar is respawned through niri's IPC, never exec'd directly:
 # only the compositor holds the session environment (WAYLAND_DISPLAY) that
 # a bar spawned from an ssh shell would lack. Waybar is also started when
 # it is simply not running, so `configure` heals a dead bar. Without a live
@@ -877,7 +1134,7 @@ write_configs() {
     CHANGED=""
     write_niri
     write_terminal_stack
-    write_starship
+    write_nixprompt
     write_scripts
     write_portals_conf
     write_shell
@@ -896,7 +1153,6 @@ main() {
             fix_units
             install_font
             install_binaries
-            install_starship
             configure_git
             set_default_apps
             write_configs
