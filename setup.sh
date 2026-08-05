@@ -2,12 +2,19 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v11: subcommands. `configure` rewrites configs and validates without
-#      touching packages — the fast path when iterating on this file —
-#      and `summary` prints the component table alone; starship's binary
-#      install and its config split accordingly (install_starship /
-#      write_starship). Desktop behavior is unchanged from v10
-#      (▶ arrowhead, single dynamic workspace).
+# v12: the prompt arrowhead is the Nerd Font md-arrow (U+F0054, TOML \U
+#      escape): cell-centered with a shaft, so └─ flows into an open
+#      arrow head — base JetBrains Mono arrows sit on the text baseline,
+#      and U+25B6 connected but as a solid block; success rides the frame
+#      green, an error turns the head red. The bar hides niri's trailing
+#      empty workspace (one always exists by design, not disableable).
+#      `configure` finishes the job: put() tracks which files a run
+#      rewrote and reload_session restarts exactly those daemons — waybar
+#      respawned through `niri msg action spawn` against the session
+#      socket discovered under XDG_RUNTIME_DIR, so it inherits the
+#      compositor's environment and the whole thing works over ssh (a
+#      bare exec there has no WAYLAND_DISPLAY and dies instantly); a
+#      dead bar is started even when nothing changed.
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -39,7 +46,9 @@ fetch() {
 # put DEST [MODE] — write stdin to DEST (parent dirs created). A no-op when
 # the content is already identical; when it overwrites differing content it
 # keeps DEST.prev so a hand-edited experiment survives one run to be folded
-# back into this file.
+# back into this file. Rewritten paths accumulate in CHANGED, which
+# reload_session reads to restart only what actually changed.
+CHANGED=""
 put() {
     local dest="$1" mode="${2:-644}" tmp="$WORK/staged"
     cat > "$tmp"
@@ -49,6 +58,7 @@ put() {
         log "kept $dest.prev (local copy differed)"
     fi
     install -D -m "$mode" "$tmp" "$dest"
+    CHANGED="$CHANGED $dest"
 }
 
 [ "$(id -u)" -eq 0 ] && die "run as your user, not root (sudo is used where needed)"
@@ -429,9 +439,15 @@ EOF
     # script and the custom module can be retired as a simplification.
     put "$CFG/waybar/workspaces.sh" 755 <<'EOF'
 #!/bin/bash
+# niri always keeps one empty workspace at the end (dynamic-workspace
+# model, not disableable); hide it — list only occupied workspaces plus
+# wherever the focus is.
 render() {
     niri msg --json workspaces \
-        | jq -r 'sort_by(.idx) | map(if .is_focused then "[\(.idx)]" else " \(.idx) " end) | join("")'
+        | jq -r 'sort_by(.idx)
+                 | map(select(.active_window_id != null or .is_focused))
+                 | map(if .is_focused then "[\(.idx)]" else " \(.idx) " end)
+                 | join("")'
 }
 render
 niri msg --json event-stream | while IFS= read -r event; do
@@ -692,12 +708,16 @@ truncate_to_repo = false
 style = "#666666"
 format = "[─\\[$branch\\]]($style)"
 
-# U+25B6: cell-centered in JetBrains Mono, so the └─ bar flows into it as
-# an arrowhead with no gap. The family's arrows (→ ➜ ⇒) sit small on the
-# text baseline, detached from box-drawing height — hence not those.
+# Nerd Font md-arrow-right U+F0054 (TOML \U escape): cell-centered with a
+# shaft, so └─ flows into an open arrow head with no gap. Base JetBrains
+# Mono arrows (→ ➜ ⇒) sit small on the text baseline, detached from
+# box-drawing height; U+25B6 connects but is a solid block. Requires the
+# Nerd Font build (installed above) — base JBM lacks the glyph.
+# Success rides the frame color so └─ into the head is one unbroken line;
+# an error turns the head red, the one state that should break the frame.
 [character]
-success_symbol = "[▶](#e8e8e8)"
-error_symbol = "[▶](#b5626a)"
+success_symbol = "[\U000F0054](#5a6f5d)"
+error_symbol = "[\U000F0054](#b5626a)"
 EOF
 }
 
@@ -823,7 +843,43 @@ print_summary() {
 }
 
 # --------------------------------------------------------------- 10. main ---
+# The live niri session's IPC socket: NIRI_SOCKET inside the session,
+# discovered under XDG_RUNTIME_DIR otherwise — so a `configure` run over
+# ssh still reaches the desktop. Empty output means no session is up.
+niri_socket() {
+    if [ -n "${NIRI_SOCKET:-}" ]; then
+        printf '%s' "$NIRI_SOCKET"
+        return
+    fi
+    find "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" -maxdepth 1 \
+         -name 'niri.wayland-*.sock' 2>/dev/null | head -n1
+}
+
+# Restart the daemons whose config this run actually rewrote — niri reloads
+# itself and starship is per-prompt, but waybar and mako hold config in
+# memory. Waybar is respawned through niri's IPC, never exec'd directly:
+# only the compositor holds the session environment (WAYLAND_DISPLAY) that
+# a bar spawned from an ssh shell would lack. Waybar is also started when
+# it is simply not running, so `configure` heals a dead bar. Without a live
+# session this is a no-op and the next login picks the configs up.
+reload_session() {
+    local sock
+    sock="$(niri_socket)"
+    [ -n "$sock" ] || return 0
+    if [[ "$CHANGED" == *"/waybar/"* ]] || ! pgrep -x -u "$(id -u)" waybar >/dev/null; then
+        log "restarting waybar"
+        pkill -x -u "$(id -u)" waybar 2>/dev/null || true
+        NIRI_SOCKET="$sock" niri msg action spawn -- waybar >/dev/null 2>&1 || true
+    fi
+    if [[ "$CHANGED" == *"/mako/"* ]]; then
+        log "reloading mako (its config changed)"
+        DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus}" \
+            makoctl reload >/dev/null 2>&1 || true
+    fi
+}
+
 write_configs() {
+    CHANGED=""
     write_niri
     write_terminal_stack
     write_starship
@@ -834,6 +890,7 @@ write_configs() {
 
     niri validate
     log "ALL OK — niri config valid"
+    reload_session
 }
 
 main() {
@@ -854,7 +911,7 @@ main() {
             ;;
         configure)
             write_configs
-            log "niri reloads live; open a new shell for prompt changes"
+            log "niri reloads live, daemons restarted as needed; the prompt updates on its next draw"
             ;;
         summary)
             print_summary
