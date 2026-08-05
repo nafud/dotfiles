@@ -2,10 +2,8 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v26: the bar settles on split pills (option B), and window spacing
-#      tightens slightly: niri gaps 8 -> 6, with the bar margins kept
-#      equal to the gaps so the pills sit on the same rhythm as the
-#      windows. Pill radius stays 8, matching the window corners.
+# v27: the prompt's directory segment drops its bold weight — regular
+#      like the rest of the frame line; only the λ stays bold.
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -719,7 +717,7 @@ style = "#7f9f7f"
 format = "[$hostname]($style)"
 
 [directory]
-style = "bold #93aabf"
+style = "#93aabf"
 format = "[$path]($style)"
 truncation_length = 4
 truncate_to_repo = false
