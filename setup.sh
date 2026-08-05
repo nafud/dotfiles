@@ -2,12 +2,12 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v18: the prompt head is U+2771 in bold after the rounded elbow,
-#      chosen by rendering every remaining candidate at the real
-#      terminal size: font arrows and Nerd Font icons draw to x-height
-#      or icon scale and disappear at 11 pt, while JetBrains Mono's
-#      heavy rounded angle reads substantial and rounded, is a BMP
-#      family glyph (no PUA, no fallback), and exists in every weight.
+# v19: the prompt character is the classic $, bold, after the rounded
+#      elbow (the kali two-line construction). Eight arrow glyphs in a
+#      row rendered at icon or x-height scale and vanished at 11 pt;
+#      $ is designed as text, so it is full-height and crisp at any
+#      size and needs no font beyond the family itself. Green on
+#      success, red on failure.
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -703,17 +703,16 @@ truncate_to_repo = false
 style = "#666666"
 format = "[─\\[$branch\\]]($style)"
 
-# Head selection settled empirically: every candidate was rendered
-# after the rounded elbow at this setup's real terminal size (11 pt).
-# Font arrows and Nerd Font icons draw to x-height or icon scale and
-# come out tiny; powerline E0B1 is full-height and angular. U+2771,
-# JetBrains Mono's heavy rounded angle bracket, in bold, is the one
-# head that reads substantial and rounded at this size, and it is a
-# BMP glyph of the family itself: no PUA codepoint, no fallback risk,
-# present in every weight. Bright green on success, red on failure.
+# The classic prompt sign, bold, after the rounded elbow — the same
+# construction as the kali two-line prompt. Symbol and icon glyphs
+# draw to x-height or icon scale and vanish at 11 pt (eight arrow
+# candidates tried; see git history), while $ is designed as text:
+# full x-height, crisp at any size, and the oldest type-here signal
+# there is. The backslash keeps starship from reading $ as a variable.
+# Green on success, red on failure.
 [character]
-success_symbol = "[❱](bold #98b898)"
-error_symbol = "[❱](bold #b5626a)"
+success_symbol = "[\\$](bold #98b898)"
+error_symbol = "[\\$](bold #b5626a)"
 EOF
 }
 
