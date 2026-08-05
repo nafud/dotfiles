@@ -2,18 +2,15 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v8: the waybar workspaces module goes event-driven off `niri msg
-#     event-stream` (the old 1 Hz polling WORKAROUND is gone — nothing is
-#     pending anymore, so the label is too); xwayland-satellite installs via
-#     pacstall (niri >= 25.08 spawns it on demand and exports $DISPLAY, so
-#     X11 apps just work); the portal stack lands (xdg-desktop-portal-gtk as
-#     fallback, -gnome for screencasting, gnome-keyring for the Secret
-#     portal) with a user-level niri-portals.conf that routes the file
-#     chooser to the GTK portal (portal-gnome >= 47 delegates it to
-#     nautilus, which Mint does not ship); config writes go through put(),
-#     which keeps a .prev copy whenever it overwrites content that differs
-#     (hand edits survive a re-run long enough to be folded back); swayidle
-#     powers monitors off 30 s after the lock and back on at activity.
+# v9: the waybar clock gains seconds (and the 1 s tick that requires); the
+#     starship prompt drops its seconds (the bar is the clock now, the
+#     prompt stamp only marks when a command ran); the prompt glyph becomes
+#     "→" (U+2192) — JetBrains Mono carries U+276F "❯" but draws it as a
+#     thin quotation chevron that reads as a stray paren at prompt size,
+#     while U+2192 is a true arrow in the family, the same glyph its ->
+#     ligature produces; GTK apps join the monospace look via the
+#     interface font gsettings (note: dconf is shared, so a Cinnamon login
+#     sees the same fonts until reset).
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -481,7 +478,8 @@ EOF
         "states": { "critical": 15 }
     },
     "clock": {
-        "format": "{:%a %d %b  %H:%M}",
+        "format": "{:%a %d %b  %H:%M:%S}",
+        "interval": 1,
         "tooltip": false
     }
 }
@@ -674,7 +672,7 @@ format = """
 [time]
 disabled = false
 format = "[$time]($style)"
-time_format = "%H:%M:%S"
+time_format = "%H:%M"
 style = "#666666"
 
 [status]
@@ -697,9 +695,11 @@ truncate_to_repo = false
 style = "#666666"
 format = "[─\\[$branch\\]]($style)"
 
+# U+2192, native to JetBrains Mono (the -> ligature glyph); U+276F renders
+# as a thin quotation chevron in this family and reads as a stray paren.
 [character]
-success_symbol = "[❯](#e8e8e8)"
-error_symbol = "[❯](#b5626a)"
+success_symbol = "[→](#e8e8e8)"
+error_symbol = "[→](#b5626a)"
 EOF
 }
 
@@ -767,6 +767,11 @@ EOF
 apply_desktop_prefs() {
     gsettings set org.gnome.desktop.interface color-scheme prefer-dark 2>/dev/null || true
     gsettings set org.gnome.desktop.interface gtk-theme Adwaita-dark 2>/dev/null || true
+    # GTK apps (file dialogs, portal choosers) follow these, completing the
+    # one-typeface rule; dconf is shared across sessions, so a Cinnamon
+    # login sees the same fonts until they are reset there.
+    gsettings set org.gnome.desktop.interface font-name "'$MONO_FONT 10'" 2>/dev/null || true
+    gsettings set org.gnome.desktop.interface monospace-font-name "'$MONO_FONT 11'" 2>/dev/null || true
 }
 
 # ------------------------------------------------------------- 9. summary ---
