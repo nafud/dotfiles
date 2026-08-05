@@ -2,13 +2,12 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v10: the prompt arrowhead becomes "▶" (U+25B6) — JetBrains Mono draws its
-#      arrows (U+2192/U+279C/U+21D2) small on the text baseline, detached
-#      from box-drawing height, while U+25B6 is cell-centered and the └─
-#      bar flows into it with no gap (verified by rendering the face);
-#      named workspaces are gone — the session starts on one dynamic
-#      workspace, and the firefox open-on-workspace rule went with them
-#      (it referenced the removed "web").
+# v11: subcommands. `configure` rewrites configs and validates without
+#      touching packages — the fast path when iterating on this file —
+#      and `summary` prints the component table alone; starship's binary
+#      install and its config split accordingly (install_starship /
+#      write_starship). Desktop behavior is unchanged from v10
+#      (▶ arrowhead, single dynamic workspace).
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -18,7 +17,10 @@
 #   - Package-level problems are fixed at the level they were created
 #     (e.g. globally-enabled units are globally disabled).
 #
-# Usage:  bash setup.sh
+# Usage:  bash setup.sh             full run: install everything + configs
+#         bash setup.sh configure   rewrite configs + validate, nothing else
+#                                   (no apt, no downloads — for iteration)
+#         bash setup.sh summary     print the component summary and exit
 #
 set -euo pipefail
 
@@ -649,12 +651,15 @@ set_default_apps() {
 }
 
 # ---------------------------------------------------- 6d. prompt & colors ---
-install_prompt() {
+install_starship() {
     if ! have starship; then
         log "installing starship prompt"
         fetch "$WORK/starship-install.sh" https://starship.rs/install.sh
         sh "$WORK/starship-install.sh" -y
     fi
+}
+
+write_starship() {
     put "$CFG/starship.toml" <<'EOF'
 add_newline = false
 format = """
@@ -818,17 +823,10 @@ print_summary() {
 }
 
 # --------------------------------------------------------------- 10. main ---
-main() {
-    install_packages
-    install_niri
-    fix_units
-    install_font
-    install_binaries
-    install_prompt
-    configure_git
-    set_default_apps
+write_configs() {
     write_niri
     write_terminal_stack
+    write_starship
     write_scripts
     write_portals_conf
     write_shell
@@ -836,9 +834,35 @@ main() {
 
     niri validate
     log "ALL OK — niri config valid"
-    print_summary
-    log "wallpaper: put an image at ~/Pictures/wallpaper.jpg (optional)"
-    log "log out of Cinnamon and choose the 'niri' session at the greeter"
+}
+
+main() {
+    case "${1:-install}" in
+        install)
+            install_packages
+            install_niri
+            fix_units
+            install_font
+            install_binaries
+            install_starship
+            configure_git
+            set_default_apps
+            write_configs
+            print_summary
+            log "wallpaper: put an image at ~/Pictures/wallpaper.jpg (optional)"
+            log "log out of Cinnamon and choose the 'niri' session at the greeter"
+            ;;
+        configure)
+            write_configs
+            log "niri reloads live; open a new shell for prompt changes"
+            ;;
+        summary)
+            print_summary
+            ;;
+        *)
+            die "unknown command: $1 (usage: bash setup.sh [configure|summary])"
+            ;;
+    esac
 }
 
 # Run only when executed, not when sourced (keeps functions testable).
