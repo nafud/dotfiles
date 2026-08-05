@@ -2,17 +2,15 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v13: the prompt arrowhead is the powerline chevron U+E0B1. The frame's
-#      corners and bars are not font glyphs — alacritty rasterizes box
-#      drawing (U+2500–U+257F) and powerline (U+E0B0–U+E0B3) itself — so
-#      any font-sourced arrowhead (U+2192, U+25B6, U+F0054 all tried)
-#      meets the └─ bar with font-metric offsets that drift with size
-#      and DPI. E0B1 comes from the same built-in rasterizer as the
-#      bars: corner, shaft and head align by construction, stroke
-#      weights match, at every size on every display. Success rides the
-#      frame green, an error turns the chevron red. Everything else is
-#      unchanged from v12 (ssh-capable change-tracked reloads, hidden
-#      trailing empty workspace).
+# v14: rounded prompt. The frame corners become the arc box-drawing pair
+#      ╭ ╰ (U+256D/U+2570 — inside alacritty's built-in box-drawing
+#      range, so they join the bars seamlessly), and the prompt mark is
+#      JetBrains Mono's own round-tipped arrow ➜ (U+279C), placed after
+#      the ╰─ elbow as a detached mark. That detachment is the design,
+#      not a defect: welding a font glyph onto a box-drawn bar can never
+#      be guaranteed (font metrics drift with size/DPI — U+2192, U+25B6,
+#      U+F0054, U+E0B1 all tried), and the reference prompts float their
+#      arrows the same way. Bright green on success, red on failure.
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -677,8 +675,8 @@ write_starship() {
     put "$CFG/starship.toml" <<'EOF'
 add_newline = false
 format = """
-[┌─\\(](#5a6f5d)$time[\\)](#5a6f5d)$status[─\\(](#5a6f5d)$hostname[\\)─\\(](#5a6f5d)$directory[\\)](#5a6f5d)$git_branch
-[└─](#5a6f5d)$character"""
+[╭─\\(](#5a6f5d)$time[\\)](#5a6f5d)$status[─\\(](#5a6f5d)$hostname[\\)─\\(](#5a6f5d)$directory[\\)](#5a6f5d)$git_branch
+[╰─](#5a6f5d)$character"""
 
 [time]
 disabled = false
@@ -706,18 +704,15 @@ truncate_to_repo = false
 style = "#666666"
 format = "[─\\[$branch\\]]($style)"
 
-# Powerline chevron U+E0B1 (TOML \u escape). Alacritty draws box drawing
-# (U+2500–U+257F) and powerline (U+E0B0–U+E0B3) with its own built-in
-# rasterizer, not from the font — so a font-sourced arrowhead can never
-# be guaranteed to meet the └─ bar (font metrics drift with size and
-# DPI; U+2192, U+25B6 and U+F0054 all seamed). E0B1 shares the bars'
-# rasterizer: the junction aligns by construction and the stroke weight
-# matches the frame. Success rides the frame color so └─ into the head
-# is one unbroken line; an error turns the chevron red, the one state
-# that should break the frame.
+# JetBrains Mono's own round-tipped arrow U+279C, a detached mark after
+# the rounded elbow (the reference style: the arrow floats, it is not
+# welded to the bar — a font glyph fused onto a box-drawn line can never
+# be guaranteed to align, since alacritty rasterizes box drawing itself
+# while glyph metrics drift with size and DPI). Bright green on success,
+# theme red on failure.
 [character]
-success_symbol = "[\uE0B1](#5a6f5d)"
-error_symbol = "[\uE0B1](#b5626a)"
+success_symbol = "[➜](#98b898)"
+error_symbol = "[➜](#b5626a)"
 EOF
 }
 
