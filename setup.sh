@@ -2,11 +2,11 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v23: the bar is a flush chrome strip with rounded bottom corners
-#      (option D of the rendered set, replacing v22's split pills):
-#      full-bleed against the screen's top edge, opaque, radius 8 on
-#      the bottom corners only — square where it meets the screen
-#      edge, round where it meets the windows.
+# v24: the bar is the flat edge-to-edge strip again (option C of the
+#      rendered set): full-bleed, square, height 22 — the bar is
+#      system chrome and the rounded surfaces below are content, so
+#      the contrast is the design. Pills (v22) and rounded-bottom
+#      (v23) live in git history for comparison.
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -464,7 +464,7 @@ EOF
 {
     "layer": "top",
     "position": "top",
-    "height": 24,
+    "height": 22,
     "modules-left": ["custom/workspaces"],
     "modules-center": [],
     "modules-right": ["cpu", "memory", "network", "pulseaudio", "battery", "clock"],
@@ -507,12 +507,11 @@ EOF
     min-height: 0;
 }
 
-/* Flush chrome strip: full-bleed against the screen's top edge, only
-   the bottom corners rounded — radius 8, matching the windows below. */
+/* Flat chrome strip, deliberately square: the bar is system chrome,
+   the rounded surfaces below are content — contrast is the design. */
 window#waybar {
     background: #0d0d0d;
     color: #c0c0c0;
-    border-radius: 0 0 8px 8px;
 }
 
 #custom-workspaces {
