@@ -2,11 +2,12 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v24: the bar is the flat edge-to-edge strip again (option C of the
-#      rendered set): full-bleed, square, height 22 — the bar is
-#      system chrome and the rounded surfaces below are content, so
-#      the contrast is the design. Pills (v22) and rounded-bottom
-#      (v23) live in git history for comparison.
+# v25: the bar is the floating island (option A of the rendered set):
+#      one opaque rounded surface inset 8 from the top and side edges,
+#      radius 8 and hairline border matching the windows — the bar
+#      joins the same geometric system as everything below it. The
+#      other bar variants live in git history: flat strip (v24),
+#      rounded-bottom (v23), split pills (v22).
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -464,7 +465,10 @@ EOF
 {
     "layer": "top",
     "position": "top",
-    "height": 22,
+    "height": 28,
+    "margin-top": 8,
+    "margin-left": 8,
+    "margin-right": 8,
     "modules-left": ["custom/workspaces"],
     "modules-center": [],
     "modules-right": ["cpu", "memory", "network", "pulseaudio", "battery", "clock"],
@@ -507,11 +511,14 @@ EOF
     min-height: 0;
 }
 
-/* Flat chrome strip, deliberately square: the bar is system chrome,
-   the rounded surfaces below are content — contrast is the design. */
+/* Floating island: one opaque rounded surface inset from the screen
+   edges by the margins in config.jsonc — radius 8 = windows, inset 8 =
+   niri gaps, hairline border = window borders. One geometric system. */
 window#waybar {
     background: #0d0d0d;
     color: #c0c0c0;
+    border: 1px solid #333333;
+    border-radius: 8px;
 }
 
 #custom-workspaces {
