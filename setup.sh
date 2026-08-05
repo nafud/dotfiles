@@ -2,12 +2,10 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v25: the bar is the floating island (option A of the rendered set):
-#      one opaque rounded surface inset 8 from the top and side edges,
-#      radius 8 and hairline border matching the windows — the bar
-#      joins the same geometric system as everything below it. The
-#      other bar variants live in git history: flat strip (v24),
-#      rounded-bottom (v23), split pills (v22).
+# v26: the bar settles on split pills (option B), and window spacing
+#      tightens slightly: niri gaps 8 -> 6, with the bar margins kept
+#      equal to the gaps so the pills sit on the same rhythm as the
+#      windows. Pill radius stays 8, matching the window corners.
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -233,7 +231,7 @@ layout {
         proportion 0.5
         proportion 0.66667
     }
-    gaps 8
+    gaps 6
 }
 EOF
 
@@ -466,9 +464,9 @@ EOF
     "layer": "top",
     "position": "top",
     "height": 28,
-    "margin-top": 8,
-    "margin-left": 8,
-    "margin-right": 8,
+    "margin-top": 6,
+    "margin-left": 6,
+    "margin-right": 6,
     "modules-left": ["custom/workspaces"],
     "modules-center": [],
     "modules-right": ["cpu", "memory", "network", "pulseaudio", "battery", "clock"],
@@ -511,14 +509,21 @@ EOF
     min-height: 0;
 }
 
-/* Floating island: one opaque rounded surface inset from the screen
-   edges by the margins in config.jsonc — radius 8 = windows, inset 8 =
-   niri gaps, hairline border = window borders. One geometric system. */
+/* Split pills: the bar surface itself is transparent and each module
+   cluster rides in an opaque rounded pill matching the windows'
+   geometry — radius 8, hairline border, inset from the edges by the
+   margins in config.jsonc (kept equal to the niri gaps). */
 window#waybar {
-    background: #0d0d0d;
+    background: transparent;
     color: #c0c0c0;
+}
+
+.modules-left,
+.modules-right {
+    background: #0d0d0d;
     border: 1px solid #333333;
     border-radius: 8px;
+    padding: 0 6px;
 }
 
 #custom-workspaces {
