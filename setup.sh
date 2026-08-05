@@ -2,19 +2,17 @@
 #
 # setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v12: the prompt arrowhead is the Nerd Font md-arrow (U+F0054, TOML \U
-#      escape): cell-centered with a shaft, so └─ flows into an open
-#      arrow head — base JetBrains Mono arrows sit on the text baseline,
-#      and U+25B6 connected but as a solid block; success rides the frame
-#      green, an error turns the head red. The bar hides niri's trailing
-#      empty workspace (one always exists by design, not disableable).
-#      `configure` finishes the job: put() tracks which files a run
-#      rewrote and reload_session restarts exactly those daemons — waybar
-#      respawned through `niri msg action spawn` against the session
-#      socket discovered under XDG_RUNTIME_DIR, so it inherits the
-#      compositor's environment and the whole thing works over ssh (a
-#      bare exec there has no WAYLAND_DISPLAY and dies instantly); a
-#      dead bar is started even when nothing changed.
+# v13: the prompt arrowhead is the powerline chevron U+E0B1. The frame's
+#      corners and bars are not font glyphs — alacritty rasterizes box
+#      drawing (U+2500–U+257F) and powerline (U+E0B0–U+E0B3) itself — so
+#      any font-sourced arrowhead (U+2192, U+25B6, U+F0054 all tried)
+#      meets the └─ bar with font-metric offsets that drift with size
+#      and DPI. E0B1 comes from the same built-in rasterizer as the
+#      bars: corner, shaft and head align by construction, stroke
+#      weights match, at every size on every display. Success rides the
+#      frame green, an error turns the chevron red. Everything else is
+#      unchanged from v12 (ssh-capable change-tracked reloads, hidden
+#      trailing empty workspace).
 #
 # Design rules:
 #   - This file is the single source of truth: configs are written from here.
@@ -708,16 +706,18 @@ truncate_to_repo = false
 style = "#666666"
 format = "[─\\[$branch\\]]($style)"
 
-# Nerd Font md-arrow-right U+F0054 (TOML \U escape): cell-centered with a
-# shaft, so └─ flows into an open arrow head with no gap. Base JetBrains
-# Mono arrows (→ ➜ ⇒) sit small on the text baseline, detached from
-# box-drawing height; U+25B6 connects but is a solid block. Requires the
-# Nerd Font build (installed above) — base JBM lacks the glyph.
-# Success rides the frame color so └─ into the head is one unbroken line;
-# an error turns the head red, the one state that should break the frame.
+# Powerline chevron U+E0B1 (TOML \u escape). Alacritty draws box drawing
+# (U+2500–U+257F) and powerline (U+E0B0–U+E0B3) with its own built-in
+# rasterizer, not from the font — so a font-sourced arrowhead can never
+# be guaranteed to meet the └─ bar (font metrics drift with size and
+# DPI; U+2192, U+25B6 and U+F0054 all seamed). E0B1 shares the bars'
+# rasterizer: the junction aligns by construction and the stroke weight
+# matches the frame. Success rides the frame color so └─ into the head
+# is one unbroken line; an error turns the chevron red, the one state
+# that should break the frame.
 [character]
-success_symbol = "[\U000F0054](#5a6f5d)"
-error_symbol = "[\U000F0054](#b5626a)"
+success_symbol = "[\uE0B1](#5a6f5d)"
+error_symbol = "[\uE0B1](#b5626a)"
 EOF
 }
 
