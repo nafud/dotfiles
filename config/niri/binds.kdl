@@ -3,14 +3,14 @@ binds {
 
     Mod+T { spawn "alacritty"; }
     Mod+Return { spawn "alacritty" "--class" "Alacritty-floating"; }
-    Mod+D { spawn "fuzzel"; }
+    Mod+D { spawn "rofi" "-show" "drun"; }
     Mod+B { spawn "alacritty" "--class" "btop-float" "-e" "btop"; }
     // Dedicated yazi terminal. The cwd-following y() wrapper is for
     // interactive shells; here the shell would die with the window anyway.
     Mod+E { spawn "alacritty" "-e" "yazi"; }
     Mod+Shift+T { spawn "alacritty" "-e" "zellij" "attach" "-c" "main"; }
     Mod+W { spawn "alacritty" "-e" "sh" "-c" "zellij attach files 2>/dev/null || zellij -s files --layout files"; }
-    Mod+V { spawn "sh" "-c" "cliphist list | fuzzel --dmenu | cliphist decode | wl-copy"; }
+    Mod+V { spawn "sh" "-c" "cliphist list | rofi -dmenu -p paste | cliphist decode | wl-copy"; }
     Mod+Shift+L { spawn "swaylock" "-f"; }
 
     Mod+O { toggle-overview; }

@@ -51,9 +51,9 @@ install_packages() {
     log "apt packages"
     sudo apt-get update -qq
     sudo apt-get install -y \
-        alacritty fuzzel waybar mako-notifier swaybg \
+        alacritty waybar mako-notifier swaybg \
         swaylock swayidle \
-        brightnessctl btop jq unzip wget curl \
+        brightnessctl btop jq unzip wget curl build-essential \
         fzf zoxide wl-clipboard fd-find ripgrep \
         eza bat git-delta \
         zathura zathura-pdf-poppler imv mpv micro \
@@ -167,6 +167,29 @@ install_starship() {
     fi
 }
 
+# Upstream rofi 2.0 runs natively on Wayland (lbonn's fork was merged);
+# the Ubuntu archive still ships the X11-only 1.7, which under niri would
+# run through xwayland-satellite and misplace its window. Pacstall builds
+# 2.0, so rofi installs through the same channel as niri itself.
+install_rofi() {
+    if ! have rofi; then
+        log "installing rofi (pacstall build — takes a while)"
+        pacstall -P -I rofi
+    fi
+}
+
+# hellwal: fast pywal-style palette generator, used by bin/wallset. Not
+# in the Ubuntu archive; a small C build from source (build-essential).
+# Output lands in ~/.cache/hellwal/, themes in ~/.config/hellwal/themes.
+install_hellwal() {
+    if ! have hellwal; then
+        log "building hellwal"
+        git clone -q --depth 1 https://github.com/danihek/hellwal "$WORK/hellwal"
+        make -s -C "$WORK/hellwal"
+        sudo install -m 755 "$WORK/hellwal/hellwal" /usr/local/bin/
+    fi
+}
+
 configure_git() {
     git config --global core.pager delta
     git config --global interactive.diffFilter 'delta --color-only'
@@ -225,13 +248,21 @@ link_one() {
 }
 
 link_configs() {
-    local src
+    local src link
     mkdir -p "$CFG" "$HOME/.local/bin"
     for src in "$REPO/config"/*; do
         link_one "$src" "$CFG/$(basename "$src")"
     done
     for src in "$REPO/bin"/*; do
         link_one "$src" "$HOME/.local/bin/$(basename "$src")"
+    done
+    # prune links left behind by entries removed from the repo
+    for link in "$CFG"/* "$HOME/.local/bin"/*; do
+        if [ -L "$link" ] && [[ "$(readlink "$link")" == "$REPO"/* ]] && [ ! -e "$link" ]; then
+            rm "$link"
+            log "pruned stale link $link"
+            LINKS_CHANGED=1
+        fi
     done
 }
 
@@ -356,7 +387,8 @@ print_summary() {
     summary_row "Portals"       "xdg-desktop-portal gtk + gnome"         portals_ok
     summary_row "Keyring"       "gnome-keyring (Secret portal)"          have gnome-keyring-daemon
     summary_row "Alacritty"     "terminal emulator"                      have alacritty
-    summary_row "Fuzzel"        "application launcher"                   have fuzzel
+    summary_row "Rofi"          "application launcher (wayland 2.0)"     have rofi
+    summary_row "Hellwal"       "palette generator (see wallset)"        have hellwal
     summary_row "Waybar"        "status bar"                             have waybar
     summary_row "Mako"          "notification daemon"                    have mako
     summary_row "Swaybg"        "wallpaper daemon"                       have swaybg
@@ -394,6 +426,8 @@ main() {
             install_font
             install_binaries
             install_starship
+            install_rofi
+            install_hellwal
             configure_git
             set_default_apps
             link_configs
