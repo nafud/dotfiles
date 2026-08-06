@@ -10,7 +10,9 @@ set -euo pipefail
 img="${1:?usage: wallset IMAGE [hellwal args...]}"
 shift
 
-mkdir -p "$HOME/Pictures"
+# hellwal does not create its own directories; without these it warns
+# and writes no palette (the templates dir arrives via config/hellwal)
+mkdir -p "$HOME/Pictures" "$HOME/.cache/hellwal/cache"
 cp -- "$img" "$HOME/Pictures/wallpaper.jpg"
 hellwal -i "$HOME/Pictures/wallpaper.jpg" "$@" >/dev/null
 
