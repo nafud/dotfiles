@@ -6,13 +6,16 @@
     min-height: 0;
 }
 
-/* One frosted strip, edge to edge: the bar carries the same 92% glass
-   as the terminals (the waybar layer-rule in config/niri/decorations.kdl
-   blurs the wallpaper behind it). Module hover keeps the sharpen-on-
-   hover grammar; the actions are bound in config.jsonc. */
+/* One floating frosted line: a single bar inset from the screen edges
+   (margins in config.jsonc, matching the niri gaps), rounded and
+   hairlined like the windows, carrying the same 92% glass — the waybar
+   layer-rule in config/niri/decorations.kdl blurs the wallpaper behind
+   it. Module hover keeps the sharpen grammar; actions in config.jsonc. */
 window#waybar {
     background: rgba(13, 13, 13, 0.92);
     color: #c0c0c0;
+    border: 1px solid #333333;
+    border-radius: 8px;
 }
 
 #custom-workspaces {
