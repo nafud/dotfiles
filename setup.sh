@@ -9,8 +9,8 @@
 #   bin/      mirrors ~/.local/bin, symlinked the same way
 #   setup.sh  everything a config file cannot express: packages, the niri
 #             build, fonts, release binaries, system glue (units, MIME
-#             defaults, gsettings, the ~/.bashrc managed block), the
-#             linking itself, session reloads, and the final summary
+#             defaults, gsettings, the ~/.bashrc block, the btop setting),
+#             the linking itself, session reloads, and the final summary
 #
 # A real file or directory found where a link belongs is moved aside once
 # as <name>.pre-dotfiles. Version history lives in git log.
@@ -313,6 +313,21 @@ EOF
     cat "$body" > "$rc"
 }
 
+# btop rewrites its whole config file on every clean exit, so linking it
+# would put btop's runtime state under git. Like ~/.bashrc it stays a
+# real file owned by the program; only the one intended setting is
+# enforced: theme_background False lets the terminal's glass show
+# through instead of btop painting an opaque ground.
+configure_btop() {
+    local conf="$CFG/btop/btop.conf"
+    mkdir -p "$CFG/btop"
+    if grep -qs '^theme_background' "$conf"; then
+        sed -i 's/^theme_background.*/theme_background = False/' "$conf"
+    else
+        printf 'theme_background = False\n' >> "$conf"
+    fi
+}
+
 # ------------------------------------------------------------- 9. desktop ---
 apply_desktop_prefs() {
     gsettings set org.gnome.desktop.interface color-scheme prefer-dark 2>/dev/null || true
@@ -427,6 +442,7 @@ main() {
             set_default_apps
             link_configs
             write_shell
+            configure_btop
             apply_desktop_prefs
 
             niri validate
@@ -439,6 +455,7 @@ main() {
         link|configure)
             link_configs
             write_shell
+            configure_btop
             apply_desktop_prefs
 
             niri validate
