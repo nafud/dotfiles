@@ -341,6 +341,13 @@ configure_btop() {
     fi
 }
 
+# The alacritty config imports the hellwal palette cache; seed it empty
+# so a machine that never ran wallset parses cleanly and stays mono.
+configure_hellwal() {
+    [ -f "$HOME/.cache/hellwal/alacritty-colors.toml" ] \
+        || install -D -m 644 /dev/null "$HOME/.cache/hellwal/alacritty-colors.toml"
+}
+
 # ------------------------------------------------------------- 9. desktop ---
 apply_desktop_prefs() {
     gsettings set org.gnome.desktop.interface color-scheme prefer-dark 2>/dev/null || true
@@ -459,6 +466,7 @@ main() {
             link_configs
             write_shell
             configure_btop
+            configure_hellwal
             apply_desktop_prefs
 
             niri validate
@@ -472,6 +480,7 @@ main() {
             link_configs
             write_shell
             configure_btop
+            configure_hellwal
             apply_desktop_prefs
 
             niri validate

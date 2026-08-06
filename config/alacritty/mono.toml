@@ -1,0 +1,30 @@
+# The mono base palette, imported first by alacritty.toml — the
+# wallpaper palette (hellwal cache) imports after it and overrides
+# these values when wallset has run.
+[colors.primary]
+background = "#0d0d0d"
+foreground = "#c0c0c0"
+
+[colors.cursor]
+text = "#0d0d0d"
+cursor = "#c0c0c0"
+
+[colors.normal]
+black = "#1a1a1a"
+red = "#b5626a"
+green = "#7f9f7f"
+yellow = "#b0a06a"
+blue = "#7a91a8"
+magenta = "#9a86a8"
+cyan = "#7fa8a0"
+white = "#c0c0c0"
+
+[colors.bright]
+black = "#666666"
+red = "#c87e85"
+green = "#98b898"
+yellow = "#c8ba86"
+blue = "#93aabf"
+magenta = "#b19fc0"
+cyan = "#98bfb8"
+white = "#e8e8e8"

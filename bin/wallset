@@ -24,4 +24,4 @@ if [ -n "$sock" ]; then
         sh -c "$HOME/.local/bin/wallpaper-session" >/dev/null 2>&1 || true
 fi
 
-echo "wallpaper recorded; it persists across logins. palette: ~/.cache/hellwal/"
+echo "wallpaper recorded (persists across logins); terminals recolor live"
