@@ -10,10 +10,10 @@
    (margins in config.jsonc, matching the niri gaps), rounded and
    hairlined like the windows; the waybar layer-rule in
    config/niri/decorations.kdl blurs the wallpaper behind it, and it
-   carries the shared 80% glass level (alacritty, rofi and mako use the
-   same 0.8). Hover keeps the sharpen grammar. */
+   carries the shared 90% glass level (alacritty, rofi and mako use the
+   same 0.9). Hover keeps the sharpen grammar. */
 window#waybar {
-    background: rgba(13, 13, 13, 0.8);
+    background: rgba(13, 13, 13, 0.9);
     color: #c0c0c0;
     border: 1px solid #333333;
     border-radius: 8px;

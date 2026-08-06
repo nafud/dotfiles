@@ -1,13 +1,13 @@
 # Padding 10 is the Sin-cy dotfiles breathing room (their ghostty and
-# alacritty configs agree on it). 0.8 is the one transparency level
+# alacritty configs agree on it). 0.9 is the one transparency level
 # used across all glass surfaces (the bar, rofi and mako carry the
-# same 80% as hex CC); niri blurs the wallpaper behind each
+# same 90% as hex E6); niri blurs the wallpaper behind each
 # (background-effect in config/niri/decorations.kdl), so text stays
 # readable.
 [window]
 padding = { x = 10, y = 10 }
 dynamic_padding = true
-opacity = 0.8
+opacity = 0.9
 
 [font]
 size = 11
