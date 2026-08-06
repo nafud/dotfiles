@@ -1,10 +1,10 @@
 #!/bin/bash
-# wallset IMAGE [hellwal args...] — set the wallpaper and generate its
-# color palette. The image is copied to ~/Pictures/wallpaper.jpg (what
-# the niri session spawns swaybg with, so it survives relogin), swaybg is
-# restarted live when a session is up, and hellwal writes the palette to
-# ~/.cache/hellwal/ for anything that wants it. Extra arguments go to
-# hellwal, e.g.:  wallset img.jpg --gray-scale   (monochrome palette)
+# wallset IMAGE [hellwal args...] — change the wallpaper, once.
+# Records the image as ~/Pictures/wallpaper.jpg (the state that
+# wallpaper-session draws at every login, so the change persists),
+# generates its color palette into ~/.cache/hellwal/, and re-applies
+# live when a niri session is up. Extra arguments go to hellwal,
+# e.g.:  wallset img.jpg --gray-scale   (monochrome palette)
 set -euo pipefail
 
 img="${1:?usage: wallset IMAGE [hellwal args...]}"
@@ -19,7 +19,7 @@ sock="${NIRI_SOCKET:-$(find "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" -maxdepth 1
 if [ -n "$sock" ]; then
     pkill -x -u "$(id -u)" swaybg 2>/dev/null || true
     NIRI_SOCKET="$sock" niri msg action spawn -- \
-        swaybg -i "$HOME/Pictures/wallpaper.jpg" -m fill >/dev/null 2>&1 || true
+        sh -c "$HOME/.local/bin/wallpaper-session" >/dev/null 2>&1 || true
 fi
 
-echo "wallpaper set; palette written to ~/.cache/hellwal/"
+echo "wallpaper recorded; it persists across logins. palette: ~/.cache/hellwal/"
