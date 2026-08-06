@@ -46,6 +46,20 @@ Run `bash ~/niri/setup.sh link` after a `git pull` that brings new files
 To add a new application's config, create `config/<app>/` and run the same
 command.
 
+## Key bindings (selection)
+
+| Keys | Action |
+|---|---|
+| `Mod+T` / `Mod+Return` | terminal / floating terminal |
+| `Mod+D` | app launcher (rofi) |
+| `Mod+E` | file manager (yazi) |
+| `Mod+B` / `Mod+N` / `Mod+A` | btop / network / audio popups |
+| `Mod+V` | clipboard history |
+| `Mod+Escape` | power menu |
+| `Mod+Shift+L` | lock |
+| `Print` / `Mod+Print` | screenshot / annotate region |
+| `Mod+Shift+Slash` | full binding overlay |
+
 ## Commands
 
 ```
