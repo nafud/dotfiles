@@ -1,0 +1,15 @@
+#!/bin/bash
+# powermenu — session actions through the rofi dmenu (Mod+Escape).
+# Picking an entry is the confirmation step, so every action is direct.
+set -euo pipefail
+
+choice="$(printf 'lock\nsuspend\nlogout\nreboot\nshutdown\n' \
+    | rofi -dmenu -p power)" || exit 0
+
+case "$choice" in
+    lock)     exec swaylock -f ;;
+    suspend)  exec systemctl suspend ;;
+    logout)   exec niri msg action quit --skip-confirmation ;;
+    reboot)   exec systemctl reboot ;;
+    shutdown) exec systemctl poweroff ;;
+esac

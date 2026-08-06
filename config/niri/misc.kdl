@@ -12,3 +12,6 @@ spawn-at-startup "swayidle" "-w" "timeout" "600" "swaylock -f" "timeout" "630" "
 spawn-at-startup "wl-paste" "--type" "text" "--watch" "cliphist" "store"
 spawn-at-startup "wl-paste" "--type" "image" "--watch" "cliphist" "store"
 spawn-at-startup "sh" "-c" "$HOME/.local/bin/battwatch.sh"
+// night light: warm color at night between fixed times — no
+// geolocation service involved (-S sunrise, -s sunset)
+spawn-at-startup "wlsunset" "-S" "07:00" "-s" "21:00"

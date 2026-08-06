@@ -12,9 +12,8 @@ window-rule {
 // so it costs almost nothing. draw-border-with-background false keeps
 // the border from tinting through the glass (see the niri FAQ).
 window-rule {
-    match app-id="^Alacritty$"
-    match app-id="^Alacritty-floating$"
-    match app-id="^btop-float$"
+    match app-id="^Alacritty"
+    match app-id="-float$"
     draw-border-with-background false
     background-effect {
         blur true
@@ -26,8 +25,10 @@ window-rule {
     open-floating true
 }
 
+// every terminal popup class ends in -float (btop, nmtui, pulsemixer);
+// one rule floats them all at the same size
 window-rule {
-    match app-id="^btop-float$"
+    match app-id="-float$"
     open-floating true
     default-column-width { proportion 0.7; }
 }

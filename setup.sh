@@ -54,6 +54,7 @@ install_packages() {
         alacritty waybar mako-notifier swaybg \
         swaylock swayidle \
         brightnessctl btop jq unzip wget curl build-essential \
+        wlsunset pulsemixer grim slurp ksnip \
         fzf zoxide wl-clipboard fd-find ripgrep \
         eza bat git-delta \
         zathura zathura-pdf-poppler imv mpv micro \
@@ -304,6 +305,11 @@ export EDITOR=micro
 export VISUAL=micro
 export MANPAGER="sh -c 'col -bx | batcat -l man -p'"
 
+# gnome-keyring's ssh agent, unlocked with the login keyring; never
+# clobbers an agent that is already set (e.g. one forwarded over ssh)
+[ -z "${SSH_AUTH_SOCK:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$UID}/keyring/ssh" ] \
+    && export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR:-/run/user/$UID}/keyring/ssh"
+
 [ -f /usr/share/doc/fzf/examples/key-bindings.bash ] && source /usr/share/doc/fzf/examples/key-bindings.bash
 eval "$(zoxide init bash)"
 eval "$(starship init bash)"
@@ -422,6 +428,9 @@ print_summary() {
     summary_row "Delta"         "git diff pager"                         have delta
     summary_row "Wl-clipboard"  "Wayland clipboard (wl-copy/wl-paste)"   have wl-copy
     summary_row "Brightnessctl" "backlight control"                      have brightnessctl
+    summary_row "Wlsunset"      "night light"                            have wlsunset
+    summary_row "Pulsemixer"    "audio mixer popup"                      have pulsemixer
+    summary_row "Ksnip"         "screenshot annotator"                   have ksnip
     summary_row "Nerd Font"     "JetBrainsMono Nerd Font"                font_ok
     printf '\n'
 }
