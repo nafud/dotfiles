@@ -1,9 +1,12 @@
 # Padding 10 is the Sin-cy dotfiles breathing room (their ghostty and
-# alacritty configs agree on it); fully opaque by preference.
+# alacritty configs agree on it). 0.92 is the one transparency level
+# used across all surfaces (bar pills, rofi, mako carry the same 92%);
+# niri blurs the wallpaper behind it (background-effect in
+# config/niri/decorations.kdl), so text stays readable.
 [window]
 padding = { x = 10, y = 10 }
 dynamic_padding = true
-opacity = 1.0
+opacity = 0.92
 
 [font]
 size = 11

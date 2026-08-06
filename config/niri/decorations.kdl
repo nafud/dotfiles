@@ -7,10 +7,18 @@ window-rule {
     clip-to-geometry true
 }
 
+// Frosted ground behind the semitransparent terminals: xray blur (the
+// niri default when blur is on) blurs the wallpaper once and reuses it,
+// so it costs almost nothing. draw-border-with-background false keeps
+// the border from tinting through the glass (see the niri FAQ).
 window-rule {
     match app-id="^Alacritty$"
     match app-id="^Alacritty-floating$"
+    match app-id="^btop-float$"
     draw-border-with-background false
+    background-effect {
+        blur true
+    }
 }
 
 window-rule {
@@ -22,4 +30,28 @@ window-rule {
     match app-id="^btop-float$"
     open-floating true
     default-column-width { proportion 0.7; }
+}
+
+// The bar pills, launcher and notifications are layer-shell surfaces,
+// so their blur comes from layer rules. Their surfaces carry the same
+// 92% alpha in their own configs.
+layer-rule {
+    match namespace="waybar"
+    background-effect {
+        blur true
+    }
+}
+
+layer-rule {
+    match namespace="rofi"
+    background-effect {
+        blur true
+    }
+}
+
+layer-rule {
+    match namespace="^notifications$"
+    background-effect {
+        blur true
+    }
 }

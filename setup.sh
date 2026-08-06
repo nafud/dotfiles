@@ -229,8 +229,6 @@ set_default_apps() {
 # bin/ into ~/.local/bin. Directory-level links keep the mapping obvious:
 # one entry in the repo, one link on disk. A real file or directory already
 # in the way is moved aside once as <name>.pre-dotfiles.
-LINKS_CHANGED=0
-
 link_one() {
     local src="$1" dest="$2"
     if [ -L "$dest" ] && [ "$(readlink -f "$dest")" = "$src" ]; then
@@ -244,7 +242,6 @@ link_one() {
     fi
     ln -s "$src" "$dest"
     log "linked $dest"
-    LINKS_CHANGED=1
 }
 
 link_configs() {
@@ -261,7 +258,6 @@ link_configs() {
         if [ -L "$link" ] && [[ "$(readlink "$link")" == "$REPO"/* ]] && [ ! -e "$link" ]; then
             rm "$link"
             log "pruned stale link $link"
-            LINKS_CHANGED=1
         fi
     done
 }
@@ -343,21 +339,20 @@ niri_socket() {
 }
 
 # niri reloads its own config on save and starship re-reads per prompt,
-# but waybar and mako hold config in memory. Waybar is respawned through
-# niri's IPC, never exec'd directly: only the compositor holds the session
-# environment (WAYLAND_DISPLAY) that a bar spawned from an ssh shell would
-# lack. A dead bar is started even when nothing changed.
+# but waybar and mako hold config in memory, and a git pull can change
+# their files without any link changing — so reload deterministically on
+# every run. Waybar is respawned through niri's IPC, never exec'd
+# directly: only the compositor holds the session environment
+# (WAYLAND_DISPLAY) that a bar spawned from an ssh shell would lack.
 reload_session() {
     local sock
     sock="$(niri_socket)"
     [ -n "$sock" ] || return 0
-    if [ "$LINKS_CHANGED" -eq 1 ] || ! pgrep -x -u "$(id -u)" waybar >/dev/null; then
-        log "restarting waybar"
-        pkill -x -u "$(id -u)" waybar 2>/dev/null || true
-        NIRI_SOCKET="$sock" niri msg action spawn -- waybar >/dev/null 2>&1 || true
-        DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus}" \
-            makoctl reload >/dev/null 2>&1 || true
-    fi
+    log "restarting waybar, reloading mako"
+    pkill -x -u "$(id -u)" waybar 2>/dev/null || true
+    NIRI_SOCKET="$sock" niri msg action spawn -- waybar >/dev/null 2>&1 || true
+    DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus}" \
+        makoctl reload >/dev/null 2>&1 || true
 }
 
 # ------------------------------------------------------------ 11. summary ---

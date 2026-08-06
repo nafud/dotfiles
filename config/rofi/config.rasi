@@ -25,7 +25,8 @@ configuration {
 }
 
 window {
-    background-color: @bg;
+    /* the shared 92% surface alpha; niri blurs behind (layer rule) */
+    background-color: #0d0d0dEB;
     border: 1px;
     border-color: @hairline;
     border-radius: 8px;

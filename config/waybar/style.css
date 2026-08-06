@@ -21,7 +21,7 @@ window#waybar {
    mute) are bound in config.jsonc. */
 .modules-left,
 .modules-right {
-    background: #0d0d0d;
+    background: rgba(13, 13, 13, 0.92);
     border: 1px solid #333333;
     border-radius: 8px;
     padding: 0 6px;
