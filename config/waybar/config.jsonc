@@ -1,10 +1,7 @@
 {
     "layer": "top",
     "position": "top",
-    "height": 28,
-    "margin-top": 6,
-    "margin-left": 6,
-    "margin-right": 6,
+    "height": 24,
     "modules-left": ["custom/workspaces"],
     "modules-center": [],
     "modules-right": ["cpu", "memory", "network", "pulseaudio", "battery", "clock"],

@@ -6,31 +6,13 @@
     min-height: 0;
 }
 
-/* Split pills: the bar surface itself is transparent and each module
-   cluster rides in an opaque rounded pill matching the windows'
-   geometry — radius 8, hairline border, inset from the edges by the
-   margins in config.jsonc (kept equal to the niri gaps). */
+/* One frosted strip, edge to edge: the bar carries the same 92% glass
+   as the terminals (the waybar layer-rule in config/niri/decorations.kdl
+   blurs the wallpaper behind it). Module hover keeps the sharpen-on-
+   hover grammar; the actions are bound in config.jsonc. */
 window#waybar {
-    background: transparent;
-    color: #c0c0c0;
-}
-
-/* Hover grammar: surfaces sharpen on hover, 150 ms ease — the pill
-   border steps up one grey, actionable module text brightens. The
-   actions themselves (scroll workspaces, click for overview / btop /
-   mute) are bound in config.jsonc. */
-.modules-left,
-.modules-right {
     background: rgba(13, 13, 13, 0.92);
-    border: 1px solid #333333;
-    border-radius: 8px;
-    padding: 0 6px;
-    transition: border-color 150ms ease;
-}
-
-.modules-left:hover,
-.modules-right:hover {
-    border-color: #666666;
+    color: #c0c0c0;
 }
 
 #custom-workspaces {
