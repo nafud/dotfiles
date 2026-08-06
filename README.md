@@ -51,5 +51,6 @@ command.
 ```
 bash setup.sh          # full run: install everything + link configs
 bash setup.sh link     # (re)link configs + validate + reload only
+bash setup.sh update   # refresh pacstall builds, release binaries, hellwal
 bash setup.sh summary  # print the probed component summary
 ```

@@ -17,6 +17,9 @@
 #
 # Usage:  bash setup.sh          full run: install everything + link configs
 #         bash setup.sh link     (re)link configs + validate + reload only
+#         bash setup.sh update   refresh what apt does not manage: pacstall
+#                                builds (niri, rofi, xwayland-satellite),
+#                                release binaries, hellwal
 #         bash setup.sh summary  print the probed component summary
 #
 set -euo pipefail
@@ -125,8 +128,11 @@ install_font() {
 }
 
 # ---------------------------------------------- 5. github-release binaries ---
+# The release URLs always point at latest, so `force` (the update path)
+# reinstalls unconditionally; without it anything present is kept.
 install_binaries() {
-    if ! have yazi; then
+    local force="${1:-}"
+    if [ -n "$force" ] || ! have yazi; then
         log "installing yazi + ya"
         fetch "$WORK/yazi.zip" \
             https://github.com/sxyazi/yazi/releases/latest/download/yazi-x86_64-unknown-linux-gnu.zip
@@ -139,7 +145,7 @@ install_binaries() {
         done
     fi
 
-    if ! have zellij; then
+    if [ -n "$force" ] || ! have zellij; then
         log "installing zellij"
         fetch "$WORK/zellij.tar.gz" \
             https://github.com/zellij-org/zellij/releases/latest/download/zellij-x86_64-unknown-linux-musl.tar.gz
@@ -148,7 +154,7 @@ install_binaries() {
         sudo install -m 755 "$WORK/zellij" /usr/local/bin/
     fi
 
-    if ! have cliphist; then
+    if [ -n "$force" ] || ! have cliphist; then
         log "installing cliphist"
         local url
         url=$(curl -fsSL https://api.github.com/repos/sentriz/cliphist/releases/latest \
@@ -183,7 +189,8 @@ install_rofi() {
 # in the Ubuntu archive; a small C build from source (build-essential).
 # Output lands in ~/.cache/hellwal/, themes in ~/.config/hellwal/themes.
 install_hellwal() {
-    if ! have hellwal; then
+    local force="${1:-}"
+    if [ -n "$force" ] || ! have hellwal; then
         log "building hellwal"
         git clone -q --depth 1 https://github.com/danihek/hellwal "$WORK/hellwal"
         make -s -C "$WORK/hellwal"
@@ -472,11 +479,19 @@ main() {
             reload_session
             log "configs are live symlinks — edits apply on save; commit in the repo when happy"
             ;;
+        update)
+            log "pacstall upgrades (niri, rofi, xwayland-satellite)"
+            pacstall -P -Up
+            install_binaries force
+            install_hellwal force
+            log "update complete"
+            print_summary
+            ;;
         summary)
             print_summary
             ;;
         *)
-            die "unknown command: $1 (usage: bash setup.sh [link|summary])"
+            die "unknown command: $1 (usage: bash setup.sh [link|update|summary])"
             ;;
     esac
 }
