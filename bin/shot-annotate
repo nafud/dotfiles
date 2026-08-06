@@ -1,0 +1,14 @@
+#!/bin/bash
+# shot-annotate — select a region, save it under ~/Pictures/Screenshots,
+# open it in the ksnip editor for arrows and redaction (Mod+Print).
+# grim and slurp speak the wlr screencopy protocols directly; no portal
+# round-trip is involved. An escaped slurp selection aborts cleanly.
+set -euo pipefail
+
+dir="$HOME/Pictures/Screenshots"
+mkdir -p "$dir"
+file="$dir/annotate-$(date +%Y%m%d-%H%M%S).png"
+
+region="$(slurp)" || exit 0
+grim -g "$region" "$file"
+exec ksnip -e "$file"

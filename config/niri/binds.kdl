@@ -66,7 +66,10 @@ binds {
     XF86MonBrightnessDown allow-when-locked=true { spawn "brightnessctl" "set" "5%-"; }
 
     Mod+Shift+E { quit; }
+    // Print family: niri's built-in shots for speed; Mod+Print selects a
+    // region and opens it in the ksnip editor for annotation
     Print { screenshot; }
     Ctrl+Print { screenshot-screen; }
     Alt+Print { screenshot-window; }
+    Mod+Print { spawn "sh" "-c" "$HOME/.local/bin/shot-annotate"; }
 }
