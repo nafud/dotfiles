@@ -1,0 +1,25 @@
+input {
+    keyboard {
+        xkb {
+            options "ctrl:nocaps"
+        }
+        repeat-delay 500
+        repeat-rate 30
+        numlock
+    }
+    touchpad {
+        tap
+        natural-scroll
+        accel-speed 0.4
+    }
+    focus-follows-mouse max-scroll-amount="0%"
+}
+
+// Pointer polish: one cursor theme at one size everywhere (GTK apps
+// follow via the gsettings in apply_desktop_prefs), and the cursor
+// hides the moment typing starts.
+cursor {
+    xcursor-theme "Adwaita"
+    xcursor-size 24
+    hide-when-typing
+}

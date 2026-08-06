@@ -1,0 +1,20 @@
+layout {
+    focus-ring {
+        width 2
+        active-color "#e8e8e8"
+        inactive-color "transparent"
+    }
+    border {
+        on
+        width 1
+        active-color "#33333388"
+        inactive-color "#33333388"
+    }
+    shadow { off; }
+    preset-column-widths {
+        proportion 0.33333
+        proportion 0.5
+        proportion 0.66667
+    }
+    gaps 6
+}

@@ -1,0 +1,25 @@
+// Slightly rounded corners on every window, clipped so window content
+// follows the curve. Compositor-level: alacritty cannot round its own
+// corners, niri rounds any window; borders and the focus ring follow
+// the radius automatically. A rule with no match applies to all.
+window-rule {
+    geometry-corner-radius 8
+    clip-to-geometry true
+}
+
+window-rule {
+    match app-id="^Alacritty$"
+    match app-id="^Alacritty-floating$"
+    draw-border-with-background false
+}
+
+window-rule {
+    match app-id="^Alacritty-floating$"
+    open-floating true
+}
+
+window-rule {
+    match app-id="^btop-float$"
+    open-floating true
+    default-column-width { proportion 0.7; }
+}

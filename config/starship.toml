@@ -1,0 +1,39 @@
+add_newline = false
+format = """
+[╭─\\(](#5a6f5d)$time[\\)](#5a6f5d)$status[─\\(](#5a6f5d)$hostname[\\)─\\(](#5a6f5d)$directory[\\)](#5a6f5d)$git_branch
+[╰─](#5a6f5d)$character"""
+
+[time]
+disabled = false
+format = "[$time]($style)"
+time_format = "%H:%M"
+style = "#666666"
+
+[status]
+disabled = false
+format = "[─\\(](#5a6f5d)[$status]($style)[\\)](#5a6f5d)"
+style = "#b5626a"
+
+[hostname]
+ssh_only = false
+style = "#7f9f7f"
+format = "[$hostname]($style)"
+
+[directory]
+style = "#93aabf"
+format = "[$path]($style)"
+truncation_length = 4
+truncate_to_repo = false
+
+[git_branch]
+style = "#666666"
+format = "[─\\[$branch\\]]($style)"
+
+# λ (U+03BB), bold, after the rounded elbow. Like $, it is a text
+# glyph of the family itself: full x-height, crisp at 11 pt, no icon
+# scaling, no extra font, no fallback (symbol and icon glyphs all
+# vanished at this size; see git history for the eight attempts).
+# Green on success, red on failure.
+[character]
+success_symbol = "[λ](bold #98b898)"
+error_symbol = "[λ](bold #b5626a)"

@@ -1,0 +1,45 @@
+# Padding 10 is the Sin-cy dotfiles breathing room (their ghostty and
+# alacritty configs agree on it); fully opaque by preference.
+[window]
+padding = { x = 10, y = 10 }
+dynamic_padding = true
+opacity = 1.0
+
+[font]
+size = 11
+normal.family = "JetBrainsMono Nerd Font"
+
+[colors.primary]
+background = "#0d0d0d"
+foreground = "#c0c0c0"
+
+[colors.cursor]
+text = "#0d0d0d"
+cursor = "#c0c0c0"
+
+[colors.normal]
+black = "#1a1a1a"
+red = "#b5626a"
+green = "#7f9f7f"
+yellow = "#b0a06a"
+blue = "#7a91a8"
+magenta = "#9a86a8"
+cyan = "#7fa8a0"
+white = "#c0c0c0"
+
+[colors.bright]
+black = "#666666"
+red = "#c87e85"
+green = "#98b898"
+yellow = "#c8ba86"
+blue = "#93aabf"
+magenta = "#b19fc0"
+cyan = "#98bfb8"
+white = "#e8e8e8"
+
+[[hints.enabled]]
+regex = "(https:|http:|file:|git:|ssh:|ftp:|mailto:)[^\\u0000-\\u001F\\u007F-\\u009F<>\"\\s{-}\\^⟨⟩`]+"
+hyperlinks = true
+command = "xdg-open"
+post_processing = true
+binding = { key = "T", mods = "Control|Shift" }

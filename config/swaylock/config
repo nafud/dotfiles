@@ -1,0 +1,17 @@
+color=0d0d0d
+font=JetBrainsMono Nerd Font
+indicator-radius=80
+indicator-thickness=4
+inside-color=0d0d0d
+ring-color=666666
+ring-ver-color=c0c0c0
+ring-wrong-color=b5626a
+inside-ver-color=0d0d0d
+inside-wrong-color=0d0d0d
+key-hl-color=e8e8e8
+text-color=c0c0c0
+text-ver-color=c0c0c0
+text-wrong-color=b5626a
+line-uses-inside
+ignore-empty-password
+show-failed-attempts

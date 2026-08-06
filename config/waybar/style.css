@@ -1,0 +1,53 @@
+* {
+    font-family: "JetBrainsMono Nerd Font", monospace;
+    font-size: 13px;
+    border: none;
+    border-radius: 0;
+    min-height: 0;
+}
+
+/* Split pills: the bar surface itself is transparent and each module
+   cluster rides in an opaque rounded pill matching the windows'
+   geometry — radius 8, hairline border, inset from the edges by the
+   margins in config.jsonc (kept equal to the niri gaps). */
+window#waybar {
+    background: transparent;
+    color: #c0c0c0;
+}
+
+/* Hover grammar: surfaces sharpen on hover, 150 ms ease — the pill
+   border steps up one grey, actionable module text brightens. The
+   actions themselves (scroll workspaces, click for overview / btop /
+   mute) are bound in config.jsonc. */
+.modules-left,
+.modules-right {
+    background: #0d0d0d;
+    border: 1px solid #333333;
+    border-radius: 8px;
+    padding: 0 6px;
+    transition: border-color 150ms ease;
+}
+
+.modules-left:hover,
+.modules-right:hover {
+    border-color: #666666;
+}
+
+#custom-workspaces {
+    color: #ffffff;
+    padding: 0 8px;
+}
+
+#cpu, #memory, #network, #pulseaudio, #battery, #clock {
+    color: #c0c0c0;
+    padding: 0 10px;
+    transition: color 150ms ease;
+}
+
+#cpu:hover, #memory:hover, #pulseaudio:hover {
+    color: #e8e8e8;
+}
+
+#battery.critical {
+    color: #ff5555;
+}

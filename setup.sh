@@ -1,27 +1,23 @@
 #!/usr/bin/env bash
 #
-# setup.sh — one-shot, re-runnable bootstrap for the niri "Option B" desktop
+# setup.sh — bootstrap for the niri desktop dotfiles
 # Target: Linux Mint 22.x (Ubuntu 24.04 base), fresh or existing install.
-# v28: the hover pass. The bar adopts the hover grammar (pill border
-#      steps up one grey, actionable module text brightens, 150 ms
-#      ease) and its modules gain real actions: scroll the workspaces
-#      pill to switch workspaces, click it for the overview, click
-#      cpu/mem for the btop popup, click vol to mute. The pointer is
-#      pinned to one cursor theme and size compositor-wide (GTK apps
-#      follow via gsettings) and hides while typing.
 #
-# Design rules:
-#   - This file is the single source of truth: configs are written from here.
-#     Hand-edit configs to experiment, then fold changes back into this file;
-#     put() keeps a .prev copy of anything it overwrites that differed.
-#   - Idempotent: safe to run repeatedly; every step checks before acting.
-#   - Package-level problems are fixed at the level they were created
-#     (e.g. globally-enabled units are globally disabled).
+# The repository layout is the source of truth:
+#   config/   mirrors ~/.config and is symlinked there, entry by entry —
+#             edits in the repo are live (niri and starship reload on save)
+#   bin/      mirrors ~/.local/bin, symlinked the same way
+#   setup.sh  everything a config file cannot express: packages, the niri
+#             build, fonts, release binaries, system glue (units, MIME
+#             defaults, gsettings, the ~/.bashrc managed block), the
+#             linking itself, session reloads, and the final summary
 #
-# Usage:  bash setup.sh             full run: install everything + configs
-#         bash setup.sh configure   rewrite configs + validate, nothing else
-#                                   (no apt, no downloads — for iteration)
-#         bash setup.sh summary     print the component summary and exit
+# A real file or directory found where a link belongs is moved aside once
+# as <name>.pre-dotfiles. Version history lives in git log.
+#
+# Usage:  bash setup.sh          full run: install everything + link configs
+#         bash setup.sh link     (re)link configs + validate + reload only
+#         bash setup.sh summary  print the probed component summary
 #
 set -euo pipefail
 
@@ -37,26 +33,9 @@ fetch() {
     [ -s "$1" ] || die "empty download: $2"
 }
 
-# put DEST [MODE] — write stdin to DEST (parent dirs created). A no-op when
-# the content is already identical; when it overwrites differing content it
-# keeps DEST.prev so a hand-edited experiment survives one run to be folded
-# back into this file. Rewritten paths accumulate in CHANGED, which
-# reload_session reads to restart only what actually changed.
-CHANGED=""
-put() {
-    local dest="$1" mode="${2:-644}" tmp="$WORK/staged"
-    cat > "$tmp"
-    if [ -f "$dest" ]; then
-        cmp -s "$tmp" "$dest" && return 0
-        cp -p "$dest" "$dest.prev"
-        log "kept $dest.prev (local copy differed)"
-    fi
-    install -D -m "$mode" "$tmp" "$dest"
-    CHANGED="$CHANGED $dest"
-}
-
 [ "$(id -u)" -eq 0 ] && die "run as your user, not root (sudo is used where needed)"
 
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CFG="$HOME/.config"
 MONO_FONT="JetBrainsMono Nerd Font"
 
@@ -180,516 +159,21 @@ install_binaries() {
     fi
 }
 
-# ------------------------------------------------------------- 6. configs ---
-write_niri() {
-    put "$CFG/niri/config.kdl" <<'EOF'
-include "input.kdl"
-include "layout.kdl"
-include "animations.kdl"
-include "misc.kdl"
-include "binds.kdl"
-include "decorations.kdl"
-EOF
-
-    # v10 migration: named workspaces are gone (the session starts on one
-    # dynamic workspace); drop the no-longer-included file so nothing stale
-    # lingers beside the live config.
-    rm -f "$CFG/niri/workspaces.kdl" "$CFG/niri/workspaces.kdl.prev"
-
-    put "$CFG/niri/input.kdl" <<'EOF'
-input {
-    keyboard {
-        xkb {
-            options "ctrl:nocaps"
-        }
-        repeat-delay 500
-        repeat-rate 30
-        numlock
-    }
-    touchpad {
-        tap
-        natural-scroll
-        accel-speed 0.4
-    }
-    focus-follows-mouse max-scroll-amount="0%"
-}
-
-// Pointer polish: one cursor theme at one size everywhere (GTK apps
-// follow via the gsettings in apply_desktop_prefs), and the cursor
-// hides the moment typing starts.
-cursor {
-    xcursor-theme "Adwaita"
-    xcursor-size 24
-    hide-when-typing
-}
-EOF
-
-    put "$CFG/niri/layout.kdl" <<'EOF'
-layout {
-    focus-ring {
-        width 2
-        active-color "#e8e8e8"
-        inactive-color "transparent"
-    }
-    border {
-        on
-        width 1
-        active-color "#33333388"
-        inactive-color "#33333388"
-    }
-    shadow { off; }
-    preset-column-widths {
-        proportion 0.33333
-        proportion 0.5
-        proportion 0.66667
-    }
-    gaps 6
-}
-EOF
-
-    put "$CFG/niri/animations.kdl" <<'EOF'
-animations {
-    window-movement {
-        spring damping-ratio=1.0 stiffness=1000 epsilon=0.0001
-    }
-}
-EOF
-
-    put "$CFG/niri/misc.kdl" <<'EOF'
-prefer-no-csd
-
-environment {
-    _JAVA_AWT_WM_NONREPARENTING "1"
-    MOZ_ENABLE_WAYLAND "1"
-}
-
-spawn-at-startup "waybar"
-spawn-at-startup "mako"
-spawn-at-startup "sh" "-c" "swaybg -i ~/Pictures/wallpaper.jpg -m fill || swaybg -c '#0d0d0d'"
-spawn-at-startup "swayidle" "-w" "timeout" "600" "swaylock -f" "timeout" "630" "niri msg action power-off-monitors" "resume" "niri msg action power-on-monitors" "before-sleep" "swaylock -f"
-spawn-at-startup "wl-paste" "--type" "text" "--watch" "cliphist" "store"
-spawn-at-startup "wl-paste" "--type" "image" "--watch" "cliphist" "store"
-spawn-at-startup "sh" "-c" "$HOME/.local/bin/battwatch.sh"
-EOF
-
-    put "$CFG/niri/decorations.kdl" <<'EOF'
-// Slightly rounded corners on every window, clipped so window content
-// follows the curve. Compositor-level: alacritty cannot round its own
-// corners, niri rounds any window; borders and the focus ring follow
-// the radius automatically. A rule with no match applies to all.
-window-rule {
-    geometry-corner-radius 8
-    clip-to-geometry true
-}
-
-window-rule {
-    match app-id="^Alacritty$"
-    match app-id="^Alacritty-floating$"
-    draw-border-with-background false
-}
-
-window-rule {
-    match app-id="^Alacritty-floating$"
-    open-floating true
-}
-
-window-rule {
-    match app-id="^btop-float$"
-    open-floating true
-    default-column-width { proportion 0.7; }
-}
-EOF
-
-    put "$CFG/niri/binds.kdl" <<'EOF'
-binds {
-    Mod+Shift+Slash { show-hotkey-overlay; }
-
-    Mod+T { spawn "alacritty"; }
-    Mod+Return { spawn "alacritty" "--class" "Alacritty-floating"; }
-    Mod+D { spawn "fuzzel"; }
-    Mod+B { spawn "alacritty" "--class" "btop-float" "-e" "btop"; }
-    // Dedicated yazi terminal. The cwd-following y() wrapper is for
-    // interactive shells; here the shell would die with the window anyway.
-    Mod+E { spawn "alacritty" "-e" "yazi"; }
-    Mod+Shift+T { spawn "alacritty" "-e" "zellij" "attach" "-c" "main"; }
-    Mod+W { spawn "alacritty" "-e" "sh" "-c" "zellij attach files 2>/dev/null || zellij -s files --layout files"; }
-    Mod+V { spawn "sh" "-c" "cliphist list | fuzzel --dmenu | cliphist decode | wl-copy"; }
-    Mod+Shift+L { spawn "swaylock" "-f"; }
-
-    Mod+O { toggle-overview; }
-
-    Mod+Q { close-window; }
-
-    // Cycle columns with wrap-around; niri has no whole-window next/previous
-    // cycling ("next-window" is not a niri action). For MRU alt-tab behavior
-    // instead, bind focus-window-previous.
-    Mod+Tab { focus-column-right-or-first; }
-    Mod+Shift+Tab { focus-column-left-or-last; }
-
-    Mod+H { focus-column-left; }
-    Mod+J { focus-window-down; }
-    Mod+K { focus-window-up; }
-    Mod+L { focus-column-right; }
-    Mod+Left  { focus-column-left; }
-    Mod+Down  { focus-window-down; }
-    Mod+Up    { focus-window-up; }
-    Mod+Right { focus-column-right; }
-
-    Mod+Ctrl+H { move-column-left; }
-    Mod+Ctrl+J { move-window-down; }
-    Mod+Ctrl+K { move-window-up; }
-    Mod+Ctrl+L { move-column-right; }
-
-    Mod+Home { focus-column-first; }
-    Mod+End  { focus-column-last; }
-
-    Mod+R { switch-preset-column-width; }
-    Mod+F { maximize-column; }
-    Mod+Shift+F { fullscreen-window; }
-    Mod+Comma { consume-window-into-column; }
-    Mod+Period { expel-window-from-column; }
-
-    Mod+1 { focus-workspace 1; }
-    Mod+2 { focus-workspace 2; }
-    Mod+3 { focus-workspace 3; }
-    Mod+4 { focus-workspace 4; }
-    Mod+Ctrl+1 { move-column-to-workspace 1; }
-    Mod+Ctrl+2 { move-column-to-workspace 2; }
-    Mod+Ctrl+3 { move-column-to-workspace 3; }
-    Mod+Ctrl+4 { move-column-to-workspace 4; }
-
-    XF86AudioRaiseVolume allow-when-locked=true { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1+"; }
-    XF86AudioLowerVolume allow-when-locked=true { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1-"; }
-    XF86AudioMute allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle"; }
-    XF86MonBrightnessUp allow-when-locked=true { spawn "brightnessctl" "set" "5%+"; }
-    XF86MonBrightnessDown allow-when-locked=true { spawn "brightnessctl" "set" "5%-"; }
-
-    Mod+Shift+E { quit; }
-    Print { screenshot; }
-    Ctrl+Print { screenshot-screen; }
-    Alt+Print { screenshot-window; }
-}
-EOF
-}
-
-write_terminal_stack() {
-    put "$CFG/alacritty/alacritty.toml" <<'EOF'
-# Padding 10 is the Sin-cy dotfiles breathing room (their ghostty and
-# alacritty configs agree on it); fully opaque by preference.
-[window]
-padding = { x = 10, y = 10 }
-dynamic_padding = true
-opacity = 1.0
-
-[font]
-size = 11
-normal.family = "JetBrainsMono Nerd Font"
-
-[colors.primary]
-background = "#0d0d0d"
-foreground = "#c0c0c0"
-
-[colors.cursor]
-text = "#0d0d0d"
-cursor = "#c0c0c0"
-
-[colors.normal]
-black = "#1a1a1a"
-red = "#b5626a"
-green = "#7f9f7f"
-yellow = "#b0a06a"
-blue = "#7a91a8"
-magenta = "#9a86a8"
-cyan = "#7fa8a0"
-white = "#c0c0c0"
-
-[colors.bright]
-black = "#666666"
-red = "#c87e85"
-green = "#98b898"
-yellow = "#c8ba86"
-blue = "#93aabf"
-magenta = "#b19fc0"
-cyan = "#98bfb8"
-white = "#e8e8e8"
-
-[[hints.enabled]]
-regex = "(https:|http:|file:|git:|ssh:|ftp:|mailto:)[^\\u0000-\\u001F\\u007F-\\u009F<>\"\\s{-}\\^⟨⟩`]+"
-hyperlinks = true
-command = "xdg-open"
-post_processing = true
-binding = { key = "T", mods = "Control|Shift" }
-EOF
-
-    put "$CFG/fuzzel/fuzzel.ini" <<'EOF'
-[main]
-font=JetBrainsMono Nerd Font:size=12
-terminal=alacritty
-layer=overlay
-lines=12
-width=44
-
-[colors]
-background=0d0d0df2
-text=c0c0c0ff
-prompt=666666ff
-placeholder=666666ff
-input=e8e8e8ff
-match=ffffffff
-selection=262626ff
-selection-text=ffffffff
-selection-match=ffffffff
-counter=666666ff
-border=666666ff
-
-[border]
-width=1
-radius=0
-EOF
-
-    # Event-driven: one line now, then one line per workspace event from the
-    # niri IPC stream — no polling. Repo waybar (0.9.x) has no niri module;
-    # when it ships one (upstream "niri/workspaces", waybar >= 0.11), this
-    # script and the custom module can be retired as a simplification.
-    put "$CFG/waybar/workspaces.sh" 755 <<'EOF'
-#!/bin/bash
-# niri always keeps one empty workspace at the end (dynamic-workspace
-# model, not disableable); hide it — list only occupied workspaces plus
-# wherever the focus is.
-render() {
-    niri msg --json workspaces \
-        | jq -r 'sort_by(.idx)
-                 | map(select(.active_window_id != null or .is_focused))
-                 | map(if .is_focused then "[\(.idx)]" else " \(.idx) " end)
-                 | join("")'
-}
-render
-niri msg --json event-stream | while IFS= read -r event; do
-    case "$event" in
-        *Workspace*) render ;;
-    esac
-done
-EOF
-
-    put "$CFG/waybar/config.jsonc" <<'EOF'
-{
-    "layer": "top",
-    "position": "top",
-    "height": 28,
-    "margin-top": 6,
-    "margin-left": 6,
-    "margin-right": 6,
-    "modules-left": ["custom/workspaces"],
-    "modules-center": [],
-    "modules-right": ["cpu", "memory", "network", "pulseaudio", "battery", "clock"],
-
-    "custom/workspaces": {
-        "exec": "~/.config/waybar/workspaces.sh",
-        "restart-interval": 3,
-        "format": "{}",
-        "on-click": "niri msg action toggle-overview",
-        "on-scroll-up": "niri msg action focus-workspace-up",
-        "on-scroll-down": "niri msg action focus-workspace-down"
-    },
-    "cpu": { "format": "cpu {usage}%", "interval": 3,
-             "on-click": "alacritty --class btop-float -e btop" },
-    "memory": { "format": "mem {percentage}%", "interval": 5,
-                "on-click": "alacritty --class btop-float -e btop" },
-    "network": {
-        "format-wifi": "wifi {signalStrength}%",
-        "format-ethernet": "eth up",
-        "format-disconnected": "net down"
-    },
-    "pulseaudio": {
-        "format": "vol {volume}%",
-        "format-muted": "vol mute",
-        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
-    },
-    "battery": {
-        "format": "bat {capacity}%",
-        "format-charging": "bat {capacity}%+",
-        "states": { "critical": 15 }
-    },
-    "clock": {
-        "format": "{:%a %d %b  %H:%M:%S}",
-        "interval": 1,
-        "tooltip": false
-    }
-}
-EOF
-
-    put "$CFG/waybar/style.css" <<'EOF'
-* {
-    font-family: "JetBrainsMono Nerd Font", monospace;
-    font-size: 13px;
-    border: none;
-    border-radius: 0;
-    min-height: 0;
-}
-
-/* Split pills: the bar surface itself is transparent and each module
-   cluster rides in an opaque rounded pill matching the windows'
-   geometry — radius 8, hairline border, inset from the edges by the
-   margins in config.jsonc (kept equal to the niri gaps). */
-window#waybar {
-    background: transparent;
-    color: #c0c0c0;
-}
-
-/* Hover grammar: surfaces sharpen on hover, 150 ms ease — the pill
-   border steps up one grey, actionable module text brightens. The
-   actions themselves (scroll workspaces, click for overview / btop /
-   mute) are bound in config.jsonc. */
-.modules-left,
-.modules-right {
-    background: #0d0d0d;
-    border: 1px solid #333333;
-    border-radius: 8px;
-    padding: 0 6px;
-    transition: border-color 150ms ease;
-}
-
-.modules-left:hover,
-.modules-right:hover {
-    border-color: #666666;
-}
-
-#custom-workspaces {
-    color: #ffffff;
-    padding: 0 8px;
-}
-
-#cpu, #memory, #network, #pulseaudio, #battery, #clock {
-    color: #c0c0c0;
-    padding: 0 10px;
-    transition: color 150ms ease;
-}
-
-#cpu:hover, #memory:hover, #pulseaudio:hover {
-    color: #e8e8e8;
-}
-
-#battery.critical {
-    color: #ff5555;
-}
-EOF
-
-    put "$CFG/mako/config" <<'EOF'
-font=JetBrainsMono Nerd Font 11
-background-color=#0d0d0d
-text-color=#c0c0c0
-border-color=#666666
-border-size=1
-border-radius=0
-padding=8
-default-timeout=5000
-layer=top
-
-[urgency=high]
-default-timeout=0
-border-color=#ff5555
-layer=overlay
-EOF
-
-    put "$CFG/swaylock/config" <<'EOF'
-color=0d0d0d
-font=JetBrainsMono Nerd Font
-indicator-radius=80
-indicator-thickness=4
-inside-color=0d0d0d
-ring-color=666666
-ring-ver-color=c0c0c0
-ring-wrong-color=b5626a
-inside-ver-color=0d0d0d
-inside-wrong-color=0d0d0d
-key-hl-color=e8e8e8
-text-color=c0c0c0
-text-ver-color=c0c0c0
-text-wrong-color=b5626a
-line-uses-inside
-ignore-empty-password
-show-failed-attempts
-EOF
-
-    put "$CFG/yazi/yazi.toml" <<'EOF'
-[mgr]
-ratio = [ 1, 3, 4 ]
-linemode = "none"
-show_symlink = false
-EOF
-
-    put "$CFG/zellij/config.kdl" <<'EOF'
-theme "mono"
-
-themes {
-    mono {
-        fg "#c0c0c0"
-        bg "#0d0d0d"
-        black "#1a1a1a"
-        red "#b5626a"
-        green "#7f9f7f"
-        yellow "#b0a06a"
-        blue "#7a91a8"
-        magenta "#9a86a8"
-        cyan "#7fa8a0"
-        white "#e8e8e8"
-        orange "#b0a06a"
-    }
-}
-
-simplified_ui true
-// no boxes around panes — splits separate by gap alone, the slick look
-pane_frames false
-EOF
-
-    put "$CFG/zellij/layouts/files.kdl" <<'EOF'
-layout {
-    tab name="files" focus=true {
-        pane split_direction="vertical" {
-            pane command="bash" {
-                args "-ic" "y; exec bash"
-            }
-            pane
-        }
-    }
-}
-EOF
-}
-
-write_scripts() {
-    put "$HOME/.local/bin/battwatch.sh" 755 <<'EOF'
-#!/bin/bash
-while true; do
-    bat=$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1)
-    stat=$(cat /sys/class/power_supply/BAT*/status 2>/dev/null | head -1)
-    if [ -n "$bat" ] && [ "$stat" = "Discharging" ] && [ "$bat" -le 15 ]; then
-        notify-send -u critical "battery ${bat}%" "plug in"
-        sleep 300
+install_starship() {
+    if ! have starship; then
+        log "installing starship prompt"
+        fetch "$WORK/starship-install.sh" https://starship.rs/install.sh
+        sh "$WORK/starship-install.sh" -y
     fi
-    sleep 60
-done
-EOF
 }
 
-# ------------------------------------------------------------- 6b. portals ---
-write_portals_conf() {
-    # niri ships /usr/share/xdg-desktop-portal/niri-portals.conf preferring
-    # gnome;gtk. Portal config is whole-file precedence (user dir wins, no
-    # per-key merge), so this copy restates niri's choices and adds one: the
-    # file chooser goes to the GTK portal, because portal-gnome >= 47
-    # delegates it to nautilus and Mint ships nemo instead. Diff against
-    # niri's shipped file after a niri upgrade.
-    put "$CFG/xdg-desktop-portal/niri-portals.conf" <<'EOF'
-[preferred]
-default=gnome;gtk;
-org.freedesktop.impl.portal.Access=gtk;
-org.freedesktop.impl.portal.Notification=gtk;
-org.freedesktop.impl.portal.Secret=gnome-keyring;
-org.freedesktop.impl.portal.FileChooser=gtk;
-EOF
+configure_git() {
+    git config --global core.pager delta
+    git config --global interactive.diffFilter 'delta --color-only'
+    git config --global delta.navigate true
 }
 
-# --------------------------------------------------- 6c. MIME associations ---
+# --------------------------------------------------- 6. MIME associations ---
 # xdg-mime records an association even for a desktop file that does not
 # exist, silently breaking xdg-open; only associate what is actually shipped.
 set_mime_default() {
@@ -717,79 +201,49 @@ set_default_apps() {
     fi
 }
 
-# ---------------------------------------------------- 6d. prompt & colors ---
-install_starship() {
-    if ! have starship; then
-        log "installing starship prompt"
-        fetch "$WORK/starship-install.sh" https://starship.rs/install.sh
-        sh "$WORK/starship-install.sh" -y
+# ----------------------------------------------------------- 7. link tree ---
+# Symlink each top-level entry of config/ into ~/.config and each file in
+# bin/ into ~/.local/bin. Directory-level links keep the mapping obvious:
+# one entry in the repo, one link on disk. A real file or directory already
+# in the way is moved aside once as <name>.pre-dotfiles.
+LINKS_CHANGED=0
+
+link_one() {
+    local src="$1" dest="$2"
+    if [ -L "$dest" ] && [ "$(readlink -f "$dest")" = "$src" ]; then
+        return 0
     fi
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+        mv "$dest" "$dest.pre-dotfiles"
+        log "moved existing $dest aside as $dest.pre-dotfiles"
+    else
+        rm -f "$dest"
+    fi
+    ln -s "$src" "$dest"
+    log "linked $dest"
+    LINKS_CHANGED=1
 }
 
-write_starship() {
-    # nix-prompt owned the prompt in v15; retire its vendored copy
-    rm -f "$HOME/.nixprompt.bash" "$HOME/.nixprompt.bash.prev"
-    put "$CFG/starship.toml" <<'EOF'
-add_newline = false
-format = """
-[╭─\\(](#5a6f5d)$time[\\)](#5a6f5d)$status[─\\(](#5a6f5d)$hostname[\\)─\\(](#5a6f5d)$directory[\\)](#5a6f5d)$git_branch
-[╰─](#5a6f5d)$character"""
-
-[time]
-disabled = false
-format = "[$time]($style)"
-time_format = "%H:%M"
-style = "#666666"
-
-[status]
-disabled = false
-format = "[─\\(](#5a6f5d)[$status]($style)[\\)](#5a6f5d)"
-style = "#b5626a"
-
-[hostname]
-ssh_only = false
-style = "#7f9f7f"
-format = "[$hostname]($style)"
-
-[directory]
-style = "#93aabf"
-format = "[$path]($style)"
-truncation_length = 4
-truncate_to_repo = false
-
-[git_branch]
-style = "#666666"
-format = "[─\\[$branch\\]]($style)"
-
-# λ (U+03BB), bold, after the rounded elbow. Like $, it is a text
-# glyph of the family itself: full x-height, crisp at 11 pt, no icon
-# scaling, no extra font, no fallback (symbol and icon glyphs all
-# vanished at this size; see git history for the eight attempts).
-# Green on success, red on failure.
-[character]
-success_symbol = "[λ](bold #98b898)"
-error_symbol = "[λ](bold #b5626a)"
-EOF
+link_configs() {
+    local src
+    mkdir -p "$CFG" "$HOME/.local/bin"
+    for src in "$REPO/config"/*; do
+        link_one "$src" "$CFG/$(basename "$src")"
+    done
+    for src in "$REPO/bin"/*; do
+        link_one "$src" "$HOME/.local/bin/$(basename "$src")"
+    done
 }
 
-configure_git() {
-    git config --global core.pager delta
-    git config --global interactive.diffFilter 'delta --color-only'
-    git config --global delta.navigate true
-}
-
-# --------------------------------------------------------- 7. shell setup ---
-# ~/.bashrc is shared with the user, so put() (whole-file ownership) does not
-# apply; only the marked block is owned and replaced.
+# --------------------------------------------------------- 8. shell setup ---
+# ~/.bashrc is shared with the system's own content, so it is not linked;
+# only the marked block is owned, and it is replaced in place on every run
+# so edits here reach existing installs.
 write_shell() {
     local rc="$HOME/.bashrc"
     local body="$WORK/bashrc"
     [ -f "$rc" ] || touch "$rc"
 
-    # Replace the block in place on every run (append-once would freeze the
-    # first version forever, breaking the single-source-of-truth rule). The
-    # awk pass also strips the two v6-era blocks, migrating old installs;
-    # $(...) drops trailing newlines, so re-runs do not accumulate blanks.
     log "writing managed block into ~/.bashrc"
     printf '%s\n\n' "$(awk '
         /^# >>> niri-setup managed block >>>$/,/^# <<< niri-setup managed block <<<$/ { next }
@@ -832,25 +286,57 @@ EOF
     cat "$body" > "$rc"
 }
 
-# ------------------------------------------------------------ 8. desktop ---
+# ------------------------------------------------------------- 9. desktop ---
 apply_desktop_prefs() {
     gsettings set org.gnome.desktop.interface color-scheme prefer-dark 2>/dev/null || true
     gsettings set org.gnome.desktop.interface gtk-theme Adwaita-dark 2>/dev/null || true
-    # GTK apps (file dialogs, portal choosers) follow these, completing the
-    # one-typeface rule; dconf is shared across sessions, so a Cinnamon
-    # login sees the same fonts until they are reset there.
+    # GTK apps follow the one-typeface rule and the compositor's cursor
+    # choice (cursor block in config/niri/input.kdl).
     gsettings set org.gnome.desktop.interface font-name "'$MONO_FONT 10'" 2>/dev/null || true
     gsettings set org.gnome.desktop.interface monospace-font-name "'$MONO_FONT 11'" 2>/dev/null || true
-    # GTK apps follow the compositor's cursor choice (cursor block in
-    # input.kdl), so the pointer is one theme at one size everywhere.
     gsettings set org.gnome.desktop.interface cursor-theme "'Adwaita'" 2>/dev/null || true
     gsettings set org.gnome.desktop.interface cursor-size 24 2>/dev/null || true
 }
 
-# ------------------------------------------------------------- 9. summary ---
+# ------------------------------------------------------------ 10. reload ---
+# The live niri session's IPC socket: NIRI_SOCKET inside the session,
+# discovered under XDG_RUNTIME_DIR otherwise — so a run over ssh still
+# reaches the desktop. Empty output means no session is up.
+niri_socket() {
+    if [ -n "${NIRI_SOCKET:-}" ]; then
+        printf '%s' "$NIRI_SOCKET"
+        return
+    fi
+    find "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" -maxdepth 1 \
+         -name 'niri.wayland-*.sock' 2>/dev/null | head -n1
+}
+
+# niri reloads its own config on save and starship re-reads per prompt,
+# but waybar and mako hold config in memory. Waybar is respawned through
+# niri's IPC, never exec'd directly: only the compositor holds the session
+# environment (WAYLAND_DISPLAY) that a bar spawned from an ssh shell would
+# lack. A dead bar is started even when nothing changed.
+reload_session() {
+    local sock
+    sock="$(niri_socket)"
+    [ -n "$sock" ] || return 0
+    if [ "$LINKS_CHANGED" -eq 1 ] || ! pgrep -x -u "$(id -u)" waybar >/dev/null; then
+        log "restarting waybar"
+        pkill -x -u "$(id -u)" waybar 2>/dev/null || true
+        NIRI_SOCKET="$sock" niri msg action spawn -- waybar >/dev/null 2>&1 || true
+        DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus}" \
+            makoctl reload >/dev/null 2>&1 || true
+    fi
+}
+
+# ------------------------------------------------------------ 11. summary ---
 portals_ok() {
     dpkg -s xdg-desktop-portal-gtk >/dev/null 2>&1 \
         && dpkg -s xdg-desktop-portal-gnome >/dev/null 2>&1
+}
+
+configs_linked() {
+    [ -L "$CFG/niri" ] && [ "$(readlink -f "$CFG/niri")" = "$REPO/config/niri" ]
 }
 
 summary_row() {
@@ -865,6 +351,7 @@ summary_row() {
 print_summary() {
     printf '\n\033[1m[setup] installed components\033[0m\n'
     summary_row "Niri"          "scrollable-tiling Wayland compositor"   have niri
+    summary_row "Dotfiles"      "config/ linked into ~/.config"          configs_linked
     summary_row "Xwayland-sat." "X11 bridge, auto-spawned by niri"       have xwayland-satellite
     summary_row "Portals"       "xdg-desktop-portal gtk + gnome"         portals_ok
     summary_row "Keyring"       "gnome-keyring (Secret portal)"          have gnome-keyring-daemon
@@ -897,57 +384,7 @@ print_summary() {
     printf '\n'
 }
 
-# --------------------------------------------------------------- 10. main ---
-# The live niri session's IPC socket: NIRI_SOCKET inside the session,
-# discovered under XDG_RUNTIME_DIR otherwise — so a `configure` run over
-# ssh still reaches the desktop. Empty output means no session is up.
-niri_socket() {
-    if [ -n "${NIRI_SOCKET:-}" ]; then
-        printf '%s' "$NIRI_SOCKET"
-        return
-    fi
-    find "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" -maxdepth 1 \
-         -name 'niri.wayland-*.sock' 2>/dev/null | head -n1
-}
-
-# Restart the daemons whose config this run actually rewrote — niri reloads
-# itself and starship re-reads its config on every prompt draw, but
-# waybar and mako hold config in memory. Waybar is respawned through niri's IPC, never exec'd directly:
-# only the compositor holds the session environment (WAYLAND_DISPLAY) that
-# a bar spawned from an ssh shell would lack. Waybar is also started when
-# it is simply not running, so `configure` heals a dead bar. Without a live
-# session this is a no-op and the next login picks the configs up.
-reload_session() {
-    local sock
-    sock="$(niri_socket)"
-    [ -n "$sock" ] || return 0
-    if [[ "$CHANGED" == *"/waybar/"* ]] || ! pgrep -x -u "$(id -u)" waybar >/dev/null; then
-        log "restarting waybar"
-        pkill -x -u "$(id -u)" waybar 2>/dev/null || true
-        NIRI_SOCKET="$sock" niri msg action spawn -- waybar >/dev/null 2>&1 || true
-    fi
-    if [[ "$CHANGED" == *"/mako/"* ]]; then
-        log "reloading mako (its config changed)"
-        DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus}" \
-            makoctl reload >/dev/null 2>&1 || true
-    fi
-}
-
-write_configs() {
-    CHANGED=""
-    write_niri
-    write_terminal_stack
-    write_starship
-    write_scripts
-    write_portals_conf
-    write_shell
-    apply_desktop_prefs
-
-    niri validate
-    log "ALL OK — niri config valid"
-    reload_session
-}
-
+# --------------------------------------------------------------- 12. main ---
 main() {
     case "${1:-install}" in
         install)
@@ -959,20 +396,32 @@ main() {
             install_starship
             configure_git
             set_default_apps
-            write_configs
+            link_configs
+            write_shell
+            apply_desktop_prefs
+
+            niri validate
+            log "ALL OK — niri config valid"
+            reload_session
             print_summary
             log "wallpaper: put an image at ~/Pictures/wallpaper.jpg (optional)"
             log "log out of Cinnamon and choose the 'niri' session at the greeter"
             ;;
-        configure)
-            write_configs
-            log "niri reloads live, daemons restarted as needed; the prompt updates on its next draw"
+        link|configure)
+            link_configs
+            write_shell
+            apply_desktop_prefs
+
+            niri validate
+            log "ALL OK — niri config valid"
+            reload_session
+            log "configs are live symlinks — edits apply on save; commit in the repo when happy"
             ;;
         summary)
             print_summary
             ;;
         *)
-            die "unknown command: $1 (usage: bash setup.sh [configure|summary])"
+            die "unknown command: $1 (usage: bash setup.sh [link|summary])"
             ;;
     esac
 }
