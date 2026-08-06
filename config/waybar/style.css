@@ -8,11 +8,13 @@
 
 /* One floating frosted line: a single bar inset from the screen edges
    (margins in config.jsonc, matching the niri gaps), rounded and
-   hairlined like the windows, carrying the same 92% glass — the waybar
-   layer-rule in config/niri/decorations.kdl blurs the wallpaper behind
-   it. Module hover keeps the sharpen grammar; actions in config.jsonc. */
+   hairlined like the windows; the waybar layer-rule in
+   config/niri/decorations.kdl blurs the wallpaper behind it. The alpha
+   is lower than the terminals' 0.92 on purpose: over a thin strip, 92%
+   of the ground color reads as solid — 70% is what makes the same glass
+   visible at this size. Hover keeps the sharpen grammar. */
 window#waybar {
-    background: rgba(13, 13, 13, 0.92);
+    background: rgba(13, 13, 13, 0.70);
     color: #c0c0c0;
     border: 1px solid #333333;
     border-radius: 8px;
