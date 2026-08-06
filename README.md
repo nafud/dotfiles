@@ -1,5 +1,7 @@
 # niri dotfiles
 
+![check](https://github.com/nafud/niri/actions/workflows/check.yml/badge.svg)
+
 My Linux Mint 22.x workspace: the [niri](https://github.com/YaLTeR/niri)
 scrollable-tiling Wayland compositor and a keyboard-driven terminal stack
 (alacritty, zellij, yazi, waybar, fuzzel, mako, starship), everything in

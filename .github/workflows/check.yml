@@ -1,0 +1,41 @@
+# CI for the dotfiles: the same pre-flight run before every push in
+# development — shell scripts lint and parse, structured configs parse.
+# Catches a stray comma or quote before it reaches the next `setup.sh link`.
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: shellcheck -x setup.sh bin/*
+
+      - name: bash syntax
+        run: |
+          bash -n setup.sh
+          for f in bin/*; do bash -n "$f"; done
+
+      - name: bin scripts are executable
+        run: |
+          for f in bin/*; do
+              [ -x "$f" ] || { echo "$f is not executable"; exit 1; }
+          done
+
+      - name: waybar config is valid JSON
+        run: jq . config/waybar/config.jsonc > /dev/null
+
+      - name: TOML configs parse
+        run: |
+          python3 - <<'PYEOF'
+          import glob, tomllib
+          for f in sorted(glob.glob("config/**/*.toml", recursive=True)):
+              with open(f, "rb") as fh:
+                  tomllib.load(fh)
+              print("ok", f)
+          PYEOF
