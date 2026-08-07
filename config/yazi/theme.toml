@@ -1,0 +1,14 @@
+# Accent alignment only. Yazi's defaults already speak in named ANSI
+# colors, so the hellwal wallpaper palette flows through them like the
+# rest of the terminal; these overrides just move the accent surfaces
+# from blue to the house green (the λ prompt, the frame chrome).
+[mgr]
+cwd = { fg = "green" }
+
+[mode]
+normal_main = { bg = "green", bold = true }
+normal_alt  = { fg = "green" }
+
+[tabs]
+active   = { bg = "green", bold = true }
+inactive = { fg = "green" }

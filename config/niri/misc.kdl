@@ -3,6 +3,10 @@ prefer-no-csd
 environment {
     _JAVA_AWT_WM_NONREPARENTING "1"
     MOZ_ENABLE_WAYLAND "1"
+    // for everything spawned by binds, not just interactive shells —
+    // yazi's `e` under Mod+E would otherwise fall back to vi
+    EDITOR "micro"
+    VISUAL "micro"
 }
 
 spawn-at-startup "sh" "-c" "$HOME/.local/bin/bar-session"
