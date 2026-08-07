@@ -9,6 +9,15 @@
 wall="$HOME/Pictures/wallpaper.jpg"
 img="$HOME/.cache/lock-wallpaper.png"
 
+# time at rest inside the ring — but only when the binary is the
+# swaylock-effects fork (setup.sh builds it). Stock swaylock rejects
+# unknown options, and a lock that fails to start is an unlocked
+# session, so the flags ride on capability detection, never on config.
+clock_args=()
+if swaylock --help 2>&1 | grep -q -- --clock; then
+    clock_args=(--clock --timestr "%H:%M" --datestr "%a %d %b")
+fi
+
 if [ -f "$wall" ] && command -v convert >/dev/null; then
     if [ ! -f "$img" ] || [ "$wall" -nt "$img" ] || [ "$0" -nt "$img" ]; then
         mkdir -p "$(dirname "$img")"
@@ -16,8 +25,8 @@ if [ -f "$wall" ] && command -v convert >/dev/null; then
         # as the 0.9 glass surfaces, dim enough to rest the eyes
         convert "$wall" -resize 1920x -blur 0x12 -modulate 100,55 \
             -fill '#0d0d0d' -colorize 60% "$img" \
-            || exec swaylock -f
+            || exec swaylock -f "${clock_args[@]}"
     fi
-    exec swaylock -f -i "$img" -s fill
+    exec swaylock -f "${clock_args[@]}" -i "$img" -s fill
 fi
-exec swaylock -f
+exec swaylock -f "${clock_args[@]}"
