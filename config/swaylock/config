@@ -5,14 +5,17 @@
 # reads through it instead of punching a black hole in the blur.
 color=0d0d0d
 font=JetBrainsMono Nerd Font
-font-size=14
-indicator-radius=70
-indicator-thickness=3
+font-size=18
+# always visible: the lock state is readable at a glance, and a caps
+# warning can show before the first keystroke
+indicator-idle-visible
+indicator-radius=100
+indicator-thickness=7
 inside-color=0d0d0d99
 inside-ver-color=0d0d0d99
 inside-wrong-color=0d0d0d99
 inside-clear-color=0d0d0d99
-ring-color=44444488
+ring-color=666666aa
 ring-ver-color=98b898ff
 ring-wrong-color=b5626aff
 ring-clear-color=666666ff
