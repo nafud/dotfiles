@@ -279,6 +279,10 @@ link_configs() {
     local src link
     mkdir -p "$CFG" "$HOME/.local/bin"
     for src in "$REPO/config"/*; do
+        # btop rewrites btop.conf on every exit — linking its whole dir
+        # would point that rewrite into the repo. configure_btop links
+        # the read-only themes/ dir and enforces the intent lines.
+        [ "$(basename "$src")" = "btop" ] && continue
         link_one "$src" "$CFG/$(basename "$src")"
     done
     for src in "$REPO/bin"/*; do
@@ -354,14 +358,23 @@ EOF
 # real file owned by the program; only the one intended setting is
 # enforced: theme_background False lets the terminal's glass show
 # through instead of btop painting an opaque ground.
+# btop owns btop.conf (rewritten on every exit), so only the intent
+# lines are enforced in place; the themes dir is read-only to btop and
+# links normally (excluded from link_configs, owned here).
 configure_btop() {
     local conf="$CFG/btop/btop.conf"
     mkdir -p "$CFG/btop"
-    if grep -qs '^theme_background' "$conf"; then
-        sed -i 's/^theme_background.*/theme_background = False/' "$conf"
-    else
-        printf 'theme_background = False\n' >> "$conf"
-    fi
+    link_one "$REPO/config/btop/themes" "$CFG/btop/themes"
+    btop_set() {
+        if grep -qs "^$1\b" "$conf"; then
+            sed -i "s|^$1\b.*|$1 = $2|" "$conf"
+        else
+            printf '%s = %s\n' "$1" "$2" >> "$conf"
+        fi
+    }
+    btop_set theme_background False
+    btop_set color_theme '"mono"'
+    btop_set vim_keys True
 }
 
 # The alacritty config imports the hellwal palette cache; seed it empty
