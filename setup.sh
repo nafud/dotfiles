@@ -60,7 +60,7 @@ install_packages() {
         wlsunset pulsemixer grim slurp ksnip imagemagick \
         fzf zoxide wl-clipboard fd-find ripgrep \
         eza bat git-delta \
-        zathura zathura-pdf-poppler imv mpv micro chafa \
+        zathura zathura-pdf-poppler imv mpv micro \
         libnotify-bin \
         xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-gnome \
         gnome-keyring
@@ -183,6 +183,29 @@ install_rofi() {
         log "installing rofi (pacstall build — takes a while)"
         pacstall -P -I rofi
     fi
+}
+
+# chafa: yazi's image-preview renderer in terminals without a graphics
+# protocol (alacritty). The archive's 1.14 predates flags yazi passes
+# (--probe; previews die with "chafa failed with status: exit status:
+# 2"), so a pinned upstream release is built from source into
+# /usr/local, which shadows any apt copy on PATH. Bump CHAFA_VER to
+# move to a newer release; `setup.sh update` rebuilds it.
+CHAFA_VER="1.18.2"
+install_chafa() {
+    local force="${1:-}"
+    if [ -z "$force" ] && have chafa \
+        && chafa --version | grep -qF "version $CHAFA_VER"; then
+        return
+    fi
+    log "building chafa $CHAFA_VER"
+    sudo apt-get install -y libglib2.0-dev libjpeg-dev libwebp-dev
+    fetch "$WORK/chafa.tar.xz" \
+        "https://github.com/hpjansson/chafa/releases/download/$CHAFA_VER/chafa-$CHAFA_VER.tar.xz"
+    tar xf "$WORK/chafa.tar.xz" -C "$WORK"
+    (cd "$WORK/chafa-$CHAFA_VER" && ./configure --quiet \
+        && make -s -j"$(nproc)" && sudo make -s install)
+    sudo ldconfig
 }
 
 # hellwal: fast pywal-style palette generator, used by bin/wallset. Not
@@ -452,6 +475,7 @@ print_summary() {
     summary_row "Zathura"       "PDF viewer"                             have zathura
     summary_row "Imv"           "image viewer"                           have imv
     summary_row "Mpv"           "media player"                           have mpv
+    summary_row "Chafa"         "terminal image renderer (yazi preview)" have chafa
     summary_row "Fzf"           "fuzzy finder"                           have fzf
     summary_row "Zoxide"        "directory jumper"                       have zoxide
     summary_row "Eza"           "ls replacement"                         have eza
@@ -480,6 +504,7 @@ main() {
             install_starship
             install_rofi
             install_hellwal
+            install_chafa
             configure_git
             set_default_apps
             link_configs
@@ -512,6 +537,7 @@ main() {
             pacstall -P -Up
             install_binaries force
             install_hellwal force
+            install_chafa force
             log "update complete"
             print_summary
             ;;
