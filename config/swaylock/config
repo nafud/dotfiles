@@ -26,3 +26,11 @@ line-color=00000000
 separator-color=00000000
 ignore-empty-password
 show-failed-attempts
+
+# caps lock: warn in the muted yellow before a password goes in wrong
+indicator-caps-lock
+inside-caps-lock-color=0d0d0d99
+ring-caps-lock-color=b0a06aff
+caps-lock-key-hl-color=b0a06aff
+caps-lock-bs-hl-color=b5626aff
+text-caps-lock-color=b0a06aff
