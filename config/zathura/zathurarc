@@ -1,0 +1,53 @@
+# zathura — PDF reading in the house style. Dark reading is the
+# default: recolor renders pages as light text on the theme ground
+# (Ctrl+R toggles back to the original page for color-critical
+# figures), with images kept in their original colors. The reading
+# surface is deliberately opaque — no glass behind a book page.
+set font "JetBrainsMono Nerd Font 10"
+
+# chrome on the house ground and text ladder
+set default-bg "#0d0d0d"
+set default-fg "#c0c0c0"
+set statusbar-bg "#0d0d0d"
+set statusbar-fg "#666666"
+set inputbar-bg "#0d0d0d"
+set inputbar-fg "#e8e8e8"
+set completion-bg "#0d0d0d"
+set completion-fg "#c0c0c0"
+set completion-group-bg "#0d0d0d"
+set completion-group-fg "#666666"
+set completion-highlight-bg "#1a1a1a"
+set completion-highlight-fg "#98b898"
+set index-bg "#0d0d0d"
+set index-fg "#c0c0c0"
+set index-active-bg "#1a1a1a"
+set index-active-fg "#98b898"
+set notification-bg "#0d0d0d"
+set notification-fg "#c0c0c0"
+set notification-error-bg "#0d0d0d"
+set notification-error-fg "#b5626a"
+set notification-warning-bg "#0d0d0d"
+set notification-warning-fg "#b0a06a"
+set render-loading-bg "#0d0d0d"
+set render-loading-fg "#666666"
+
+# search and text-select highlights on the accent
+set highlight-color "rgba(152, 184, 152, 0.35)"
+set highlight-active-color "rgba(152, 184, 152, 0.55)"
+
+# dark reading mode: page ground and text mapped onto the theme,
+# images left alone
+set recolor true
+set recolor-lightcolor "#0d0d0d"
+set recolor-darkcolor "#c0c0c0"
+set recolor-keephue false
+set recolor-reverse-video true
+
+# behavior
+set selection-clipboard clipboard
+set adjust-open "width"
+set scroll-page-aware true
+set incremental-search true
+set window-title-basename true
+set statusbar-basename true
+set statusbar-home-tilde true
