@@ -111,16 +111,22 @@ fix_units() {
     done
     systemctl --user daemon-reload 2>/dev/null || true
 
-    # ibus autostart leaks into niri via xdg-autostart-generator; hide it for
-    # this user with the XDG-specified per-user override.
-    if [ -f /etc/xdg/autostart/ibus-daemon.desktop ]; then
-        mkdir -p "$CFG/autostart"
-        if ! grep -qs '^Hidden=true' "$CFG/autostart/ibus-daemon.desktop"; then
-            log "hiding ibus autostart for this user"
-            cp /etc/xdg/autostart/ibus-daemon.desktop "$CFG/autostart/"
-            echo "Hidden=true" >> "$CFG/autostart/ibus-daemon.desktop"
+    # ibus and blueman autostarts leak into niri via xdg-autostart-generator
+    # (ibus is Cinnamon's input method; blueman's applet is only wanted as a
+    # tray icon we don't keep). Hide each for this user with the
+    # XDG-specified per-user override — never system-wide, so the Cinnamon
+    # fallback session keeps its own behavior.
+    local desk
+    for desk in ibus-daemon.desktop blueman.desktop; do
+        if [ -f "/etc/xdg/autostart/$desk" ]; then
+            mkdir -p "$CFG/autostart"
+            if ! grep -qs '^Hidden=true' "$CFG/autostart/$desk"; then
+                log "hiding ${desk%.desktop} autostart for this user"
+                cp "/etc/xdg/autostart/$desk" "$CFG/autostart/"
+                echo "Hidden=true" >> "$CFG/autostart/$desk"
+            fi
         fi
-    fi
+    done
 }
 
 # ----------------------------------------------------------------- 4. font ---
