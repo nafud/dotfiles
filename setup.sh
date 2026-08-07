@@ -95,12 +95,21 @@ install_niri() {
 
 # -------------------------------------------- 3. undo packaging surprises ---
 fix_units() {
-    # waybar ships an enabled-by-packaging user service (global scope); our
-    # niri config owns the bar, so remove the enablement where it was made.
-    if systemctl --global is-enabled waybar.service >/dev/null 2>&1; then
-        log "disabling globally-enabled waybar.service"
-        sudo systemctl --global disable waybar.service
-    fi
+    # waybar and mako ship enabled-by-packaging user services (global
+    # scope); our niri config spawns both itself, so remove the enablement
+    # where it was made. Disabling only edits disk — the user manager
+    # already running holds the old enablement in memory and would still
+    # pull the unit up at the next login (a second bar on screen), so the
+    # stop clears any duplicate and the reload drops the stale dependency.
+    local unit
+    for unit in waybar.service mako.service; do
+        if systemctl --global is-enabled "$unit" >/dev/null 2>&1; then
+            log "disabling globally-enabled $unit"
+            sudo systemctl --global disable "$unit"
+        fi
+        systemctl --user stop "$unit" 2>/dev/null || true
+    done
+    systemctl --user daemon-reload 2>/dev/null || true
 
     # ibus autostart leaks into niri via xdg-autostart-generator; hide it for
     # this user with the XDG-specified per-user override.
