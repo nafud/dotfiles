@@ -4,7 +4,8 @@
 set -euo pipefail
 
 choice="$(printf 'lock\nsuspend\nlogout\nreboot\nshutdown\n' \
-    | rofi -dmenu -p power)" || exit 0
+    | "$HOME/.local/bin/rofi-toggle" -dmenu -p power)" || exit 0
+[ -n "$choice" ] || exit 0
 
 case "$choice" in
     lock)     exec "$HOME/.local/bin/lock" ;;

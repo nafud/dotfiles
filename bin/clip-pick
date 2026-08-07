@@ -1,0 +1,13 @@
+#!/bin/bash
+# clip-pick — clipboard history picker (Mod+V). The selection is
+# guarded: a cancelled pick copies nothing, where the old bare pipeline
+# piped the empty selection through cliphist decode into wl-copy and
+# cleared the clipboard. Goes through rofi-toggle, so Mod+V with a rofi
+# already open dismisses it like every other rofi bind.
+set -euo pipefail
+
+sel="$(cliphist list \
+    | "$HOME/.local/bin/rofi-toggle" -dmenu -p paste -display-columns 2)" \
+    || exit 0
+[ -n "$sel" ] || exit 0
+printf '%s' "$sel" | cliphist decode | wl-copy

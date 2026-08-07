@@ -1,0 +1,12 @@
+#!/bin/bash
+# rofi-toggle ARGS... — the dismissal contract for every rofi bind.
+# rofi holds a pidfile lock, so a second instance refuses to start and
+# a Wayland layer surface cannot see clicks outside its own box; both
+# instincts for closing it therefore go nowhere. This wrapper makes the
+# bind itself the dismissal: a running rofi is closed and nothing else
+# happens; otherwise rofi opens with the given arguments.
+if pgrep -x -u "$(id -u)" rofi >/dev/null; then
+    pkill -x -u "$(id -u)" rofi
+    exit 0
+fi
+exec rofi "$@"
