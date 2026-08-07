@@ -9,6 +9,17 @@
 # ever restarted underneath it.
 command -v mullvad >/dev/null || exit 0
 
+# `vpn.sh toggle` is the module's on-click. Anything not on the way
+# down is taken down; a click mid-connect is a cancel, not a queued
+# second connect. The bar re-renders through the listen stream, so the
+# toggle only ever issues the command.
+if [ "${1:-}" = "toggle" ]; then
+    case "$(mullvad status --json 2>/dev/null | jq -r .state)" in
+        disconnected|disconnecting) exec mullvad connect ;;
+        *)                          exec mullvad disconnect ;;
+    esac
+fi
+
 render() {
     mullvad status --json 2>/dev/null | jq -c '
         {text: (if   .state == "connected"

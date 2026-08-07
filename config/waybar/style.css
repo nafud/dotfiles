@@ -40,7 +40,7 @@ window#waybar {
     -gtk-icon-effect: dim;
 }
 
-#cpu:hover, #memory:hover, #pulseaudio:hover {
+#cpu:hover, #memory:hover, #pulseaudio:hover, #custom-vpn:hover {
     color: #e8e8e8;
 }
 
