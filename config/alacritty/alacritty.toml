@@ -18,10 +18,30 @@ import = [
 padding = { x = 10, y = 10 }
 dynamic_padding = true
 opacity = 0.9
+# niri asks clients not to draw decorations (prefer-no-csd); stating it
+# here keeps alacritty deterministic about it
+decorations = "None"
 
 [font]
 size = 11
 normal.family = "JetBrainsMono Nerd Font"
+
+# blinking block, the Linux console convention (the jump palette's
+# resting cursor follows the same one)
+[cursor.style]
+shape = "Block"
+blinking = "On"
+
+# a mouse selection is a copy, no Ctrl+Shift+C step — the same contract
+# zellij's copy_on_select + wl-copy gives inside the multiplexer
+[selection]
+save_to_clipboard = true
+
+# new terminal inheriting this one's working directory
+[[keyboard.bindings]]
+key = "Enter"
+mods = "Control|Shift"
+action = "SpawnNewInstance"
 
 [[hints.enabled]]
 regex = "(https:|http:|file:|git:|ssh:|ftp:|mailto:)[^\\u0000-\\u001F\\u007F-\\u009F<>\"\\s{-}\\^⟨⟩`]+"
