@@ -1,0 +1,19 @@
+#!/bin/bash
+# rofi script mode: the niri window switcher (Mod+Space). Listing pass
+# prints every window but the focused one as "app-id  title"; selection
+# pass focuses the pick by window id, carried in the row's info field so
+# two windows with the same title can never be confused. Ordered by
+# workspace then age, matching the spatial layout left to right.
+if [ $# -gt 0 ]; then
+    [ -n "${ROFI_INFO:-}" ] \
+        && niri msg action focus-window --id "$ROFI_INFO" >/dev/null 2>&1
+    exit 0
+fi
+
+printf '\0no-custom\x1ftrue\n'
+niri msg --json windows | jq -r '
+    sort_by(.workspace_id, .id) | .[] | select(.is_focused | not) |
+    [(.app_id // "?"), (.title // "untitled"), (.id | tostring)] | @tsv' \
+| while IFS=$'\t' read -r app title id; do
+    printf '%-16s %s\x00info\x1f%s\n' "$app" "$title" "$id"
+done

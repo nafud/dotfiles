@@ -10,7 +10,9 @@ binds {
     Mod+E { spawn "alacritty" "-e" "yazi"; }
     Mod+Shift+T { spawn "alacritty" "-e" "zellij" "attach" "-c" "main"; }
     Mod+W { spawn "alacritty" "-e" "sh" "-c" "zellij attach files 2>/dev/null || zellij -s files --layout files"; }
-    Mod+V { spawn "sh" "-c" "cliphist list | rofi -dmenu -p paste | cliphist decode | wl-copy"; }
+    Mod+V { spawn "sh" "-c" "cliphist list | rofi -dmenu -p paste -display-columns 2 | cliphist decode | wl-copy"; }
+    // window switcher: fuzzy-jump to any open window by app or title
+    Mod+Space { spawn "sh" "-c" "rofi -show windows -modes windows:$HOME/.local/bin/rofi-windows"; }
     Mod+Shift+L { spawn "sh" "-c" "$HOME/.local/bin/lock"; }
     Mod+Escape { spawn "sh" "-c" "$HOME/.local/bin/powermenu"; }
     // floating TUI popups, btop-style: network and audio

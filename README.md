@@ -51,7 +51,8 @@ command.
 | Keys | Action |
 |---|---|
 | `Mod+T` / `Mod+Return` | terminal / floating terminal |
-| `Mod+D` | app launcher (rofi) |
+| `Mod+D` | app launcher (rofi, fuzzy) |
+| `Mod+Space` | window switcher (rofi) |
 | `Mod+E` | file manager (yazi) |
 | `Mod+B` / `Mod+N` / `Mod+A` | btop / network / audio popups |
 | `Mod+V` | clipboard history |

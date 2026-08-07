@@ -35,9 +35,13 @@ entry {
     text-color: @bright;
 }
 
+/* faint rule between prompt and results, the palette's two-surface look */
 listview {
     lines: 10;
     padding: 6px 0 0 0;
+    margin: 6px 0 0 0;
+    border: 1px 0 0 0;
+    border-color: @surface;
     scrollbar: false;
 }
 

@@ -7,7 +7,23 @@ configuration {
     show-icons: false;
     display-drun: "λ";
     display-run: ">";
+    display-windows: "≡";
     drun-display-format: "{name}";
+
+    /* fuzzy matching, best match first: "ffx" finds Firefox; drun
+       matches names, generic names, keywords and the executable */
+    matching: "fuzzy";
+    sort: true;
+    sorting-method: "fzf";
+    drun-match-fields: "name,generic,exec,keywords";
+
+    /* vim motions: Ctrl+j/k move the selection. The defaults holding
+       those chords (accept-entry, remove-to-eol) are re-stated without
+       them — rofi refuses to start on a doubly-bound key. */
+    kb-accept-entry: "Return,KP_Enter";
+    kb-remove-to-eol: "";
+    kb-row-down: "Down,Control+j,Control+n";
+    kb-row-up: "Up,Control+k,Control+p";
 }
 
 @theme "mono"
