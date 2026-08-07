@@ -9,7 +9,15 @@
 # ever restarted underneath it.
 command -v mullvad >/dev/null || exit 0
 
-# `vpn.sh toggle` is the module's on-click. Anything not on the way
+# `vpn.sh gui` is the module's click: surface the app window. The GUI
+# is single-instance Electron — already running (even headless) it
+# shows its window, never a duplicate. gio launch reads the desktop
+# entry, whose Exec path contains a space best left to it.
+if [ "${1:-}" = "gui" ]; then
+    exec gio launch /usr/share/applications/mullvad-vpn.desktop
+fi
+
+# `vpn.sh toggle` is the module's right-click. Anything not on the way
 # down is taken down; a click mid-connect is a cancel, not a queued
 # second connect. The bar re-renders through the listen stream, so the
 # toggle only ever issues the command.
