@@ -6,8 +6,8 @@
     "margin-left": 6,
     "margin-right": 6,
     "modules-left": ["custom/workspaces"],
-    "modules-center": [],
-    "modules-right": ["group/stats", "group/levels", "network", "clock", "custom/power"],
+    "modules-center": ["group/stats"],
+    "modules-right": ["group/levels", "network", "clock", "custom/power"],
 
     "custom/workspaces": {
         "exec": "~/.config/waybar/workspaces.sh",
@@ -46,5 +46,5 @@
     },
     "clock": { "format": "󰥔 {:%a %d %b  %H:%M:%S}", "interval": 1, "tooltip": false },
     "custom/power": { "format": "", "tooltip": false,
-                      "on-click": "$HOME/.local/bin/powermenu" }
+                      "on-click": "sh -c \"$HOME/.local/bin/powermenu\"" }
 }
