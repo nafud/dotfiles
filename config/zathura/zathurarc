@@ -1,8 +1,9 @@
-# zathura — PDF reading in the house style. Dark reading is the
-# default: recolor renders pages as light text on the theme ground
-# (Ctrl+R toggles back to the original page for color-critical
-# figures), with images kept in their original colors. The reading
-# surface is deliberately opaque — no glass behind a book page.
+# zathura — PDF reading in the house style. Pages render as printed;
+# recolor is never forced. Ctrl+R is a manual toggle to the dark
+# rendering (page on the theme ground, ladder-grey text, images kept
+# in their original colors) for whoever wants it, and its colors are
+# configured below so the toggle lands on the house palette. The
+# reading surface is deliberately opaque — no glass behind a book page.
 set font "JetBrainsMono Nerd Font 10"
 
 # chrome on the house ground and text ladder
@@ -35,9 +36,8 @@ set render-loading-fg "#666666"
 set highlight-color "rgba(152, 184, 152, 0.35)"
 set highlight-active-color "rgba(152, 184, 152, 0.55)"
 
-# dark reading mode: page ground and text mapped onto the theme,
-# images left alone
-set recolor true
+# colors for the manual Ctrl+R toggle only — recolor stays off
+set recolor false
 set recolor-lightcolor "#0d0d0d"
 set recolor-darkcolor "#c0c0c0"
 set recolor-keephue false
