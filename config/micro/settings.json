@@ -1,0 +1,13 @@
+{
+    "colorscheme": "mono",
+    "diffgutter": true,
+    "ft:go": {
+        "tabstospaces": false
+    },
+    "ft:makefile": {
+        "tabstospaces": false
+    },
+    "mkparents": true,
+    "savecursor": true,
+    "tabstospaces": true
+}

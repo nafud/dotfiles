@@ -283,6 +283,10 @@ link_configs() {
         # would point that rewrite into the repo. configure_btop links
         # the read-only themes/ dir and enforces the intent lines.
         [ "$(basename "$src")" = "btop" ] && continue
+        # micro keeps live state (buffers/) beside its config — a whole
+        # dir link would write that state into the repo. configure_micro
+        # links the actual configuration files only.
+        [ "$(basename "$src")" = "micro" ] && continue
         link_one "$src" "$CFG/$(basename "$src")"
     done
     for src in "$REPO/bin"/*; do
@@ -375,6 +379,20 @@ configure_btop() {
     btop_set theme_background False
     btop_set color_theme '"mono"'
     btop_set vim_keys True
+}
+
+# micro's config dir carries live state (buffers/) next to the real
+# configuration, so only the configuration links into the repo. The
+# settings.json symlink is safe and deliberate: micro rewrites the file
+# through the link on every exit in a stable normal form (alphabetical
+# keys, 4-space indent) — the committed file is kept in that form, so
+# the routine rewrite is byte-identical and the repo stays clean, while
+# an interactive `set` lands in the repo as a visible diff to commit or
+# revert (all verified on micro 2.0.13).
+configure_micro() {
+    mkdir -p "$CFG/micro"
+    link_one "$REPO/config/micro/settings.json" "$CFG/micro/settings.json"
+    link_one "$REPO/config/micro/colorschemes" "$CFG/micro/colorschemes"
 }
 
 # The alacritty config imports the hellwal palette cache; seed it empty
@@ -525,6 +543,7 @@ main() {
             link_configs
             write_shell
             configure_btop
+            configure_micro
             configure_hellwal
             apply_desktop_prefs
 
@@ -539,6 +558,7 @@ main() {
             link_configs
             write_shell
             configure_btop
+            configure_micro
             configure_hellwal
             apply_desktop_prefs
 
