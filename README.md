@@ -57,6 +57,7 @@ command.
 | `Mod+B` / `Mod+N` / `Mod+A` | btop / network / audio popups |
 | `Mod+V` | clipboard history |
 | `Mod+Escape` | power menu |
+| `Mod+Shift+D` | dismiss notifications |
 | `Mod+Shift+L` | lock |
 | `Print` / `Mod+Print` | screenshot / annotate region |
 | `Mod+Shift+Slash` | full binding overlay |

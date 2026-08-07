@@ -16,6 +16,7 @@ binds {
     Mod+Space { spawn "sh" "-c" "$HOME/.local/bin/rofi-toggle -show windows -modes windows:$HOME/.local/bin/rofi-windows"; }
     Mod+Shift+L { spawn "sh" "-c" "$HOME/.local/bin/lock"; }
     Mod+Escape { spawn "sh" "-c" "$HOME/.local/bin/powermenu"; }
+    Mod+Shift+D { spawn "makoctl" "dismiss" "-a"; }
     // floating TUI popups, btop-style: network and audio
     Mod+N { spawn "alacritty" "--class" "nmtui-float" "-e" "nmtui"; }
     Mod+A { spawn "alacritty" "--class" "mixer-float" "-e" "pulsemixer"; }
