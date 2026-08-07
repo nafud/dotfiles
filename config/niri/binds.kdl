@@ -11,7 +11,7 @@ binds {
     Mod+Shift+T { spawn "alacritty" "-e" "zellij" "attach" "-c" "main"; }
     Mod+W { spawn "alacritty" "-e" "sh" "-c" "zellij attach files 2>/dev/null || zellij -s files --layout files"; }
     Mod+V { spawn "sh" "-c" "cliphist list | rofi -dmenu -p paste | cliphist decode | wl-copy"; }
-    Mod+Shift+L { spawn "swaylock" "-f"; }
+    Mod+Shift+L { spawn "sh" "-c" "$HOME/.local/bin/lock"; }
     Mod+Escape { spawn "sh" "-c" "$HOME/.local/bin/powermenu"; }
     // floating TUI popups, btop-style: network and audio
     Mod+N { spawn "alacritty" "--class" "nmtui-float" "-e" "nmtui"; }

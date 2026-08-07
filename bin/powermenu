@@ -7,7 +7,7 @@ choice="$(printf 'lock\nsuspend\nlogout\nreboot\nshutdown\n' \
     | rofi -dmenu -p power)" || exit 0
 
 case "$choice" in
-    lock)     exec swaylock -f ;;
+    lock)     exec "$HOME/.local/bin/lock" ;;
     suspend)  exec systemctl suspend ;;
     logout)   exec niri msg action quit --skip-confirmation ;;
     reboot)   exec systemctl reboot ;;

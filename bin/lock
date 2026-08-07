@@ -1,0 +1,9 @@
+#!/bin/bash
+# lock — the one lock entrypoint (keybind, powermenu, swayidle). Locks
+# over a blurred, darkened copy of the wallpaper when wallset has
+# recorded one; over the flat theme color otherwise.
+img="$HOME/.cache/lock-wallpaper.png"
+if [ -f "$img" ]; then
+    exec swaylock -f -i "$img" -s fill
+fi
+exec swaylock -f

@@ -8,7 +8,7 @@ environment {
 spawn-at-startup "waybar"
 spawn-at-startup "mako"
 spawn-at-startup "sh" "-c" "$HOME/.local/bin/wallpaper-session"
-spawn-at-startup "swayidle" "-w" "timeout" "600" "swaylock -f" "timeout" "630" "niri msg action power-off-monitors" "resume" "niri msg action power-on-monitors" "before-sleep" "swaylock -f"
+spawn-at-startup "swayidle" "-w" "timeout" "600" "$HOME/.local/bin/lock" "timeout" "630" "niri msg action power-off-monitors" "resume" "niri msg action power-on-monitors" "before-sleep" "$HOME/.local/bin/lock"
 spawn-at-startup "wl-paste" "--type" "text" "--watch" "cliphist" "store"
 spawn-at-startup "wl-paste" "--type" "image" "--watch" "cliphist" "store"
 spawn-at-startup "sh" "-c" "$HOME/.local/bin/battwatch.sh"

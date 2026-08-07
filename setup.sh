@@ -57,7 +57,7 @@ install_packages() {
         alacritty waybar mako-notifier swaybg \
         swaylock swayidle \
         brightnessctl btop jq unzip wget curl build-essential \
-        wlsunset pulsemixer grim slurp ksnip \
+        wlsunset pulsemixer grim slurp ksnip imagemagick \
         fzf zoxide wl-clipboard fd-find ripgrep \
         eza bat git-delta \
         zathura zathura-pdf-poppler imv mpv micro \

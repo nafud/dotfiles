@@ -16,6 +16,11 @@ mkdir -p "$HOME/Pictures" "$HOME/.cache/hellwal/cache"
 cp -- "$img" "$HOME/Pictures/wallpaper.jpg"
 hellwal -i "$HOME/Pictures/wallpaper.jpg" "$@" >/dev/null
 
+# blurred, darkened copy for the lock screen (bin/lock picks it up);
+# resized first so the blur is cheap
+convert "$HOME/Pictures/wallpaper.jpg" -resize 1920x -blur 0x10 \
+    -modulate 50 "$HOME/.cache/lock-wallpaper.png"
+
 sock="${NIRI_SOCKET:-$(find "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" -maxdepth 1 \
     -name 'niri.wayland-*.sock' 2>/dev/null | head -n1)}"
 if [ -n "$sock" ]; then

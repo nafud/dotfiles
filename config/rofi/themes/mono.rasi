@@ -1,0 +1,56 @@
+/* Mono launcher theme matching the desktop: the shared surface recipe
+   (dark ground at the 90% glass alpha, radius 8) with the green accent.
+   niri blurs behind the window via the rofi layer rule. */
+* {
+    bg:       #0d0d0dE6;
+    fg:       #c0c0c0;
+    bright:   #e8e8e8;
+    muted:    #666666;
+    accent:   #98b898;
+    surface:  #1a1a1a;
+
+    background-color: transparent;
+    text-color: @fg;
+}
+
+window {
+    background-color: @bg;
+    border: 0;
+    border-radius: 8px;
+    width: 480px;
+    padding: 8px;
+}
+
+inputbar {
+    children: [ prompt, entry ];
+    padding: 6px 8px;
+}
+
+prompt {
+    text-color: @accent;
+    padding: 0 10px 0 0;
+}
+
+entry {
+    text-color: @bright;
+}
+
+listview {
+    lines: 10;
+    padding: 6px 0 0 0;
+    scrollbar: false;
+}
+
+element {
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+element-text {
+    text-color: inherit;
+}
+
+element selected {
+    background-color: @surface;
+    text-color: @bright;
+}

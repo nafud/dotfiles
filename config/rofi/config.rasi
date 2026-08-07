@@ -1,7 +1,6 @@
-/* Mono launcher theme matching the desktop: JetBrains Mono, the same
-   surface recipe as every other element (dark ground, hairline border,
-   radius 8), green accent on the prompt and selection. */
-
+/* Behavior only; the look lives in themes/mono.rasi (rofi's canonical
+   split — inline theme blocks inside config.rasi are not reliably
+   honored, which left the default theme showing). */
 configuration {
     modes: "drun,run";
     font: "JetBrainsMono Nerd Font 11";
@@ -11,60 +10,4 @@ configuration {
     drun-display-format: "{name}";
 }
 
-* {
-    bg:     #0d0d0d;
-    fg:     #c0c0c0;
-    bright: #e8e8e8;
-    muted:  #666666;
-    accent: #98b898;
-    hairline: #333333;
-    surface:  #1a1a1a;
-
-    background-color: transparent;
-    text-color: @fg;
-}
-
-window {
-    /* the shared 90% surface alpha; niri blurs behind (layer rule) */
-    background-color: #0d0d0dE6;
-    border: 1px;
-    border-color: @hairline;
-    border-radius: 8px;
-    width: 480px;
-    padding: 8px;
-}
-
-inputbar {
-    children: [ prompt, entry ];
-    padding: 6px 8px;
-}
-
-prompt {
-    text-color: @accent;
-    padding: 0 10px 0 0;
-}
-
-entry {
-    text-color: @bright;
-    placeholder: "";
-}
-
-listview {
-    lines: 10;
-    padding: 6px 0 0 0;
-    scrollbar: false;
-}
-
-element {
-    padding: 4px 8px;
-    border-radius: 4px;
-}
-
-element-text {
-    text-color: inherit;
-}
-
-element selected {
-    background-color: @surface;
-    text-color: @bright;
-}
+@theme "mono"
