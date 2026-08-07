@@ -1,13 +1,17 @@
-/* Mono launcher theme matching the desktop: the shared surface recipe
-   (dark ground at the 90% glass alpha, radius 8) with the green accent.
-   niri blurs behind the window via the rofi layer rule. */
+/* Mono launcher theme matching the desktop, styled after the kiln jump
+   palette: a bordered 0.9-glass panel whose selected row is an accent
+   tint with accent text (the palette's highlight), not a grey block.
+   The glass is the panel's own alpha — rofi 2.0's layer surface spans
+   the whole output, so compositor blur behind it would frost the
+   entire screen and is deliberately not used. */
 * {
-    bg:       #0d0d0dE6;
-    fg:       #c0c0c0;
-    bright:   #e8e8e8;
-    muted:    #666666;
-    accent:   #98b898;
-    surface:  #1a1a1a;
+    bg:        #0d0d0dE6;
+    fg:        #c0c0c0;
+    bright:    #e8e8e8;
+    muted:     #666666;
+    accent:    #98b898;
+    border:    #2a2a2a;
+    highlight: #98b89826;
 
     background-color: transparent;
     text-color: @fg;
@@ -15,7 +19,8 @@
 
 window {
     background-color: @bg;
-    border: 0;
+    border: 1px;
+    border-color: @border;
     border-radius: 8px;
     width: 480px;
     padding: 8px;
@@ -41,7 +46,7 @@ listview {
     padding: 6px 0 0 0;
     margin: 6px 0 0 0;
     border: 1px 0 0 0;
-    border-color: @surface;
+    border-color: @border;
     scrollbar: false;
 }
 
@@ -55,6 +60,6 @@ element-text {
 }
 
 element selected {
-    background-color: @surface;
-    text-color: @bright;
+    background-color: @highlight;
+    text-color: @accent;
 }

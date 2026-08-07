@@ -1,0 +1,5 @@
+# imv — image viewer. The letterbox bars around a fit image sit on the
+# theme ground instead of pure black; the window itself rides the shared
+# 0.9 glass via its niri window rule (config/niri/decorations.kdl).
+[options]
+background = 0d0d0d

@@ -25,6 +25,19 @@ window-rule {
     open-floating true
 }
 
+// imv letterboxes images on the theme ground (config/imv/config); the
+// window rides the shared 0.9 glass like every other surface. The
+// photo itself is 10% translucent as a consequence — remove this rule
+// when exact color viewing matters.
+window-rule {
+    match app-id="^imv$"
+    opacity 0.9
+    draw-border-with-background false
+    background-effect {
+        blur true
+    }
+}
+
 // every terminal popup class ends in -float (btop, nmtui, pulsemixer);
 // one rule floats them all at the same size
 window-rule {
@@ -43,12 +56,10 @@ layer-rule {
     }
 }
 
-layer-rule {
-    match namespace="rofi"
-    background-effect {
-        blur true
-    }
-}
+// rofi carries no blur rule: its 2.0 layer surface is anchored to all
+// four output edges (the panel floats inside a screen-sized transparent
+// surface), so a blur behind it would frost the whole screen. Its glass
+// is the panel's own alpha in themes/mono.rasi.
 
 layer-rule {
     match namespace="^notifications$"

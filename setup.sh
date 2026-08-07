@@ -60,7 +60,7 @@ install_packages() {
         wlsunset pulsemixer grim slurp ksnip imagemagick \
         fzf zoxide wl-clipboard fd-find ripgrep \
         eza bat git-delta \
-        zathura zathura-pdf-poppler imv mpv micro \
+        zathura zathura-pdf-poppler imv mpv micro chafa \
         libnotify-bin \
         xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-gnome \
         gnome-keyring
