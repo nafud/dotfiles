@@ -1,6 +1,6 @@
 add_newline = false
 format = """
-[╭─\\(](#5a6f5d)$time[\\)](#5a6f5d)$status[─\\(](#5a6f5d)$hostname[\\)─\\(](#5a6f5d)$directory[\\)](#5a6f5d)$git_branch
+[╭─\\(](#5a6f5d)$time[\\)](#5a6f5d)$status[─\\(](#5a6f5d)$hostname[\\)─\\(](#5a6f5d)$directory[\\)](#5a6f5d)$git_branch$git_status$cmd_duration
 [╰─](#5a6f5d)$character"""
 
 [time]
@@ -28,6 +28,28 @@ truncate_to_repo = false
 [git_branch]
 style = "#666666"
 format = "[─\\[$branch\\]]($style)"
+
+# Working-tree state as a second bracket chip, only when there is any:
+# +staged !modified ?untracked =conflicted xdeleted, ↑/↓ commits ahead
+# of / behind upstream (arrows are JetBrains Mono text glyphs, cmap
+# verified). Muted yellow — dirty is a state, and color marks state.
+[git_status]
+style = "#b0a06a"
+format = "([─\\[$conflicted$staged$modified$untracked$deleted$ahead_behind\\]]($style))"
+conflicted = "=${count}"
+staged = "+${count}"
+modified = "!${count}"
+untracked = "?${count}"
+deleted = "x${count}"
+renamed = ""
+stashed = ""
+ahead = "↑${count}"
+behind = "↓${count}"
+diverged = "↑${ahead_count}↓${behind_count}"
+
+# how long the last command ran, from 2s up (starship's default floor)
+[cmd_duration]
+format = "[─\\(](#5a6f5d)[$duration](#666666)[\\)](#5a6f5d)"
 
 # λ (U+03BB), bold, after the rounded elbow. Like $, it is a text
 # glyph of the family itself: full x-height, crisp at 11 pt, no icon
