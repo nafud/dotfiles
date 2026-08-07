@@ -1,0 +1,7 @@
+#!/bin/bash
+# Launches the bar; the single place that knows how. Used by niri at
+# session start (config/niri/misc.kdl) and by setup.sh's reload. The
+# bar's output is kept in ~/.cache/waybar.log — when the bar is ever
+# missing, that file names the reason.
+mkdir -p "$HOME/.cache"
+exec waybar >"$HOME/.cache/waybar.log" 2>&1

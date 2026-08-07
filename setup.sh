@@ -384,8 +384,27 @@ reload_session() {
     sock="$(niri_socket)"
     [ -n "$sock" ] || return 0
     log "restarting waybar, reloading mako"
+    # stop the old bar and wait until it is gone, so the liveness check
+    # below can only ever see the new one
+    local _
     pkill -x -u "$(id -u)" waybar 2>/dev/null || true
-    NIRI_SOCKET="$sock" niri msg action spawn -- waybar >/dev/null 2>&1 || true
+    for _ in $(seq 1 20); do
+        pgrep -x -u "$(id -u)" waybar >/dev/null || break
+        sleep 0.1
+    done
+    NIRI_SOCKET="$sock" niri msg action spawn -- \
+        sh -c "$HOME/.local/bin/bar-session" >/dev/null 2>&1 || true
+    # a respawn that silently fails looks like a broken setup; verify the
+    # bar is up and name the log that holds the reason when it is not
+    for _ in $(seq 1 15); do
+        pgrep -x -u "$(id -u)" waybar >/dev/null && break
+        sleep 0.2
+    done
+    if pgrep -x -u "$(id -u)" waybar >/dev/null; then
+        log "waybar is up"
+    else
+        warn "waybar did not come up — see ~/.cache/waybar.log"
+    fi
     DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus}" \
         makoctl reload >/dev/null 2>&1 || true
 }

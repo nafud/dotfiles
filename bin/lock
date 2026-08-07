@@ -1,14 +1,16 @@
 #!/bin/bash
 # lock — the one lock entrypoint (keybind, powermenu, swayidle). Locks
-# over a blurred, darkened copy of the current wallpaper, rendering it
-# on the spot whenever it is missing or older than the wallpaper (so
-# the lock is always right, with or without a prior wallset run).
+# over a blurred, darkened copy of the current wallpaper. The copy is
+# rebuilt whenever it is missing or older than either of the things it
+# is made from — the wallpaper or this script (the recipe) — so a new
+# wallpaper and a pulled recipe change both take effect on the next
+# lock, with no cache to clear by hand.
 # Falls back to the flat theme color with no wallpaper or imagemagick.
 wall="$HOME/Pictures/wallpaper.jpg"
 img="$HOME/.cache/lock-wallpaper.png"
 
 if [ -f "$wall" ] && command -v convert >/dev/null; then
-    if [ ! -f "$img" ] || [ "$wall" -nt "$img" ]; then
+    if [ ! -f "$img" ] || [ "$wall" -nt "$img" ] || [ "$0" -nt "$img" ]; then
         mkdir -p "$(dirname "$img")"
         # desaturate, then sink toward the theme ground — the same feel
         # as the 0.9 glass surfaces, dim enough to rest the eyes

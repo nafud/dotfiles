@@ -5,7 +5,7 @@ environment {
     MOZ_ENABLE_WAYLAND "1"
 }
 
-spawn-at-startup "waybar"
+spawn-at-startup "sh" "-c" "$HOME/.local/bin/bar-session"
 spawn-at-startup "mako"
 spawn-at-startup "sh" "-c" "$HOME/.local/bin/wallpaper-session"
 spawn-at-startup "swayidle" "-w" "timeout" "600" "$HOME/.local/bin/lock" "timeout" "630" "niri msg action power-off-monitors" "resume" "niri msg action power-on-monitors" "before-sleep" "$HOME/.local/bin/lock"
