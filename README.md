@@ -4,7 +4,7 @@
 
 My Linux Mint 22.x workspace: the [niri](https://github.com/YaLTeR/niri)
 scrollable-tiling Wayland compositor and a keyboard-driven terminal stack
-(alacritty, zellij, yazi, waybar, fuzzel, mako, starship), everything in
+(alacritty, zellij, yazi, waybar, rofi, mako, starship), everything in
 JetBrains Mono.
 
 ## Fresh machine

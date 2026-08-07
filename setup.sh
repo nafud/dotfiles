@@ -58,7 +58,7 @@ install_packages() {
         alacritty waybar mako-notifier swaybg \
         swaylock swayidle \
         brightnessctl btop jq unzip wget curl build-essential \
-        wlsunset pulsemixer grim slurp ksnip imagemagick \
+        pulsemixer grim slurp ksnip imagemagick \
         fzf zoxide wl-clipboard fd-find ripgrep \
         eza bat git-delta \
         zathura zathura-pdf-poppler imv mpv micro \
@@ -547,7 +547,6 @@ print_summary() {
     summary_row "Delta"         "git diff pager"                         have delta
     summary_row "Wl-clipboard"  "Wayland clipboard (wl-copy/wl-paste)"   have wl-copy
     summary_row "Brightnessctl" "backlight control"                      have brightnessctl
-    summary_row "Wlsunset"      "night light"                            have wlsunset
     summary_row "Pulsemixer"    "audio mixer popup"                      have pulsemixer
     summary_row "Ksnip"         "screenshot annotator"                   have ksnip
     summary_row "Nerd Font"     "JetBrainsMono Nerd Font"                font_ok
