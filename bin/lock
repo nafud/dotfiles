@@ -10,7 +10,10 @@ img="$HOME/.cache/lock-wallpaper.png"
 if [ -f "$wall" ] && command -v convert >/dev/null; then
     if [ ! -f "$img" ] || [ "$wall" -nt "$img" ]; then
         mkdir -p "$(dirname "$img")"
-        convert "$wall" -resize 1920x -blur 0x10 -modulate 55 "$img" \
+        # desaturate, then sink toward the theme ground — the same feel
+        # as the 0.9 glass surfaces, dim enough to rest the eyes
+        convert "$wall" -resize 1920x -blur 0x12 -modulate 100,55 \
+            -fill '#0d0d0d' -colorize 60% "$img" \
             || exec swaylock -f
     fi
     exec swaylock -f -i "$img" -s fill

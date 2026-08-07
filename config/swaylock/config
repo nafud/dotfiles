@@ -1,17 +1,28 @@
+# swaylock theme — the unlock indicator in the house mono palette.
+# The wallpaper image is per-lock state, so bin/lock passes it on the
+# command line; `color` is only the ground behind a missing image.
+# Colors are rrggbb[aa]; the disc is translucent so the wallpaper
+# reads through it instead of punching a black hole in the blur.
 color=0d0d0d
 font=JetBrainsMono Nerd Font
-indicator-radius=80
-indicator-thickness=4
-inside-color=0d0d0d
-ring-color=666666
-ring-ver-color=c0c0c0
-ring-wrong-color=b5626a
-inside-ver-color=0d0d0d
-inside-wrong-color=0d0d0d
-key-hl-color=e8e8e8
-text-color=c0c0c0
-text-ver-color=c0c0c0
-text-wrong-color=b5626a
-line-uses-inside
+font-size=14
+indicator-radius=70
+indicator-thickness=3
+inside-color=0d0d0d99
+inside-ver-color=0d0d0d99
+inside-wrong-color=0d0d0d99
+inside-clear-color=0d0d0d99
+ring-color=44444488
+ring-ver-color=98b898ff
+ring-wrong-color=b5626aff
+ring-clear-color=666666ff
+key-hl-color=98b898ff
+bs-hl-color=b5626aff
+text-color=c0c0c0ff
+text-ver-color=c0c0c0ff
+text-wrong-color=b5626aff
+text-clear-color=c0c0c0ff
+line-color=00000000
+separator-color=00000000
 ignore-empty-password
 show-failed-attempts
