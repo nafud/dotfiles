@@ -7,7 +7,15 @@
     "margin-right": 6,
     "modules-left": ["custom/workspaces"],
     "modules-center": ["group/stats"],
-    "modules-right": ["tray", "group/levels", "network", "clock", "custom/power"],
+    "modules-right": ["tray", "group/levels", "custom/vpn", "network", "clock", "custom/power"],
+
+    "custom/vpn": {
+        "exec": "~/.config/waybar/vpn.sh",
+        "return-type": "json",
+        "restart-interval": 3,
+        "format": "{}",
+        "tooltip": false
+    },
 
     "tray": { "icon-size": 16, "spacing": 8 },
 

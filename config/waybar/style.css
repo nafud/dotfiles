@@ -23,7 +23,7 @@ window#waybar {
 }
 
 #temperature, #cpu, #memory, #pulseaudio, #backlight, #battery,
-#network, #clock {
+#custom-vpn, #network, #clock {
     color: #c0c0c0;
     padding: 0 8px;
     transition: color 150ms ease;
@@ -64,4 +64,20 @@ window#waybar {
 
 #pulseaudio.muted {
     color: #666666;
+}
+
+/* the vpn indicator rests monochrome while the tunnel is up; color
+   marks the deviations — tunnel down in the muted rose, blocked
+   (kill-switch holding all traffic) in the critical red, transitions
+   in the caps-warning amber */
+#custom-vpn.disconnected {
+    color: #b5626a;
+}
+
+#custom-vpn.error {
+    color: #ff5555;
+}
+
+#custom-vpn.connecting, #custom-vpn.disconnecting {
+    color: #b0a06a;
 }
