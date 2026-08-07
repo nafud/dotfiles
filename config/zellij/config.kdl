@@ -19,3 +19,17 @@ themes {
 simplified_ui true
 // no boxes around panes — splits separate by gap alone, the slick look
 pane_frames false
+
+// Locked by default: every Ctrl chord passes through to the app until
+// Ctrl+g unlocks zellij's own commands. The stock bindings sit on keys
+// micro lives on (Ctrl+s search, and Ctrl+q would quit zellij outright,
+// taking every pane with it).
+default_mode "locked"
+
+// one slim status line instead of the two hint bars
+default_layout "compact"
+
+// selections go straight to the Wayland clipboard
+copy_command "wl-copy"
+
+show_startup_tips false
