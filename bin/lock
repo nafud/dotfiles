@@ -1,9 +1,18 @@
 #!/bin/bash
 # lock — the one lock entrypoint (keybind, powermenu, swayidle). Locks
-# over a blurred, darkened copy of the wallpaper when wallset has
-# recorded one; over the flat theme color otherwise.
+# over a blurred, darkened copy of the current wallpaper, rendering it
+# on the spot whenever it is missing or older than the wallpaper (so
+# the lock is always right, with or without a prior wallset run).
+# Falls back to the flat theme color with no wallpaper or imagemagick.
+wall="$HOME/Pictures/wallpaper.jpg"
 img="$HOME/.cache/lock-wallpaper.png"
-if [ -f "$img" ]; then
+
+if [ -f "$wall" ] && command -v convert >/dev/null; then
+    if [ ! -f "$img" ] || [ "$wall" -nt "$img" ]; then
+        mkdir -p "$(dirname "$img")"
+        convert "$wall" -resize 1920x -blur 0x10 -modulate 55 "$img" \
+            || exec swaylock -f
+    fi
     exec swaylock -f -i "$img" -s fill
 fi
 exec swaylock -f

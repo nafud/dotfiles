@@ -1,9 +1,8 @@
-/* One floating frosted line (92%-era glass at 0.9, blurred by the
-   waybar layer-rule in config/niri/decorations.kdl), with the modules
-   clustered into surface chips: stats (temp/cpu/mem), levels
-   (vol/brightness/battery), then network, clock and the power button.
-   Mono discipline: icons stay in the text ladder, color marks states
-   only (charging green, critical red, muted faint). */
+/* One uniform frosted line at the shared 0.9 glass (blurred by the
+   waybar layer-rule in config/niri/decorations.kdl): no chips, no
+   borders — icons and text sit directly on the strip. Color marks
+   states only: charging green, critical red, muted faint; the power
+   glyph reddens on hover. */
 * {
     font-family: "JetBrainsMono Nerd Font", monospace;
     font-size: 13px;
@@ -18,27 +17,15 @@ window#waybar {
     border-radius: 8px;
 }
 
-/* the cluster chips — the same surface recipe at bar scale */
-#custom-workspaces,
-#stats, #group-stats,
-#levels, #group-levels,
-#network, #clock, #custom-power {
-    background: rgba(26, 26, 26, 0.85);
-    border-radius: 6px;
-    margin: 3px 0 3px 6px;
-    padding: 0 4px;
-}
-
 #custom-workspaces {
     color: #ffffff;
-    margin-left: 4px;
-    padding: 0 8px;
+    padding: 0 10px;
 }
 
 #temperature, #cpu, #memory, #pulseaudio, #backlight, #battery,
 #network, #clock {
     color: #c0c0c0;
-    padding: 0 6px;
+    padding: 0 8px;
     transition: color 150ms ease;
 }
 
@@ -48,8 +35,7 @@ window#waybar {
 
 #custom-power {
     color: #c0c0c0;
-    padding: 0 8px;
-    margin-right: 4px;
+    padding: 0 12px;
     transition: color 150ms ease;
 }
 
