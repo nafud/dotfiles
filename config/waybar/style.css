@@ -1,3 +1,9 @@
+/* One floating frosted line (92%-era glass at 0.9, blurred by the
+   waybar layer-rule in config/niri/decorations.kdl), with the modules
+   clustered into surface chips: stats (temp/cpu/mem), levels
+   (vol/brightness/battery), then network, clock and the power button.
+   Mono discipline: icons stay in the text ladder, color marks states
+   only (charging green, critical red, muted faint). */
 * {
     font-family: "JetBrainsMono Nerd Font", monospace;
     font-size: 13px;
@@ -6,12 +12,6 @@
     min-height: 0;
 }
 
-/* One floating frosted line: a single bar inset from the screen edges
-   (margins in config.jsonc, matching the niri gaps), rounded and
-   hairlined like the windows; the waybar layer-rule in
-   config/niri/decorations.kdl blurs the wallpaper behind it, and it
-   carries the shared 90% glass level (alacritty, rofi and mako use the
-   same 0.9). Hover keeps the sharpen grammar. */
 window#waybar {
     background: rgba(13, 13, 13, 0.9);
     color: #c0c0c0;
@@ -19,14 +19,28 @@ window#waybar {
     border-radius: 8px;
 }
 
+/* the cluster chips — the same surface recipe at bar scale */
+#custom-workspaces,
+#stats, #group-stats,
+#levels, #group-levels,
+#network, #clock, #custom-power {
+    background: rgba(26, 26, 26, 0.85);
+    border: 1px solid #333333;
+    border-radius: 6px;
+    margin: 3px 0 3px 6px;
+    padding: 0 4px;
+}
+
 #custom-workspaces {
     color: #ffffff;
+    margin-left: 4px;
     padding: 0 8px;
 }
 
-#cpu, #memory, #network, #pulseaudio, #battery, #clock {
+#temperature, #cpu, #memory, #pulseaudio, #backlight, #battery,
+#network, #clock {
     color: #c0c0c0;
-    padding: 0 10px;
+    padding: 0 6px;
     transition: color 150ms ease;
 }
 
@@ -34,6 +48,25 @@ window#waybar {
     color: #e8e8e8;
 }
 
-#battery.critical {
+#custom-power {
+    color: #c0c0c0;
+    padding: 0 8px;
+    margin-right: 4px;
+    transition: color 150ms ease;
+}
+
+#custom-power:hover {
+    color: #b5626a;
+}
+
+#battery.charging {
+    color: #98b898;
+}
+
+#battery.critical:not(.charging), #temperature.critical {
     color: #ff5555;
+}
+
+#pulseaudio.muted {
+    color: #666666;
 }

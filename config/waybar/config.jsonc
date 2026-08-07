@@ -7,7 +7,7 @@
     "margin-right": 6,
     "modules-left": ["custom/workspaces"],
     "modules-center": [],
-    "modules-right": ["cpu", "memory", "network", "pulseaudio", "battery", "clock"],
+    "modules-right": ["group/stats", "group/levels", "network", "clock", "custom/power"],
 
     "custom/workspaces": {
         "exec": "~/.config/waybar/workspaces.sh",
@@ -17,28 +17,34 @@
         "on-scroll-up": "niri msg action focus-workspace-up",
         "on-scroll-down": "niri msg action focus-workspace-down"
     },
-    "cpu": { "format": "cpu {usage}%", "interval": 3,
+
+    "group/stats": { "orientation": "inherit", "modules": ["temperature", "cpu", "memory"] },
+    "group/levels": { "orientation": "inherit", "modules": ["pulseaudio", "backlight", "battery"] },
+
+    "temperature": { "critical-threshold": 80, "format": " {temperatureC}°C", "interval": 5 },
+    "cpu": { "format": " {usage}%", "interval": 3,
              "on-click": "alacritty --class btop-float -e btop" },
-    "memory": { "format": "mem {percentage}%", "interval": 5,
+    "memory": { "format": "󰍛 {percentage}%", "interval": 5,
                 "on-click": "alacritty --class btop-float -e btop" },
-    "network": {
-        "format-wifi": "wifi {signalStrength}%",
-        "format-ethernet": "eth up",
-        "format-disconnected": "net down"
-    },
     "pulseaudio": {
-        "format": "vol {volume}%",
-        "format-muted": "vol mute",
+        "format": "{icon} {volume}%",
+        "format-muted": "󰝟 mute",
+        "format-icons": { "default": ["󰕿", "󰖀", "󰕾"] },
         "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
     },
+    "backlight": { "format": "{icon} {percent}%", "format-icons": ["󰃞", "󰃟", "󰃠"] },
     "battery": {
-        "format": "bat {capacity}%",
-        "format-charging": "bat {capacity}%+",
+        "format": "{icon} {capacity}%",
+        "format-charging": "󰂄 {capacity}%",
+        "format-icons": ["", "", "", "", ""],
         "states": { "critical": 15 }
     },
-    "clock": {
-        "format": "{:%a %d %b  %H:%M:%S}",
-        "interval": 1,
-        "tooltip": false
-    }
+    "network": {
+        "format-wifi": "󰖩 {signalStrength}%",
+        "format-ethernet": "󰈀 up",
+        "format-disconnected": "󰖪 down"
+    },
+    "clock": { "format": "󰥔 {:%a %d %b  %H:%M:%S}", "interval": 1, "tooltip": false },
+    "custom/power": { "format": "", "tooltip": false,
+                      "on-click": "$HOME/.local/bin/powermenu" }
 }
