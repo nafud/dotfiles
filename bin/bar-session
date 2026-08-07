@@ -3,5 +3,8 @@
 # session start (config/niri/misc.kdl) and by setup.sh's reload. The
 # bar's output is kept in ~/.cache/waybar.log — when the bar is ever
 # missing, that file names the reason.
+# One line of expected noise: waybar 0.9.24 prints basic_string::_M_create
+# once at startup under niri (during output detection, with any config,
+# bar unaffected) — it is never the reason the bar is missing.
 mkdir -p "$HOME/.cache"
 exec waybar >"$HOME/.cache/waybar.log" 2>&1

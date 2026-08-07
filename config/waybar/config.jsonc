@@ -7,7 +7,9 @@
     "margin-right": 6,
     "modules-left": ["custom/workspaces"],
     "modules-center": ["group/stats"],
-    "modules-right": ["group/levels", "network", "clock", "custom/power"],
+    "modules-right": ["tray", "group/levels", "network", "clock", "custom/power"],
+
+    "tray": { "icon-size": 16, "spacing": 8 },
 
     "custom/workspaces": {
         "exec": "~/.config/waybar/workspaces.sh",

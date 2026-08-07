@@ -29,6 +29,17 @@ window#waybar {
     transition: color 150ms ease;
 }
 
+/* the tray is the one place app icons are allowed: it exists so tray
+   apps (telegram, nm-applet) have a StatusNotifierWatcher to dock at —
+   without it their D-Bus tray registration has no host at all */
+#tray {
+    padding: 0 8px;
+}
+
+#tray > .passive {
+    -gtk-icon-effect: dim;
+}
+
 #cpu:hover, #memory:hover, #pulseaudio:hover {
     color: #e8e8e8;
 }
