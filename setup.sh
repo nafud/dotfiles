@@ -473,7 +473,9 @@ print_summary() {
     summary_row "Btop"          "system monitor"                         have btop
     summary_row "Micro"         "text editor"                            have micro
     summary_row "Zathura"       "PDF viewer"                             have zathura
-    summary_row "Imv"           "image viewer"                           have imv
+    # the imv package ships imv-wayland/imv-x11 plus a libexec wrapper for
+    # its desktop file — there is no bare `imv` command to probe
+    summary_row "Imv"           "image viewer"                           have imv-wayland
     summary_row "Mpv"           "media player"                           have mpv
     summary_row "Chafa"         "terminal image renderer (yazi preview)" have chafa
     summary_row "Fzf"           "fuzzy finder"                           have fzf
