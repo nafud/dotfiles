@@ -1,10 +1,25 @@
 #!/bin/bash
+# Low-battery notices while discharging: one critical notice as each
+# threshold is crossed (15, 10, 5), rearmed by any charge — mako holds
+# a critical banner on screen until dismissed, so repeating it every
+# few minutes only nagged. Polling, deliberately: sysfs power_supply
+# exposes no change events a shell can wait on, and a minute is far
+# finer than battery drain.
+notified=100
 while true; do
     bat=$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1)
     stat=$(cat /sys/class/power_supply/BAT*/status 2>/dev/null | head -1)
-    if [ -n "$bat" ] && [ "$stat" = "Discharging" ] && [ "$bat" -le 15 ]; then
-        notify-send -u critical "battery ${bat}%" "plug in"
-        sleep 300
+    if [ -n "$bat" ] && [ "$stat" = "Discharging" ]; then
+        th=100
+        for t in 15 10 5; do
+            [ "$bat" -le "$t" ] && th=$t
+        done
+        if [ "$th" -lt "$notified" ]; then
+            notify-send -u critical "battery ${bat}%" "plug in"
+            notified=$th
+        fi
+    else
+        notified=100
     fi
     sleep 60
 done
