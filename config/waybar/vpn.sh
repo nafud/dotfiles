@@ -48,8 +48,16 @@ render() {
 }
 render
 
-# stream in the background, reaped by the trap — the workspaces.sh
-# recipe: the pipeline must not outlive the bar's reload
+# stream and bar-watchdog in the background, the group felled when the
+# bar goes — the workspaces.sh recipe: waybar orphans its scripts, so
+# each script owns its own lifetime. wait -n keeps the other exit
+# alive: the stream ending (daemon restart) still ends the script, and
+# waybar's restart-interval re-probes as before.
+bar=$PPID
+while [ "${bar:-1}" -gt 1 ] && [ "$(ps -o comm= -p "$bar" 2>/dev/null)" != "waybar" ]; do
+    bar=$(ps -o ppid= -p "$bar" 2>/dev/null | tr -d ' ')
+done
 trap 'trap - TERM; kill 0' TERM INT EXIT
+( while kill -0 "${bar:-1}" 2>/dev/null; do sleep 5; done; kill 0 ) &
 mullvad status listen 2>/dev/null | while IFS= read -r _; do render; done &
-wait
+wait -n
