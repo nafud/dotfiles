@@ -7,7 +7,15 @@
     "margin-right": 6,
     "modules-left": ["custom/workspaces"],
     "modules-center": ["group/stats"],
-    "modules-right": ["tray", "group/levels", "custom/vpn", "network", "clock", "custom/power"],
+    "modules-right": ["tray", "group/levels", "custom/vpn", "network", "custom/layout", "clock", "custom/power"],
+
+    "custom/layout": {
+        "exec": "~/.config/waybar/layout.sh",
+        "restart-interval": 3,
+        "format": "{}",
+        "tooltip": false,
+        "on-click": "niri msg action switch-layout next"
+    },
 
     "custom/vpn": {
         "exec": "~/.config/waybar/vpn.sh",

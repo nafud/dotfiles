@@ -23,7 +23,7 @@ window#waybar {
 }
 
 #temperature, #cpu, #memory, #pulseaudio, #backlight, #battery,
-#custom-vpn, #network, #clock {
+#custom-vpn, #network, #custom-layout, #clock {
     color: #c0c0c0;
     padding: 0 8px;
     transition: color 150ms ease;
@@ -40,7 +40,8 @@ window#waybar {
     -gtk-icon-effect: dim;
 }
 
-#cpu:hover, #memory:hover, #pulseaudio:hover, #custom-vpn:hover {
+#cpu:hover, #memory:hover, #pulseaudio:hover, #custom-vpn:hover,
+#custom-layout:hover {
     color: #e8e8e8;
 }
 
