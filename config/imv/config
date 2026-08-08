@@ -3,3 +3,16 @@
 # 0.9 glass via its niri window rule (config/niri/decorations.kdl).
 [options]
 background = 0d0d0d
+
+# Info strip along the bottom: filename, pixel dimensions, zoom.
+# `i` toggles it off when the image should stand alone.
+overlay = true
+overlay_position_bottom = true
+overlay_text = [$imv_current_index/$imv_file_count] $imv_current_file  ${imv_width}x${imv_height}  ${imv_scale}%
+overlay_font = JetBrainsMono Nerd Font:11
+overlay_text_color = e8e8e8
+overlay_background_color = 0d0d0d
+overlay_background_alpha = cc
+
+[binds]
+i = overlay
