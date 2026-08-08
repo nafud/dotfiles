@@ -1,0 +1,14 @@
+# Poke the bar's updates module the moment package state changes:
+# dpkg rewrites status on every install/remove, apt rewrites lists on
+# every cache refresh, flatpak stamps .changed. Without this the badge
+# waits out the module's 30-minute interval after updates are applied.
+[Unit]
+Description=refresh waybar updates module on package state changes
+
+[Path]
+PathChanged=/var/lib/dpkg/status
+PathModified=/var/lib/apt/lists
+PathChanged=/var/lib/flatpak/.changed
+
+[Install]
+WantedBy=default.target

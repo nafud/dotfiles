@@ -342,6 +342,16 @@ link_configs() {
     done
 }
 
+# The repo ships user units (config/systemd/user — linked into place by
+# link_configs like any other entry); enabling them is the glue only
+# setup can do. waybar-updates.path pokes the bar's updates module
+# whenever dpkg, apt or flatpak state changes.
+enable_units() {
+    systemctl --user daemon-reload 2>/dev/null || true
+    systemctl --user enable --now waybar-updates.path 2>/dev/null \
+        || warn "could not enable waybar-updates.path (no user session?)"
+}
+
 # --------------------------------------------------------- 8. shell setup ---
 # ~/.bashrc is shared with the system's own content, so it is not linked;
 # only the marked block is owned, and it is replaced in place on every run
@@ -585,6 +595,7 @@ main() {
             configure_git
             set_default_apps
             link_configs
+            enable_units
             write_shell
             configure_btop
             configure_micro
@@ -600,6 +611,7 @@ main() {
             ;;
         link|configure)
             link_configs
+            enable_units
             write_shell
             configure_btop
             configure_micro

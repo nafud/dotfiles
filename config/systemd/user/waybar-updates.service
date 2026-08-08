@@ -1,0 +1,11 @@
+[Unit]
+Description=poke waybar updates module
+# an apt refresh touches lists dozens of times in seconds — the pokes
+# must never be rate-limited into a failed unit
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+# the module subscribes with "signal": 8; a bar that isn't running is
+# not a failure
+ExecStart=-/usr/bin/pkill -RTMIN+8 -x waybar
