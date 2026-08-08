@@ -7,6 +7,14 @@ window-rule {
     clip-to-geometry true
 }
 
+// The layout owns window geometry: apps that remember a maximized
+// state across restarts (Telegram, Firefox) are denied it, so every
+// window opens as a regular framed tile. Mod+F still maximizes a
+// column on demand.
+window-rule {
+    open-maximized false
+}
+
 // Frosted ground behind the semitransparent terminals: xray blur (the
 // niri default when blur is on) blurs the wallpaper once and reuses it,
 // so it costs almost nothing. draw-border-with-background false keeps

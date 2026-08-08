@@ -3,6 +3,10 @@ prefer-no-csd
 environment {
     _JAVA_AWT_WM_NONREPARENTING "1"
     MOZ_ENABLE_WAYLAND "1"
+    // prefer-no-csd covers apps that negotiate xdg-decoration; this
+    // catches Qt apps that skip the negotiation and would draw their
+    // own titlebar buttons anyway
+    QT_WAYLAND_DISABLE_WINDOWDECORATION "1"
     // for everything spawned by binds, not just interactive shells —
     // yazi's `e` under Mod+E would otherwise fall back to vi
     EDITOR "micro"
