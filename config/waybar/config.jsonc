@@ -31,7 +31,6 @@
         "return-type": "json",
         "restart-interval": 3,
         "format": "{}",
-        "tooltip": false,
         "on-click": "~/.config/waybar/vpn.sh gui",
         "on-click-right": "~/.config/waybar/vpn.sh toggle"
     },

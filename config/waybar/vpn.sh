@@ -28,6 +28,8 @@ if [ "${1:-}" = "toggle" ]; then
     esac
 fi
 
+# the bar keeps the shortened relay; the tooltip carries what the bar
+# elides — exit location, exit address, the relay's full name
 render() {
     mullvad status --json 2>/dev/null | jq -c '
         {text: (if   .state == "connected"
@@ -37,7 +39,10 @@ render() {
                 elif .state == "connecting"    then "󰦝 …"
                 elif .state == "disconnecting" then "󰦞 …"
                 else                                "󰦞 down" end),
-         class: .state}'
+         class: .state,
+         tooltip: (if .state == "connected" and .details.location != null
+                   then "\(.details.location.city), \(.details.location.country)\n\(.details.location.ipv4 // "?") · \(.details.location.hostname)"
+                   else "tunnel \(.state)" end)}'
 }
 render
 
