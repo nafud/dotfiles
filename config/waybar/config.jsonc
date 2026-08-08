@@ -7,7 +7,16 @@
     "margin-right": 6,
     "modules-left": ["custom/workspaces"],
     "modules-center": ["group/stats"],
-    "modules-right": ["tray", "group/levels", "custom/vpn", "network", "custom/layout", "clock", "custom/power"],
+    "modules-right": ["tray", "custom/updates", "group/levels", "custom/vpn", "network", "custom/layout", "clock", "custom/power"],
+
+    "custom/updates": {
+        "exec": "~/.config/waybar/updates.sh",
+        "return-type": "json",
+        "interval": 1800,
+        "signal": 8,
+        "format": "{}",
+        "on-click": "~/.config/waybar/updates.sh gui"
+    },
 
     "custom/layout": {
         "exec": "~/.config/waybar/layout.sh",
@@ -44,7 +53,7 @@
     "temperature": { "critical-threshold": 80, "format": " {temperatureC}°C", "interval": 5 },
     "cpu": { "format": " {usage}%", "interval": 3,
              "on-click": "alacritty --class btop-float -e btop" },
-    "memory": { "format": "󰍛 {percentage}%", "interval": 5,
+    "memory": { "format": "󰘚 {percentage}%", "interval": 5,
                 "on-click": "alacritty --class btop-float -e btop" },
     "pulseaudio": {
         "format": "{icon} {volume}%",

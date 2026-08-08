@@ -23,7 +23,7 @@ window#waybar {
 }
 
 #temperature, #cpu, #memory, #pulseaudio, #backlight, #battery,
-#custom-vpn, #network, #custom-layout, #clock {
+#custom-vpn, #custom-updates, #network, #custom-layout, #clock {
     color: #c0c0c0;
     padding: 0 8px;
     transition: color 150ms ease;
@@ -41,8 +41,18 @@ window#waybar {
 }
 
 #cpu:hover, #memory:hover, #pulseaudio:hover, #custom-vpn:hover,
-#custom-layout:hover {
+#custom-updates:hover, #custom-layout:hover {
     color: #e8e8e8;
+}
+
+/* the updates glyph rests monochrome when up to date; pending updates
+   take the caps-warning amber, pending security fixes the muted rose */
+#custom-updates.updates {
+    color: #b0a06a;
+}
+
+#custom-updates.security {
+    color: #b5626a;
 }
 
 #custom-power {
