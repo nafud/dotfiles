@@ -1,7 +1,11 @@
 input {
     keyboard {
         xkb {
-            options "ctrl:nocaps"
+            // us, az, ru in that order — the order is the Alt+Shift
+            // cycle; grp: is the xkb group switch, deliberately not a
+            // compositor bind so it also works on the lock screen
+            layout "us,az,ru"
+            options "ctrl:nocaps,grp:alt_shift_toggle"
         }
         repeat-delay 500
         repeat-rate 30
