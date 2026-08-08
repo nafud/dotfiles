@@ -19,7 +19,6 @@
 #         bash setup.sh link     (re)link configs + validate + reload only
 #         bash setup.sh update   refresh what apt does not manage: pacstall
 #                                builds (niri, rofi, xwayland-satellite),
-#                                swaylock-effects,
 #                                release binaries, hellwal
 #         bash setup.sh summary  print the probed component summary
 #
@@ -230,29 +229,23 @@ install_chafa() {
     sudo ldconfig
 }
 
-# swaylock-effects: the lock screen with time at rest in the ring.
-# Stock swaylock has no clock; this fork (packaged by Alpine and other
-# distros) adds one with the same config format, CLI and PAM service
-# name. Built from a pinned tag, only the binary installed — it shadows
-# the archive's /usr/bin/swaylock on PATH while the archive package
-# stays for /etc/pam.d/swaylock, which both binaries use. bin/lock
-# detects the clock capability, so either binary locks correctly.
-SLE_VER="v1.7.0.0"
-install_swaylock_effects() {
-    local force="${1:-}"
-    if [ -z "$force" ] && have swaylock \
-        && swaylock --help 2>&1 | grep -q -- --clock; then
+# hyprlock: the lock screen — clock, layout mark and state-colored ring
+# drawn from config/hypr/hyprlock.conf, GPU-rendered over the blurred
+# wallpaper. Maintained upstream and prebuilt for noble with its whole
+# hypr* dependency chain by the hyprland PPA: nothing compiled, nothing
+# forked. The archive swaylock stays installed as bin/lock's fallback
+# (and locking works through it until this PPA step has run).
+install_hyprlock() {
+    if have hyprlock; then
         return
     fi
-    log "building swaylock-effects $SLE_VER"
-    sudo apt-get install -y meson ninja-build libpam0g-dev libcairo2-dev \
-        libgdk-pixbuf-2.0-dev libxkbcommon-dev libwayland-dev wayland-protocols
-    git clone -q --depth 1 -b "$SLE_VER" \
-        https://github.com/jirutka/swaylock-effects "$WORK/swaylock-effects"
-    (cd "$WORK/swaylock-effects" \
-        && meson setup build --buildtype=release -Dman-pages=disabled >/dev/null \
-        && ninja -C build >/dev/null)
-    sudo install -m 755 "$WORK/swaylock-effects/build/swaylock" /usr/local/bin/swaylock
+    log "installing hyprlock (hyprland PPA)"
+    sudo add-apt-repository -y ppa:cppiber/hyprland
+    sudo apt-get update -qq
+    sudo apt-get install -y hyprlock
+    # setup once built the swaylock-effects fork over the archive
+    # swaylock; with hyprlock primary that shadow is only drift
+    sudo rm -f /usr/local/bin/swaylock
 }
 
 # hellwal: fast pywal-style palette generator, used by bin/wallset. Not
@@ -526,8 +519,6 @@ portals_ok() {
         && dpkg -s xdg-desktop-portal-gnome >/dev/null 2>&1
 }
 
-# true when the swaylock on PATH is the effects fork (has the clock)
-swaylock_effects_ok() { swaylock --help 2>&1 | grep -q -- --clock; }
 
 configs_linked() {
     [ -L "$CFG/niri" ] && [ "$(readlink -f "$CFG/niri")" = "$REPO/config/niri" ]
@@ -555,7 +546,7 @@ print_summary() {
     summary_row "Waybar"        "status bar"                             have waybar
     summary_row "Mako"          "notification daemon"                    have mako
     summary_row "Swaybg"        "wallpaper daemon"                       have swaybg
-    summary_row "Swaylock"      "screen locker (clock fork)"             swaylock_effects_ok
+    summary_row "Hyprlock"      "screen locker (swaylock fallback)"      have hyprlock
     summary_row "Swayidle"      "idle manager"                           have swayidle
     summary_row "Yazi"          "terminal file manager (+ ya)"           have yazi
     summary_row "Zellij"        "terminal multiplexer"                   have zellij
@@ -595,7 +586,7 @@ main() {
             install_binaries
             install_starship
             install_rofi
-            install_swaylock_effects
+            install_hyprlock
             install_hellwal
             install_chafa
             configure_git
@@ -635,7 +626,6 @@ main() {
             install_binaries force
             install_hellwal force
             install_chafa force
-            install_swaylock_effects force
             log "update complete"
             print_summary
             ;;

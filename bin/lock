@@ -1,18 +1,43 @@
 #!/bin/bash
-# lock — the one lock entrypoint (keybind, powermenu, swayidle). Locks
-# over a blurred, darkened copy of the current wallpaper. The copy is
-# rebuilt whenever it is missing or older than either of the things it
-# is made from — the wallpaper or this script (the recipe) — so a new
-# wallpaper and a pulled recipe change both take effect on the next
-# lock, with no cache to clear by hand.
-# Falls back to the flat theme color with no wallpaper or imagemagick.
+# lock — the one lock entrypoint (keybind, powermenu, swayidle).
+# hyprlock draws the whole scene from config/hypr/hyprlock.conf: the
+# wallpaper blurred and sunk toward the theme ground on the GPU, the
+# clock, the layout mark, the state-colored ring. setup.sh installs it
+# from the hyprland PPA; until that has run, the swaylock fallback
+# below locks over a pre-rendered blur, so a lock always exists.
+
+# the session lock is single-holder: locked already means done
+pgrep -x hyprlock >/dev/null && exit 0
+
+if command -v hyprlock >/dev/null; then
+    # hyprlock holds the foreground until unlock, but swayidle -w needs
+    # this command to return once the session is LOCKED — waiting for
+    # the unlock would stall before-sleep, and returning before the
+    # lock is up would let suspend race it. Background it and return on
+    # logind's locked hint (niri raises it when the lock is accepted).
+    hyprlock >/dev/null 2>&1 &
+    if [ -n "${XDG_SESSION_ID:-}" ]; then
+        for _ in $(seq 1 30); do
+            [ "$(loginctl show-session "$XDG_SESSION_ID" -p LockedHint --value 2>/dev/null)" = "yes" ] \
+                && exit 0
+            sleep 0.1
+        done
+    else
+        sleep 1
+    fi
+    exit 0
+fi
+
+# ---- swaylock fallback ------------------------------------------------
+# Locks over a blurred, darkened copy of the current wallpaper, rebuilt
+# whenever it is missing or older than the wallpaper or this recipe.
+# Falls back to the flat theme ground with no wallpaper or imagemagick.
 wall="$HOME/Pictures/wallpaper.jpg"
 img="$HOME/.cache/lock-wallpaper.png"
 
-# time at rest inside the ring — but only when the binary is the
-# swaylock-effects fork (setup.sh builds it). Stock swaylock rejects
-# unknown options, and a lock that fails to start is an unlocked
-# session, so the flags ride on capability detection, never on config.
+# time inside the ring only when the binary is the effects fork; stock
+# swaylock rejects unknown options, and a lock that fails to start is
+# an unlocked session, so the flags ride on capability detection
 clock_args=()
 if swaylock --help 2>&1 | grep -q -- --clock; then
     clock_args=(--clock --timestr "%H:%M" --datestr "%a %d %b")
@@ -25,8 +50,8 @@ if [ -f "$wall" ] && command -v convert >/dev/null; then
         # as the 0.9 glass surfaces, dim enough to rest the eyes
         convert "$wall" -resize 1920x -blur 0x12 -modulate 100,55 \
             -fill '#0d0d0d' -colorize 60% "$img" \
-            || exec swaylock -f "${clock_args[@]}"
+            || exec swaylock -f -c 0d0d0d "${clock_args[@]}"
     fi
-    exec swaylock -f "${clock_args[@]}" -i "$img" -s fill
+    exec swaylock -f -c 0d0d0d "${clock_args[@]}" -i "$img" -s fill
 fi
-exec swaylock -f "${clock_args[@]}"
+exec swaylock -f -c 0d0d0d "${clock_args[@]}"
