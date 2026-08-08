@@ -14,7 +14,9 @@ command -v mullvad >/dev/null || exit 0
 # shows its window, never a duplicate. gio launch reads the desktop
 # entry, whose Exec path contains a space best left to it.
 if [ "${1:-}" = "gui" ]; then
-    exec gio launch /usr/share/applications/mullvad-vpn.desktop
+    # the click handler inherits the bar's fds — the electron app's
+    # chatter must not land in waybar.log
+    exec gio launch /usr/share/applications/mullvad-vpn.desktop >/dev/null 2>&1
 fi
 
 # `vpn.sh toggle` is the module's right-click. Anything not on the way

@@ -59,6 +59,7 @@
         "format": "{icon} {volume}%",
         "format-muted": "󰝟 mute",
         "format-icons": { "default": ["󰕿", "󰖀", "󰕾"] },
+        "scroll-step": 5,
         "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
     },
     "backlight": { "format": "{icon} {percent}%", "format-icons": ["󰃞", "󰃟", "󰃠"] },
@@ -71,7 +72,8 @@
     "network": {
         "format-wifi": "󰖩 {signalStrength}%",
         "format-ethernet": "󰈀 up",
-        "format-disconnected": "󰖪 down"
+        "format-disconnected": "󰖪 down",
+        "on-click": "alacritty --class nmtui-float -e nmtui"
     },
     "clock": { "format": "󰥔 {:%a %d %b  %H:%M:%S}", "interval": 1, "tooltip": false },
     "custom/power": { "format": "", "tooltip": false,

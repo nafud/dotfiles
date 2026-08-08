@@ -11,7 +11,9 @@
 command -v mintupdate-cli >/dev/null || exit 0
 
 if [ "${1:-}" = "gui" ]; then
-    exec mintupdate
+    # the click handler inherits the bar's fds — the gui's gtk chatter
+    # must not land in waybar.log
+    exec mintupdate >/dev/null 2>&1
 fi
 
 list="$(mintupdate-cli list 2>/dev/null)" || exit 0
