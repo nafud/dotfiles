@@ -4,9 +4,10 @@
 # never dock it — so the bar renders the state itself: mintupdate-cli
 # carries the same blacklist and kernel logic as the GUI, the count is
 # its line count. Monochrome at rest; color marks pending updates,
-# the rose reserved for pending security fixes. The autostarted GUI
-# process (config/niri/misc.kdl) keeps the apt cache fresh; clicking
-# the module surfaces its window — single-instance, never a duplicate.
+# the rose reserved for pending security fixes. The mintupdate process
+# (autostarted by systemd's xdg-autostart-generator) keeps the apt
+# cache fresh; clicking the module surfaces its window —
+# single-instance, never a duplicate.
 command -v mintupdate-cli >/dev/null || exit 0
 
 if [ "${1:-}" = "gui" ]; then

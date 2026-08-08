@@ -13,12 +13,13 @@ environment {
     VISUAL "micro"
 }
 
+// XDG autostart needs no spawns here: systemd's xdg-autostart-generator
+// runs /etc/xdg/autostart under this session too. mintupdate arrives
+// that way (hidden, keeps the apt cache fresh — the bar's
+// custom/updates module renders its state); what a Cinnamon desktop
+// autostarts and niri has no use for is hidden per-user by setup.sh
+// (fix_units), not spawned around.
 spawn-at-startup "sh" "-c" "$HOME/.local/bin/bar-session"
-// cinnamon autostarted this via XDG autostart, which niri doesn't run;
-// it starts hidden, keeps the apt cache fresh and updates flatpaks —
-// the bar's custom/updates module renders its state (its own tray icon
-// is XApp-only, invisible to waybar)
-spawn-at-startup "mintupdate-launcher"
 spawn-at-startup "mako"
 spawn-at-startup "sh" "-c" "$HOME/.local/bin/wallpaper-session"
 // the `lock` handler answers loginctl lock-session (the system's own

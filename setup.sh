@@ -111,13 +111,19 @@ fix_units() {
     done
     systemctl --user daemon-reload 2>/dev/null || true
 
-    # ibus and blueman autostarts leak into niri via xdg-autostart-generator
-    # (ibus is Cinnamon's input method; blueman's applet is only wanted as a
-    # tray icon we don't keep). Hide each for this user with the
-    # XDG-specified per-user override — never system-wide, so the Cinnamon
-    # fallback session keeps its own behavior.
+    # Cinnamon-desktop autostarts leak into niri via xdg-autostart-generator
+    # (systemd runs /etc/xdg/autostart under any session): ibus is
+    # Cinnamon's input method, blueman's applet and mintreport are tray
+    # icons we don't keep, touchegg serves X11 gestures, nm-applet is
+    # covered by the bar's network module and nmtui, geoclue's demo agent
+    # and evolution's alarm notifier serve apps that aren't here. Hide
+    # each for this user with the XDG-specified per-user override — never
+    # system-wide, so the Cinnamon fallback session keeps its own behavior.
     local desk
-    for desk in ibus-daemon.desktop blueman.desktop; do
+    for desk in ibus-daemon.desktop blueman.desktop touchegg.desktop \
+                nm-applet.desktop mintreport.desktop \
+                geoclue-demo-agent.desktop \
+                org.gnome.Evolution-alarm-notify.desktop; do
         if [ -f "/etc/xdg/autostart/$desk" ]; then
             mkdir -p "$CFG/autostart"
             if ! grep -qs '^Hidden=true' "$CFG/autostart/$desk"; then
