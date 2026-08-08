@@ -40,4 +40,9 @@ render() {
          class: .state}'
 }
 render
-mullvad status listen 2>/dev/null | while IFS= read -r _; do render; done
+
+# stream in the background, reaped by the trap — the workspaces.sh
+# recipe: the pipeline must not outlive the bar's reload
+trap 'trap - TERM; kill 0' TERM INT EXIT
+mullvad status listen 2>/dev/null | while IFS= read -r _; do render; done &
+wait

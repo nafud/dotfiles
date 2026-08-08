@@ -10,8 +10,17 @@ render() {
                  | join("")'
 }
 render
+
+# The stream must die with the bar: waybar starts each module script in
+# a process group of its own and TERMs only the script on reload — a
+# foreground pipeline would outlive it as orphans rendering into a dead
+# pipe. The group is ours alone, so kill 0 takes down exactly the
+# pipeline; backgrounding it frees bash to run the trap the moment the
+# signal lands, where a foreground pipeline would hold it to the end.
+trap 'trap - TERM; kill 0' TERM INT EXIT
 niri msg --json event-stream | while IFS= read -r event; do
     case "$event" in
         *Workspace*) render ;;
     esac
-done
+done &
+wait
