@@ -53,7 +53,7 @@
     "temperature": { "critical-threshold": 80, "format": " {temperatureC}°C", "interval": 5 },
     "cpu": { "format": " {usage}%", "interval": 3,
              "on-click": "alacritty --class btop-float -e btop" },
-    "memory": { "format": "󰘚 {percentage}%", "interval": 5,
+    "memory": { "format": "<span size='138%'>󰘚</span> {percentage}%", "interval": 5,
                 "on-click": "alacritty --class btop-float -e btop" },
     "pulseaudio": {
         "format": "{icon} {volume}%",
