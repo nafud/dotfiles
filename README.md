@@ -12,15 +12,23 @@ paru, which setup.sh bootstraps.
 ## Fresh machine
 
 Base system first: [docs/arch-install.md](docs/arch-install.md) (encrypted
-btrfs, snapshots, zram). Then:
+btrfs, snapshots, zram). Then one command:
+
+```
+curl -fsSL https://raw.githubusercontent.com/nafud/niri/main/bootstrap.sh | bash
+```
+
+It clones this repo into `~/niri` (HTTPS — no SSH key needed to receive;
+the push URL is set to SSH for when the key is restored) and hands off to
+`setup.sh`. Equivalent by hand:
 
 ```
 git clone https://github.com/nafud/niri.git ~/niri
 bash ~/niri/setup.sh
 ```
 
-Then reboot (or log out) and pick the **niri** session in tuigreet. The
-script is idempotent (safe to run again at any time) and ends with a probed
+Then reboot (or log out) and pick the **niri** session in tuigreet. Both
+paths are idempotent (safe to run again at any time) and end with a probed
 component summary, so what it reports installed is what is actually on disk.
 
 ## Layout

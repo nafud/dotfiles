@@ -601,10 +601,18 @@ setup.sh bootstraps (this is what `base-devel` from step 2 is for). What
 took apt + pacstall + a PPA + GitHub downloads on Mint is one pacman
 transaction and one paru transaction here.
 
-### 7.1 Clone and run
+### 7.1 One command
 
 ```sh
-git clone git@github.com:nafud/niri.git ~/niri   # SSH key restored in step 0
+curl -fsSL https://raw.githubusercontent.com/nafud/niri/main/bootstrap.sh | bash
+```
+
+`bootstrap.sh` clones the repo into `~/niri` over HTTPS (no SSH key needed
+to receive), sets the push URL to SSH (for when the key from the step 0
+backup is restored), and hands off to `setup.sh`. Equivalent by hand:
+
+```sh
+git clone https://github.com/nafud/niri.git ~/niri
 bash ~/niri/setup.sh
 ```
 
