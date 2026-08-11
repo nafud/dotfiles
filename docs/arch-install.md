@@ -263,6 +263,7 @@ grub-mkconfig -o /boot/grub/grub.cfg      # generates entries for linux + linux-
 systemctl enable NetworkManager
 systemctl enable fstrim.timer            # weekly SSD TRIM
 systemctl enable systemd-timesyncd
+systemctl enable sshd                    # optional: continue post-install work over SSH
 ```
 
 Notes:
@@ -275,6 +276,57 @@ Notes:
 
 ---
 
-## Step 4 — TBD
+## Step 4 — Exit, reboot, first boot
+
+```sh
+exit                          # leave the chroot
+umount -R /mnt
+cryptsetup close cryptroot    # also confirms nothing still holds the fs open
+reboot                        # remove the USB stick when the screen goes dark
+```
+
+> The SSH session to the live ISO ends here. The LUKS passphrase is a
+> pre-boot prompt — it must be typed at the physical console. If `sshd` was
+> enabled in 3.7, post-install work can continue over SSH after logging in
+> and bringing up the network (log in as the user; root SSH login is
+> disabled by default).
+
+### First-boot checklist
+
+1. GRUB menu shows entries for **both** `linux` and `linux-lts`.
+2. Initramfs prompts for the `cryptroot` passphrase (the `encrypt` hook at work).
+3. Console login as the user, then network:
+   `nmtui` or `nmcli device wifi connect "SSID" password "..."`.
+4. Sanity sweep:
+
+```sh
+ping -c3 archlinux.org
+timedatectl                   # NTP synced
+free -h                       # 24 GB visible
+findmnt /                     # /dev/mapper/cryptroot, subvol=/@, compress=zstd
+```
+
+### If it doesn't boot
+
+Bare `grub>` prompt or rescue shell → boot the ISO again and repair; do not
+reinstall:
+
+```sh
+cryptsetup open /dev/nvme0n1p3 cryptroot
+# remount everything per step 1.6, then:
+arch-chroot /mnt
+# fix step 3.5 (mkinitcpio hooks) or 3.6 (GRUB cryptdevice=), regenerate,
+# exit, umount -R /mnt, reboot
+```
+
+---
+
+**Base install complete.** Remaining post-install layer, in order:
+
+1. snapper + grub-btrfs (snapshot-before-update workflow)
+2. zram swap
+3. niri workspace deployment from this repo
+
+## Step 5 — TBD
 
 *(next steps land here as they are agreed)*
