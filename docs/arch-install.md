@@ -332,6 +332,32 @@ arch-chroot /mnt
 Everything from here on runs on the installed system, as the regular user
 with `sudo`.
 
+### Snapshot strategy (decided)
+
+Options considered, and where each landed:
+
+- **Transaction-driven snapshots (snap-pac)** — **chosen as the only
+  automatic trigger.** Every pacman transaction gets a pre/post pair; on a
+  rolling release those transactions are precisely the events worth rolling
+  back. Snapshot count stays proportional to system changes, not to time.
+- **Timeline snapshots (hourly/daily/…)** — rejected. Time-based snapshots
+  of the root filesystem mostly capture nothing (root barely changes between
+  transactions) while burying the meaningful pre-update snapshots in noise.
+- **Boot snapshots (`snapper-boot.timer`)** — rejected, same noise argument;
+  snap-pac already brackets every change that could make a boot differ.
+- **Timeshift (familiar from Mint)** — rejected on Arch: its pacman
+  integration lives in the AUR, it fights snapper for `/.snapshots`-style
+  layouts, and grub-btrfs needs a nonstandard daemon flag for it. snapper is
+  the Arch-native path.
+- **Ad-hoc snapshots** stay available for experiments outside pacman
+  (config surgery, trying a dotfiles change):
+  `sudo snapper create --description "before X"`.
+
+Cleanup: `snapper-cleanup.timer` prunes by count (`NUMBER_LIMIT`), so disk
+use is bounded and old pairs age out automatically. With `@log`, `@pkg` and
+`@home` as separate subvolumes, snapshots cover exactly the system itself —
+small under zstd, and a rollback never touches logs, package cache, or home.
+
 ### 5.1 Packages
 
 ```sh
@@ -442,6 +468,174 @@ live outside btrfs): `sudo pacman -S linux linux-lts`.
 
 ---
 
-## Step 6 — TBD
+## Step 6 — zram swap
 
-*(zram swap, then niri workspace deployment)*
+Compressed swap in RAM — no partition, no swapfile (decided in step 1;
+no hibernation).
+
+### 6.1 Install and configure
+
+```sh
+sudo pacman -S zram-generator
+```
+
+Create `/etc/systemd/zram-generator.conf`:
+
+```ini
+[zram0]
+zram-size = ram / 2
+compression-algorithm = zstd
+```
+
+`ram / 2` = a 12 G zram device on this machine. With zstd's typical 3:1
+ratio on swapped pages, that costs ~4 G of RAM when completely full while
+extending effective memory well past physical — the right trade at 24 GB,
+where swap is occasional overflow, not a working set.
+
+### 6.2 Kernel tuning for zram
+
+zram inverts the usual swap cost model (swapping to it is cheap, readahead
+is pointless), so the stock VM defaults are wrong for it. These are the
+values recommended by the zram-generator/ArchWiki guidance — create
+`/etc/sysctl.d/99-vm-zram.conf`:
+
+```ini
+vm.swappiness = 180
+vm.watermark_boost_factor = 0
+vm.watermark_scale_factor = 125
+vm.page-cluster = 0
+```
+
+(`swappiness > 100` deliberately prefers swapping cold anonymous pages to
+zram over dropping file cache — correct when "swap" is RAM-speed;
+`page-cluster = 0` disables swap readahead, which only made sense on disks.)
+
+### 6.3 Activate and verify
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl start systemd-zram-setup@zram0.service
+sudo sysctl --system
+zramctl                    # zram0, zstd, 12G
+swapon --show              # /dev/zram0 active, prio 100
+```
+
+The generator creates the device on every boot from the config file — no
+service to enable.
+
+---
+
+## Step 7 — Deploy the niri workspace
+
+The workspace lives in this repository (`config/` → `~/.config`, `bin/` →
+`~/.local/bin`, linked by `setup.sh`). On Mint, `setup.sh` pulled packages
+from apt/pacstall/PPAs/GitHub releases; on Arch, **everything but one
+package is in the official repos**, current versions — the entire pacstall
+and release-binary machinery becomes a single pacman command.
+
+### 7.1 Audio stack (not part of the base install)
+
+```sh
+sudo pacman -S pipewire pipewire-pulse pipewire-alsa wireplumber
+```
+
+PipeWire with the PulseAudio shim — `pulsemixer` (the bar's audio popup)
+talks to it unchanged. Starts automatically as a user service on login.
+
+### 7.2 The workspace package set (official repos)
+
+```sh
+sudo pacman -S \
+  niri xwayland-satellite \
+  alacritty waybar mako swaybg swayidle swaylock hyprlock rofi \
+  yazi zellij cliphist starship chafa micro btop \
+  zathura zathura-pdf-poppler imv mpv \
+  grim slurp ksnip imagemagick brightnessctl pulsemixer \
+  fzf zoxide wl-clipboard fd ripgrep eza bat git-delta jq \
+  libnotify gnome-keyring \
+  xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-gnome \
+  ttf-jetbrains-mono-nerd pacman-contrib
+```
+
+What this replaces from the Mint setup:
+
+| Mint mechanism | On Arch |
+|---|---|
+| pacstall builds: niri, rofi 2.0, xwayland-satellite | official repos, current |
+| GitHub release binaries: yazi, zellij, cliphist | official repos |
+| starship curl-installer, chafa source build | official repos |
+| hyprlock PPA | official repos |
+| Nerd Font zip download | `ttf-jetbrains-mono-nerd` |
+| `mintupdate-cli` (waybar updates module) | `checkupdates` from `pacman-contrib` |
+
+Note: `rofi` in Arch's repos is the Wayland-native 2.0 line (the old
+`rofi-wayland` split package was merged back into it).
+
+Optional: a polkit authentication agent (e.g. `polkit-gnome`) if GUI apps
+ever need privilege prompts — the terminal/sudo workflow doesn't.
+
+### 7.3 AUR helper + the one AUR package
+
+```sh
+git clone https://aur.archlinux.org/paru.git ~/aur/paru
+cd ~/aur/paru && makepkg -si
+paru -S hellwal          # palette generator used by bin/wallset
+```
+
+(`base-devel` and `git` are already present from step 2 — this is why.)
+
+### 7.4 Display manager: greetd + tuigreet
+
+Lean, niri-appropriate replacement for Mint's greeter:
+
+```sh
+sudo pacman -S greetd greetd-tuigreet
+```
+
+`/etc/greetd/config.toml`:
+
+```toml
+[default_session]
+command = "tuigreet --time --remember --remember-session --sessions /usr/share/wayland-sessions"
+user = "greeter"
+```
+
+```sh
+sudo systemctl enable greetd
+```
+
+Do **not** start it yet — finish 7.5 first, then reboot into the greeter and
+pick the `niri` session.
+
+### 7.5 Clone and link the dotfiles
+
+```sh
+git clone git@github.com:nafud/niri.git ~/niri   # SSH key restored in step 0
+bash ~/niri/setup.sh link
+```
+
+> **Port required first:** `setup.sh` and two config files are
+> Mint-targeted. The known Mint-isms to adapt on an `arch` port of the
+> repo — everything else in `config/` and `bin/` is distro-agnostic:
+>
+> 1. `setup.sh install/update` paths: apt/pacstall/PPA/release-binary
+>    installs collapse into the pacman + paru commands above.
+> 2. `setup.sh` managed bashrc block: `batcat` → `bat`, `fdfind` → `fd`
+>    (Arch uses upstream names); fzf keybindings path is
+>    `/usr/share/fzf/key-bindings.bash`.
+> 3. `config/waybar/updates.sh`: `mintupdate-cli` → `checkupdates`
+>    (+ `paru -Qua` for AUR updates).
+> 4. `config/systemd/user/waybar-updates.path`: watch
+>    `/var/lib/pacman/local` instead of dpkg/apt/flatpak paths.
+> 5. `setup.sh fix_units`: the Cinnamon autostart-hiding and
+>    waybar/mako global-unit cleanup are Mint packaging fixes — likely
+>    no-ops on Arch, to be verified rather than assumed.
+
+### 7.6 First session checklist
+
+1. Reboot → tuigreet → `niri` session.
+2. Bar up (waybar), notifications (`notify-send test`), launcher (`Mod+D`),
+   terminal (`Mod+T`), lock (`Mod+Shift+L`).
+3. Audio: `pulsemixer` sees PipeWire sinks. Screenshots: `Print`.
+4. Updates module shows pacman state (after the port lands).
+5. `bash ~/niri/setup.sh summary` — all rows green.
