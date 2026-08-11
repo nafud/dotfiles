@@ -42,6 +42,62 @@ Target: encrypted btrfs root with snapshot support, GRUB, niri workspace on top.
 
 ---
 
+## Step 0.5 — ISO, USB stick, and SSH into the live environment
+
+The install runs over SSH from a second laptop (copy-paste, scrollback,
+docs open in a browser); only the bootstrap below and the LUKS passphrase
+ever need the destination laptop's own keyboard.
+
+### 0.5.1 Download and verify the ISO (on the second laptop / Mint)
+
+Get `archlinux-x86_64.iso` and its checksum file from
+<https://archlinux.org/download/>, then:
+
+```sh
+sha256sum -c --ignore-missing sha256sums.txt
+```
+
+### 0.5.2 Write the USB stick
+
+```sh
+lsblk -d -o NAME,SIZE,MODEL      # identify the stick — NOT a hard disk
+sudo dd if=archlinux-x86_64.iso of=/dev/sdX bs=4M status=progress conv=fsync
+```
+
+Boot the destination laptop with **F12** and pick the **`UEFI:`-prefixed**
+entry for the stick — a legacy/BIOS entry may be listed next to it and
+would fail the UEFI check in step 1.
+
+### 0.5.3 Bootstrap SSH at the destination laptop's console
+
+sshd already runs on the live ISO, but root's password is empty and SSH
+refuses empty passwords — set one, get online, note the IP:
+
+```sh
+passwd                          # root password for this live session only
+iwctl                           # Wi-Fi (Ethernet needs nothing)
+  station wlan0 scan
+  station wlan0 get-networks
+  station wlan0 connect "SSID"
+  exit
+ip -br addr                     # note the IP
+```
+
+### 0.5.4 Connect from the second laptop
+
+```sh
+ssh root@<ip>
+tmux                            # long steps survive an SSH hiccup;
+                                # reconnect with: tmux attach
+```
+
+Steps 1–4 run in this session. After the step 4 reboot: LUKS passphrase
+and first login at the physical console, `nmtui` for Wi-Fi, then SSH back
+in **as the user** (root SSH login is disabled on the installed system;
+the IP may differ) for steps 5–7.
+
+---
+
 ## Step 1 — Disk setup (partition, encrypt, btrfs, mount)
 
 > **WARNING:** this wipes the entire disk, including the existing Linux Mint install.
