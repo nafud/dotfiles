@@ -1,6 +1,6 @@
-# niri dotfiles
+# dotfiles
 
-![check](https://github.com/nafud/niri/actions/workflows/check.yml/badge.svg)
+![check](https://github.com/nafud/dotfiles/actions/workflows/check.yml/badge.svg)
 
 My Arch Linux workspace: the [niri](https://github.com/YaLTeR/niri)
 scrollable-tiling Wayland compositor and a keyboard-driven terminal stack
@@ -15,16 +15,16 @@ Base system first: [docs/arch-install.md](docs/arch-install.md) (encrypted
 btrfs, snapshots, zram). Then one command:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/nafud/niri/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/nafud/dotfiles/main/bootstrap.sh | bash
 ```
 
-It clones this repo into `~/niri` (HTTPS — no SSH key needed to receive;
+It clones this repo into `~/dotfiles` (HTTPS — no SSH key needed to receive;
 the push URL is set to SSH for when the key is restored) and hands off to
 `setup.sh`. Equivalent by hand:
 
 ```
-git clone https://github.com/nafud/niri.git ~/niri
-bash ~/niri/setup.sh
+git clone https://github.com/nafud/dotfiles.git ~/dotfiles
+bash ~/dotfiles/setup.sh
 ```
 
 Then reboot (or log out) and pick the **niri** session in tuigreet. Both
@@ -46,15 +46,15 @@ first made is kept next to it as `<name>.pre-dotfiles`.
 
 ## Daily changes
 
-Edit the file under `~/niri/config/`, watch it apply, then record it:
+Edit the file under `~/dotfiles/config/`, watch it apply, then record it:
 
 ```
-git -C ~/niri add -A
-git -C ~/niri commit -m "describe the change"
-git -C ~/niri push
+git -C ~/dotfiles add -A
+git -C ~/dotfiles commit -m "describe the change"
+git -C ~/dotfiles push
 ```
 
-Run `bash ~/niri/setup.sh link` after a `git pull` that brings new files
+Run `bash ~/dotfiles/setup.sh link` after a `git pull` that brings new files
 (it relinks, validates the niri config, and restarts the bar if needed).
 To add a new application's config, create `config/<app>/` and run the same
 command.

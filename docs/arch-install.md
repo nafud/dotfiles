@@ -604,16 +604,16 @@ transaction and one paru transaction here.
 ### 7.1 One command
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/nafud/niri/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/nafud/dotfiles/main/bootstrap.sh | bash
 ```
 
-`bootstrap.sh` clones the repo into `~/niri` over HTTPS (no SSH key needed
+`bootstrap.sh` clones the repo into `~/dotfiles` over HTTPS (no SSH key needed
 to receive), sets the push URL to SSH (for when the key from the step 0
 backup is restored), and hands off to `setup.sh`. Equivalent by hand:
 
 ```sh
-git clone https://github.com/nafud/niri.git ~/niri
-bash ~/niri/setup.sh
+git clone https://github.com/nafud/dotfiles.git ~/dotfiles
+bash ~/dotfiles/setup.sh
 ```
 
 One idempotent run does all of it:
@@ -654,4 +654,4 @@ apps ever need privilege prompts — the terminal/sudo workflow doesn't.
    the upgrade (`paru -Syu`) in a terminal.
 5. VPN: `mullvad account login`, then the bar's vpn module shows the
    tunnel state (left-click: app window; right-click: connect/disconnect).
-6. `bash ~/niri/setup.sh summary` — all rows green.
+6. `bash ~/dotfiles/setup.sh summary` — all rows green.
