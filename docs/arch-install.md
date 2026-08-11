@@ -7,10 +7,12 @@ Target: encrypted btrfs root with snapshot support, GRUB, niri workspace on top.
 
 - Lenovo ThinkBook 14 G2 ITL (20VD)
 - Intel Core i7-1165G7 (Tiger Lake, 4c/8t) — Intel Iris Xe graphics (`i915`)
-- 8 GB RAM
+- 24 GB RAM
 - 477 GB NVMe SSD (`/dev/nvme0n1`)
-- UEFI, Secure Boot **off**
+- UEFI; Secure Boot currently **on** (Linux Mint) — must be disabled before
+  booting the Arch ISO (see Step 0)
 - Intel Wi-Fi (iwlwifi)
+- Currently running Linux Mint (will be wiped)
 
 ## Decisions
 
@@ -20,14 +22,29 @@ Target: encrypted btrfs root with snapshot support, GRUB, niri workspace on top.
 | Bootloader | GRUB | Required for grub-btrfs boot-into-snapshot entries |
 | `/boot` | Separate unencrypted ext4 partition | GRUB never has to unlock LUKS; LUKS2/argon2id defaults stay |
 | Kernels | `linux` + `linux-lts` | Snapshots don't cover `/boot`; LTS kernel is the fallback for kernel breakage |
-| Swap | zram (post-install) | Effective at 8 GB RAM; no swap partition needed. Hibernation swapfile: TBD |
+| Swap | zram (post-install) | No swap partition needed. Optional hibernation swapfile (~24 G, RAM-sized): TBD |
+| Secure Boot | Off for install and after | Arch ISO is unsigned. Optional later: re-enable with `sbctl` + custom keys (post-install project, not covered here) |
 | Encryption TRIM | via kernel cmdline / crypttab later | SSD discard passthrough, handled in the chroot step |
+
+---
+
+## Step 0 — Before booting the ISO
+
+1. **Back up what dies with the disk.** The niri config is in this repo, but
+   sweep the Mint install for everything else: SSH keys (`~/.ssh` — needed to
+   clone this repo from the new system), GPG keys, browser profiles,
+   `~/Documents`, any dotfiles not committed here.
+2. **Disable Secure Boot.** Mint boots via Microsoft-signed shim; the Arch ISO
+   is unsigned and will not boot with Secure Boot enabled. Enter firmware
+   setup (F1 at power-on on ThinkBooks) → Security → Secure Boot → Disabled.
+   Leave it off after the install (re-enabling later via `sbctl` with custom
+   keys is possible but out of scope).
 
 ---
 
 ## Step 1 — Disk setup (partition, encrypt, btrfs, mount)
 
-> **WARNING:** this wipes the entire disk, including the existing Windows 11 install.
+> **WARNING:** this wipes the entire disk, including the existing Linux Mint install.
 
 ### 1.1 Sanity checks
 
