@@ -172,6 +172,109 @@ Verify before moving on:
 
 ---
 
-## Step 3 — TBD
+## Step 3 — Configure the system (chroot)
+
+```sh
+arch-chroot /mnt
+```
+
+### 3.1 Time & locale
+
+```sh
+ln -sf /usr/share/zoneinfo/Asia/Baku /etc/localtime   # adjust if needed
+hwclock --systohc
+sed -i 's/^#en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
+locale-gen
+echo 'LANG=en_US.UTF-8' > /etc/locale.conf
+echo 'KEYMAP=us' > /etc/vconsole.conf
+```
+
+### 3.2 Hostname & hosts
+
+```sh
+echo 'thinkbook' > /etc/hostname
+cat >> /etc/hosts <<'EOF'
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   thinkbook
+EOF
+```
+
+### 3.3 Accounts
+
+```sh
+passwd                          # root password
+useradd -m -G wheel yourname
+passwd yourname
+EDITOR=vim visudo               # uncomment:  %wheel ALL=(ALL:ALL) ALL
+```
+
+### 3.4 GPU (Intel Iris Xe)
+
+```sh
+pacman -S mesa vulkan-intel intel-media-driver
+```
+
+`mesa` = OpenGL, `vulkan-intel` = Vulkan, `intel-media-driver` = VA-API
+hardware video decode (battery life). Do **not** install `xf86-video-intel`
+(deprecated Xorg driver; niri is Wayland and uses mesa + kernel i915).
+
+### 3.5 initramfs — the `encrypt` hook (CRITICAL)
+
+Edit `/etc/mkinitcpio.conf` and set:
+
+```
+HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block encrypt filesystems fsck)
+```
+
+- `keyboard`/`keymap` before `encrypt` — so the passphrase prompt has a keyboard
+- `microcode` — embeds intel-ucode into the initramfs
+- `kms` — early i915 for proper console graphics
+
+Then regenerate for both kernels:
+
+```sh
+mkinitcpio -P
+```
+
+### 3.6 GRUB (CRITICAL: cryptdevice)
+
+```sh
+blkid -s UUID -o value /dev/nvme0n1p3     # UUID of the raw LUKS partition
+```
+
+Edit `/etc/default/grub`:
+
+```
+GRUB_CMDLINE_LINUX="cryptdevice=UUID=<that-uuid>:cryptroot:allow-discards root=/dev/mapper/cryptroot"
+```
+
+- UUID of the **raw partition** `nvme0n1p3`, *not* the mapper device
+- `:allow-discards` — TRIM passthrough for the SSD
+
+```sh
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
+grub-mkconfig -o /boot/grub/grub.cfg      # generates entries for linux + linux-lts
+```
+
+### 3.7 Services
+
+```sh
+systemctl enable NetworkManager
+systemctl enable fstrim.timer            # weekly SSD TRIM
+systemctl enable systemd-timesyncd
+```
+
+Notes:
+
+- No display manager enabled here — that decision (greetd vs gdm) belongs to
+  the niri deployment step.
+- No GNOME: niri is the session. A fallback DE can be added any time later.
+- `linux-headers`/`linux-lts-headers` not needed — no DKMS modules on this
+  hardware.
+
+---
+
+## Step 4 — TBD
 
 *(next steps land here as they are agreed)*
