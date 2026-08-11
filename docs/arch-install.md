@@ -119,6 +119,59 @@ Notes:
 
 ---
 
-## Step 2 — TBD
+## Step 2 — Install the base system and generate fstab
+
+### 2.1 (Optional) Refresh mirrors
+
+```sh
+reflector --country <your-country> --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+```
+
+### 2.2 pacstrap
+
+```sh
+pacstrap -K /mnt \
+  base linux linux-lts linux-firmware intel-ucode sof-firmware \
+  btrfs-progs cryptsetup e2fsprogs dosfstools \
+  grub efibootmgr \
+  networkmanager \
+  base-devel sudo vim git man-db man-pages openssh
+```
+
+Why what:
+
+| Packages | Reason |
+|---|---|
+| `base linux linux-firmware` | The core system |
+| `linux-lts` | Fallback kernel — snapshots don't cover `/boot`, LTS covers kernel breakage |
+| `intel-ucode` | CPU microcode for the i7-1165G7 (GRUB picks it up automatically) |
+| `sof-firmware` | Tiger Lake audio (Sound Open Firmware) — without it, no sound |
+| `btrfs-progs cryptsetup` | Root filesystem tools + LUKS unlock in the initramfs |
+| `e2fsprogs dosfstools` | fsck for ext4 `/boot` and the FAT32 ESP |
+| `grub efibootmgr` | Bootloader (installed/configured in the chroot step) |
+| `networkmanager` | Network after reboot (same stack as on Mint; `nmtui`/`nm-applet`) |
+| `base-devel git` | AUR baseline — needed for the niri workspace later |
+| `sudo vim man-db man-pages openssh` | Quality of life; `base` ships no editor/sudo/man |
+
+`-K` initializes a fresh pacman keyring in the target (recommended on
+current archiso).
+
+### 2.3 fstab
+
+```sh
+genfstab -U /mnt >> /mnt/etc/fstab
+cat /mnt/etc/fstab
+```
+
+Verify before moving on:
+
+- root is `/dev/mapper/cryptroot` with `subvol=/@`
+- all four other subvolume mounts present (`@home`, `@log`, `@pkg`,
+  `@snapshots`) with `compress=zstd` and `noatime` carried over
+- `/boot` (ext4) and `/boot/efi` (vfat) entries present
+
+---
+
+## Step 3 — TBD
 
 *(next steps land here as they are agreed)*
