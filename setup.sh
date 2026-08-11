@@ -13,8 +13,10 @@
 #             block, the btop setting), the linking itself, session
 #             reloads, and the final summary
 #
-# Every component installs from the official repositories — no AUR, no
-# third-party builds, no release-binary downloads.
+# Nearly everything installs from the official repositories; the one
+# exception is a small AUR set (Mullvad VPN, Chrome, Mullvad Browser)
+# built with paru, which this script bootstraps. No other third-party
+# builds, no release-binary downloads.
 #
 # A real file or directory found where a link belongs is moved aside once
 # as <name>.pre-dotfiles. Version history lives in git log.
@@ -54,10 +56,12 @@ install_packages() {
         niri xwayland-satellite \
         alacritty waybar mako swaybg swayidle swaylock hyprlock rofi \
         yazi zellij cliphist starship chafa micro btop \
-        zathura zathura-pdf-poppler imv mpv \
+        zathura zathura-pdf-poppler imv mpv firefox \
         grim slurp ksnip imagemagick brightnessctl pulsemixer \
         fzf zoxide wl-clipboard fd ripgrep eza bat git-delta jq \
-        libnotify gnome-keyring \
+        p7zip unzip xdg-user-dirs \
+        libnotify gnome-keyring qt5-wayland \
+        gsettings-desktop-schemas adwaita-icon-theme \
         xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-gnome \
         pipewire pipewire-pulse pipewire-alsa wireplumber \
         greetd greetd-tuigreet \
@@ -73,7 +77,35 @@ install_packages() {
     # $PATH is the whole requirement. No spawn-at-startup, no env plumbing.
 }
 
-# --------------------------------------------------------------- 2. greetd ---
+# ------------------------------------------------------------------ 2. AUR ---
+# The AUR set: Mullvad VPN (the bar's vpn module), Chrome, and Mullvad
+# Browser — none are in the official repos. paru-bin bootstraps without
+# a Rust compile; from then on `paru -Syu` upgrades repos and AUR alike.
+# Mullvad Browser note: the AUR package tracks the stable channel; the
+# alpha channel is Mullvad's own tarball with its built-in updater.
+install_aur() {
+    if ! have paru; then
+        log "bootstrapping paru (AUR helper)"
+        git clone -q https://aur.archlinux.org/paru-bin.git "$WORK/paru-bin"
+        (cd "$WORK/paru-bin" && makepkg -si --noconfirm)
+        have paru || die "paru bootstrap failed"
+    fi
+    log "AUR packages"
+    paru -S --needed --noconfirm mullvad-vpn-bin google-chrome mullvad-browser-bin
+}
+
+# ----------------------------------------------------------- 3. system units ---
+# mullvad-daemon: the AUR package installs but does not enable the unit
+# the CLI and bar module talk to. paccache: bound the pacman cache (the
+# @pkg subvolume is excluded from snapshots but nothing else limits it).
+enable_system_units() {
+    sudo systemctl enable mullvad-daemon 2>/dev/null \
+        || warn "could not enable mullvad-daemon"
+    sudo systemctl enable paccache.timer 2>/dev/null \
+        || warn "could not enable paccache.timer"
+}
+
+# --------------------------------------------------------------- 4. greetd ---
 # tuigreet on VT1 answers the login; niri.desktop under wayland-sessions is
 # what --sessions lists. Enable only writes symlinks — greetd takes the VT
 # at the next boot, never mid-session.
@@ -102,7 +134,7 @@ configure_git() {
     git config --global delta.navigate true
 }
 
-# --------------------------------------------------- 3. MIME associations ---
+# --------------------------------------------------- 5. MIME associations ---
 # xdg-mime records an association even for a desktop file that does not
 # exist, silently breaking xdg-open; only associate what is actually shipped.
 set_mime_default() {
@@ -130,7 +162,7 @@ set_default_apps() {
     fi
 }
 
-# ----------------------------------------------------------- 4. link tree ---
+# ----------------------------------------------------------- 6. link tree ---
 # Symlink each top-level entry of config/ into ~/.config and each file in
 # bin/ into ~/.local/bin. Directory-level links keep the mapping obvious:
 # one entry in the repo, one link on disk. A real file or directory already
@@ -186,7 +218,7 @@ enable_units() {
         || warn "could not enable waybar-updates.path (no user session?)"
 }
 
-# --------------------------------------------------------- 5. shell setup ---
+# --------------------------------------------------------- 7. shell setup ---
 # ~/.bashrc is shared with the system's own content, so it is not linked;
 # only the marked block is owned, and it is replaced in place on every run
 # so edits here reach existing installs.
@@ -277,7 +309,7 @@ configure_micro() {
     link_one "$REPO/config/micro/colorschemes" "$CFG/micro/colorschemes"
 }
 
-# ------------------------------------------------------------- 6. desktop ---
+# ------------------------------------------------------------- 8. desktop ---
 apply_desktop_prefs() {
     gsettings set org.gnome.desktop.interface color-scheme prefer-dark 2>/dev/null || true
     gsettings set org.gnome.desktop.interface gtk-theme Adwaita-dark 2>/dev/null || true
@@ -289,7 +321,7 @@ apply_desktop_prefs() {
     gsettings set org.gnome.desktop.interface cursor-size 24 2>/dev/null || true
 }
 
-# -------------------------------------------------------------- 7. reload ---
+# -------------------------------------------------------------- 9. reload ---
 # The live niri session's IPC socket: NIRI_SOCKET inside the session,
 # discovered under XDG_RUNTIME_DIR otherwise — so a run over ssh still
 # reaches the desktop. Empty output means no session is up.
@@ -338,7 +370,7 @@ reload_session() {
         makoctl reload >/dev/null 2>&1 || true
 }
 
-# ------------------------------------------------------------- 8. summary ---
+# ------------------------------------------------------------ 10. summary ---
 portals_ok() {
     pacman -Qq xdg-desktop-portal-gtk >/dev/null 2>&1 \
         && pacman -Qq xdg-desktop-portal-gnome >/dev/null 2>&1
@@ -384,6 +416,10 @@ print_summary() {
     # desktop file — probe the wayland binary, not a bare `imv`
     summary_row "Imv"           "image viewer"                           have imv-wayland
     summary_row "Mpv"           "media player"                           have mpv
+    summary_row "Mullvad VPN"   "tunnel (bar's vpn module)"              have mullvad
+    summary_row "Firefox"       "browser"                                have firefox
+    summary_row "Chrome"        "browser"                                have google-chrome-stable
+    summary_row "Mullvad Brows." "browser (stable; alpha = own tarball)" have mullvad-browser
     summary_row "Chafa"         "terminal image renderer (yazi preview)" have chafa
     summary_row "Fzf"           "fuzzy finder"                           have fzf
     summary_row "Zoxide"        "directory jumper"                       have zoxide
@@ -401,11 +437,13 @@ print_summary() {
     printf '\n'
 }
 
-# ---------------------------------------------------------------- 9. main ---
+# --------------------------------------------------------------- 11. main ---
 main() {
     case "${1:-install}" in
         install)
             install_packages
+            install_aur
+            enable_system_units
             configure_greetd
             configure_git
             set_default_apps

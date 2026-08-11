@@ -206,7 +206,7 @@ Why what:
 | `e2fsprogs dosfstools` | fsck for ext4 `/boot` and the FAT32 ESP |
 | `grub efibootmgr` | Bootloader (installed/configured in the chroot step) |
 | `networkmanager` | Network after reboot (same stack as on Mint; `nmtui`/`nm-applet`) |
-| `base-devel git` | `git` clones the workspace repo; `base-devel` if the AUR is ever wanted (the workspace itself needs none of it) |
+| `base-devel git` | `git` clones the workspace repo; `base-devel` builds the AUR set (paru, Mullvad VPN, Chrome, Mullvad Browser) |
 | `sudo vim man-db man-pages openssh` | Quality of life; `base` ships no editor/sudo/man |
 
 `-K` initializes a fresh pacman keyring in the target (recommended on
@@ -494,7 +494,17 @@ snapper list               # a pre/post pair should have appeared
 
 Reboot once and confirm GRUB now shows an "Arch Linux snapshots" submenu.
 
-### 5.7 Rollback recipes
+### 5.7 Monthly checksum scrub
+
+Snapshots protect against bad changes; scrubbing protects against bad
+*disks*. A scrub reads everything and verifies btrfs checksums, surfacing
+silent corruption instead of waiting for a read to stumble on it:
+
+```sh
+sudo systemctl enable --now btrfs-scrub@-.timer    # "-" is the escaped path "/"
+```
+
+### 5.8 Rollback recipes
 
 **Small revert** (bad config change, one broken package) — revert file
 changes between two snapshots:
@@ -584,10 +594,12 @@ service to enable.
 ## Step 7 — Deploy the niri workspace
 
 The workspace lives in this repository (`config/` → `~/.config`, `bin/` →
-`~/.local/bin`), and `setup.sh` is Arch-native: **every component installs
-from the official repositories** — zero AUR packages, no third-party
-builds, no release-binary downloads. What took apt + pacstall + a PPA +
-GitHub downloads on Mint is one pacman transaction here.
+`~/.local/bin`), and `setup.sh` is Arch-native: nearly every component
+installs from the official repositories, plus one small AUR set —
+**Mullvad VPN, Chrome, Mullvad Browser** — built with `paru`, which
+setup.sh bootstraps (this is what `base-devel` from step 2 is for). What
+took apt + pacstall + a PPA + GitHub downloads on Mint is one pacman
+transaction and one paru transaction here.
 
 ### 7.1 Clone and run
 
@@ -600,12 +612,21 @@ One idempotent run does all of it:
 
 - **Packages** (single `pacman -Syu --needed` transaction): the niri stack
   (niri, xwayland-satellite, waybar, mako, rofi 2.0 wayland, alacritty, …),
-  the terminal tools, the PipeWire audio stack (`pipewire-pulse` shim —
-  `pulsemixer` talks to it unchanged), portals + gnome-keyring,
-  `ttf-jetbrains-mono-nerd`, and `pacman-contrib` (the bar's updates
-  module probes `checkupdates`).
+  the terminal tools, Firefox, the PipeWire audio stack (`pipewire-pulse`
+  shim — `pulsemixer` talks to it unchanged), portals + gnome-keyring +
+  `qt5-wayland` (ksnip runs native Wayland) + `gsettings-desktop-schemas`
+  and `adwaita-icon-theme` (the gsettings dark theme and the Adwaita
+  cursor from `input.kdl` actually resolve), `ttf-jetbrains-mono-nerd`,
+  and `pacman-contrib` (the bar's updates module probes `checkupdates`).
+- **AUR set** via paru (bootstrapped from `paru-bin` if absent): Mullvad
+  VPN (+ `mullvad-daemon` enabled — the bar's vpn module needs it),
+  Chrome, Mullvad Browser (stable channel; the alpha channel is Mullvad's
+  own self-updating tarball, installed by hand if wanted).
 - **greetd + tuigreet** installed, configured (`/etc/greetd/config.toml`)
   and enabled — takes over the VT at next boot, never mid-session.
+- **Maintenance**: `paccache.timer` enabled so the pacman cache stays
+  bounded (the `@pkg` subvolume escapes snapshots, but nothing else
+  limits its growth).
 - **Linking**: `config/` → `~/.config`, `bin/` → `~/.local/bin`; anything
   in the way is preserved once as `<name>.pre-dotfiles`.
 - **Glue**: MIME defaults, gsettings, the managed `~/.bashrc` block, the
@@ -621,6 +642,8 @@ apps ever need privilege prompts — the terminal/sudo workflow doesn't.
 2. Bar up (waybar), notifications (`notify-send test`), launcher (`Mod+D`),
    terminal (`Mod+T`), lock (`Mod+Shift+L`).
 3. Audio: `pulsemixer` sees PipeWire sinks. Screenshots: `Print`.
-4. Updates module: badge shows pending pacman updates; click runs the
-   upgrade in a terminal.
-5. `bash ~/niri/setup.sh summary` — all rows green.
+4. Updates module: badge counts pending pacman + AUR updates; click runs
+   the upgrade (`paru -Syu`) in a terminal.
+5. VPN: `mullvad account login`, then the bar's vpn module shows the
+   tunnel state (left-click: app window; right-click: connect/disconnect).
+6. `bash ~/niri/setup.sh summary` — all rows green.

@@ -5,8 +5,9 @@
 My Arch Linux workspace: the [niri](https://github.com/YaLTeR/niri)
 scrollable-tiling Wayland compositor and a keyboard-driven terminal stack
 (alacritty, zellij, yazi, waybar, rofi, mako, starship), everything in
-JetBrains Mono. Every component comes from the official repositories —
-no AUR, no third-party builds.
+JetBrains Mono. Nearly everything comes from the official repositories;
+a small AUR set (Mullvad VPN, Chrome, Mullvad Browser) installs through
+paru, which setup.sh bootstraps.
 
 ## Fresh machine
 
