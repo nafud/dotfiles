@@ -18,11 +18,11 @@ Target: encrypted btrfs root with snapshot support, GRUB, niri workspace on top.
 
 | Topic | Choice | Rationale |
 |---|---|---|
-| Filesystem | btrfs on LUKS2 (no LVM) | Subvolumes replace fixed-size volumes; snapshots before updates (snapper + grub-btrfs) on a rolling release |
+| Filesystem | btrfs on LUKS2 (no LVM) | Subvolumes replace fixed-size volumes; snapshots before updates (snapper + grub-btrfs) on a rolling release. ZFS considered and rejected: out-of-tree module on a rolling kernel, and its multi-disk strengths don't apply to a single-NVMe laptop |
 | Bootloader | GRUB | Required for grub-btrfs boot-into-snapshot entries |
 | `/boot` | Separate unencrypted ext4 partition | GRUB never has to unlock LUKS; LUKS2/argon2id defaults stay |
 | Kernels | `linux` + `linux-lts` | Snapshots don't cover `/boot`; LTS kernel is the fallback for kernel breakage |
-| Swap | zram (post-install) | No swap partition needed. Optional hibernation swapfile (~24 G, RAM-sized): TBD |
+| Swap | zram only (post-install) | No swap partition or swapfile. Hibernation not wanted — plain suspend covers the use case |
 | Secure Boot | Off for install and after | Arch ISO is unsigned. Optional later: re-enable with `sbctl` + custom keys (post-install project, not covered here) |
 | Encryption TRIM | via kernel cmdline / crypttab later | SSD discard passthrough, handled in the chroot step |
 
