@@ -14,11 +14,9 @@ environment {
 }
 
 // XDG autostart needs no spawns here: systemd's xdg-autostart-generator
-// runs /etc/xdg/autostart under this session too. mintupdate arrives
-// that way (hidden, keeps the apt cache fresh — the bar's
-// custom/updates module renders its state); what a Cinnamon desktop
-// autostarts and niri has no use for is hidden per-user by setup.sh
-// (fix_units), not spawned around.
+// runs /etc/xdg/autostart under this session too — and on this minimal
+// Arch install nothing arrives that way that niri needs hidden or
+// worked around.
 spawn-at-startup "sh" "-c" "$HOME/.local/bin/bar-session"
 spawn-at-startup "mako"
 spawn-at-startup "sh" "-c" "$HOME/.local/bin/wallpaper-session"

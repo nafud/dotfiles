@@ -150,7 +150,7 @@ Why what:
 | `e2fsprogs dosfstools` | fsck for ext4 `/boot` and the FAT32 ESP |
 | `grub efibootmgr` | Bootloader (installed/configured in the chroot step) |
 | `networkmanager` | Network after reboot (same stack as on Mint; `nmtui`/`nm-applet`) |
-| `base-devel git` | AUR baseline — needed for the niri workspace later |
+| `base-devel git` | `git` clones the workspace repo; `base-devel` if the AUR is ever wanted (the workspace itself needs none of it) |
 | `sudo vim man-db man-pages openssh` | Quality of life; `base` ships no editor/sudo/man |
 
 `-K` initializes a fresh pacman keyring in the target (recommended on
@@ -528,114 +528,43 @@ service to enable.
 ## Step 7 — Deploy the niri workspace
 
 The workspace lives in this repository (`config/` → `~/.config`, `bin/` →
-`~/.local/bin`, linked by `setup.sh`). On Mint, `setup.sh` pulled packages
-from apt/pacstall/PPAs/GitHub releases; on Arch, **everything but one
-package is in the official repos**, current versions — the entire pacstall
-and release-binary machinery becomes a single pacman command.
+`~/.local/bin`), and `setup.sh` is Arch-native: **every component installs
+from the official repositories** — zero AUR packages, no third-party
+builds, no release-binary downloads. What took apt + pacstall + a PPA +
+GitHub downloads on Mint is one pacman transaction here.
 
-### 7.1 Audio stack (not part of the base install)
-
-```sh
-sudo pacman -S pipewire pipewire-pulse pipewire-alsa wireplumber
-```
-
-PipeWire with the PulseAudio shim — `pulsemixer` (the bar's audio popup)
-talks to it unchanged. Starts automatically as a user service on login.
-
-### 7.2 The workspace package set (official repos)
-
-```sh
-sudo pacman -S \
-  niri xwayland-satellite \
-  alacritty waybar mako swaybg swayidle swaylock hyprlock rofi \
-  yazi zellij cliphist starship chafa micro btop \
-  zathura zathura-pdf-poppler imv mpv \
-  grim slurp ksnip imagemagick brightnessctl pulsemixer \
-  fzf zoxide wl-clipboard fd ripgrep eza bat git-delta jq \
-  libnotify gnome-keyring \
-  xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-gnome \
-  ttf-jetbrains-mono-nerd pacman-contrib
-```
-
-What this replaces from the Mint setup:
-
-| Mint mechanism | On Arch |
-|---|---|
-| pacstall builds: niri, rofi 2.0, xwayland-satellite | official repos, current |
-| GitHub release binaries: yazi, zellij, cliphist | official repos |
-| starship curl-installer, chafa source build | official repos |
-| hyprlock PPA | official repos |
-| Nerd Font zip download | `ttf-jetbrains-mono-nerd` |
-| `mintupdate-cli` (waybar updates module) | `checkupdates` from `pacman-contrib` |
-
-Note: `rofi` in Arch's repos is the Wayland-native 2.0 line (the old
-`rofi-wayland` split package was merged back into it).
-
-Optional: a polkit authentication agent (e.g. `polkit-gnome`) if GUI apps
-ever need privilege prompts — the terminal/sudo workflow doesn't.
-
-### 7.3 AUR helper + the one AUR package
-
-```sh
-git clone https://aur.archlinux.org/paru.git ~/aur/paru
-cd ~/aur/paru && makepkg -si
-paru -S hellwal          # palette generator used by bin/wallset
-```
-
-(`base-devel` and `git` are already present from step 2 — this is why.)
-
-### 7.4 Display manager: greetd + tuigreet
-
-Lean, niri-appropriate replacement for Mint's greeter:
-
-```sh
-sudo pacman -S greetd greetd-tuigreet
-```
-
-`/etc/greetd/config.toml`:
-
-```toml
-[default_session]
-command = "tuigreet --time --remember --remember-session --sessions /usr/share/wayland-sessions"
-user = "greeter"
-```
-
-```sh
-sudo systemctl enable greetd
-```
-
-Do **not** start it yet — finish 7.5 first, then reboot into the greeter and
-pick the `niri` session.
-
-### 7.5 Clone and link the dotfiles
+### 7.1 Clone and run
 
 ```sh
 git clone git@github.com:nafud/niri.git ~/niri   # SSH key restored in step 0
-bash ~/niri/setup.sh link
+bash ~/niri/setup.sh
 ```
 
-> **Port required first:** `setup.sh` and two config files are
-> Mint-targeted. The known Mint-isms to adapt on an `arch` port of the
-> repo — everything else in `config/` and `bin/` is distro-agnostic:
->
-> 1. `setup.sh install/update` paths: apt/pacstall/PPA/release-binary
->    installs collapse into the pacman + paru commands above.
-> 2. `setup.sh` managed bashrc block: `batcat` → `bat`, `fdfind` → `fd`
->    (Arch uses upstream names); fzf keybindings path is
->    `/usr/share/fzf/key-bindings.bash`.
-> 3. `config/waybar/updates.sh`: `mintupdate-cli` → `checkupdates`
->    (+ `paru -Qua` for AUR updates).
-> 4. `config/systemd/user/waybar-updates.path`: watch
->    `/var/lib/pacman/local` instead of dpkg/apt/flatpak paths.
-> 5. `setup.sh fix_units`: the Cinnamon autostart-hiding and
->    waybar/mako global-unit cleanup are Mint packaging fixes — likely
->    no-ops on Arch, to be verified rather than assumed.
+One idempotent run does all of it:
 
-### 7.6 First session checklist
+- **Packages** (single `pacman -Syu --needed` transaction): the niri stack
+  (niri, xwayland-satellite, waybar, mako, rofi 2.0 wayland, alacritty, …),
+  the terminal tools, the PipeWire audio stack (`pipewire-pulse` shim —
+  `pulsemixer` talks to it unchanged), portals + gnome-keyring,
+  `ttf-jetbrains-mono-nerd`, and `pacman-contrib` (the bar's updates
+  module probes `checkupdates`).
+- **greetd + tuigreet** installed, configured (`/etc/greetd/config.toml`)
+  and enabled — takes over the VT at next boot, never mid-session.
+- **Linking**: `config/` → `~/.config`, `bin/` → `~/.local/bin`; anything
+  in the way is preserved once as `<name>.pre-dotfiles`.
+- **Glue**: MIME defaults, gsettings, the managed `~/.bashrc` block, the
+  `waybar-updates.path` user unit (pokes the bar when the pacman DB
+  changes), `niri validate` as the final gate.
+
+Optional extra: a polkit authentication agent (e.g. `polkit-gnome`) if GUI
+apps ever need privilege prompts — the terminal/sudo workflow doesn't.
+
+### 7.2 First session checklist
 
 1. Reboot → tuigreet → `niri` session.
 2. Bar up (waybar), notifications (`notify-send test`), launcher (`Mod+D`),
    terminal (`Mod+T`), lock (`Mod+Shift+L`).
 3. Audio: `pulsemixer` sees PipeWire sinks. Screenshots: `Print`.
-4. Updates module shows pacman state (after the port lands).
+4. Updates module: badge shows pending pacman updates; click runs the
+   upgrade in a terminal.
 5. `bash ~/niri/setup.sh summary` — all rows green.

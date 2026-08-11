@@ -1,6 +1,4 @@
-# The mono base palette, imported first by alacritty.toml — the
-# wallpaper palette (hellwal cache) imports after it and overrides
-# these values when wallset has run.
+# The mono palette, imported by alacritty.toml.
 [colors.primary]
 background = "#0d0d0d"
 foreground = "#c0c0c0"

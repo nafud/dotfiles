@@ -1,5 +1,5 @@
-# Kiln mono colorscheme. ANSI names only, so the hellwal wallpaper
-# palette flows through it like the rest of the terminal; the default
+# Kiln mono colorscheme. ANSI names only, so the terminal's palette
+# flows through it like the rest of the stack; the default
 # background stays the terminal's, keeping the 0.9 glass. Restrained:
 # strings carry the accent green, keywords stand out by brightness not
 # hue, chrome sits on the surface black.

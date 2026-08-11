@@ -1,6 +1,6 @@
 [Unit]
 Description=poke waybar updates module
-# an apt refresh touches lists dozens of times in seconds — the pokes
+# one pacman transaction touches local/ once per package — the pokes
 # must never be rate-limited into a failed unit
 StartLimitIntervalSec=0
 

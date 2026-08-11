@@ -1,20 +1,14 @@
 #!/bin/bash
-# wallset IMAGE [hellwal args...] — change the wallpaper, once.
-# Records the image as ~/Pictures/wallpaper.jpg (the state that
-# wallpaper-session draws at every login, so the change persists),
-# generates its color palette into ~/.cache/hellwal/, and re-applies
-# live when a niri session is up. Extra arguments go to hellwal,
-# e.g.:  wallset img.jpg --gray-scale   (monochrome palette)
+# wallset IMAGE — change the wallpaper, once. Records the image as
+# ~/Pictures/wallpaper.jpg (the state that wallpaper-session draws at
+# every login, so the change persists) and re-applies live when a niri
+# session is up.
 set -euo pipefail
 
-img="${1:?usage: wallset IMAGE [hellwal args...]}"
-shift
+img="${1:?usage: wallset IMAGE}"
 
-# hellwal does not create its own directories; without these it warns
-# and writes no palette (the templates dir arrives via config/hellwal)
-mkdir -p "$HOME/Pictures" "$HOME/.cache/hellwal/cache"
+mkdir -p "$HOME/Pictures"
 cp -- "$img" "$HOME/Pictures/wallpaper.jpg"
-hellwal -i "$HOME/Pictures/wallpaper.jpg" "$@" >/dev/null
 
 # the lock-screen copy is not rendered here: bin/lock re-renders it on
 # the next lock, keyed off the wallpaper's mtime, so it owns that recipe
@@ -27,4 +21,4 @@ if [ -n "$sock" ]; then
         sh -c "$HOME/.local/bin/wallpaper-session" >/dev/null 2>&1 || true
 fi
 
-echo "wallpaper recorded (persists across logins); terminals recolor live"
+echo "wallpaper recorded (persists across logins)"
