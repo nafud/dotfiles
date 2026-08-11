@@ -327,6 +327,121 @@ arch-chroot /mnt
 2. zram swap
 3. niri workspace deployment from this repo
 
-## Step 5 — TBD
+## Step 5 — Snapshots: snapper + snap-pac + grub-btrfs
 
-*(next steps land here as they are agreed)*
+Everything from here on runs on the installed system, as the regular user
+with `sudo`.
+
+### 5.1 Packages
+
+```sh
+sudo pacman -S snapper snap-pac grub-btrfs inotify-tools
+```
+
+- `snapper` — snapshot manager
+- `snap-pac` — pacman hooks: automatic pre/post snapshot around **every**
+  pacman transaction; zero config
+- `grub-btrfs` — generates GRUB menu entries for snapshots
+- `inotify-tools` — needed by the grub-btrfs daemon to watch `/.snapshots`
+
+### 5.2 Create the snapper config (the `.snapshots` dance)
+
+`snapper create-config` insists on creating its own `.snapshots` subvolume
+and fails if the path exists. We want snapshots to live in our top-level
+`@snapshots` subvolume instead (so a root rollback never touches the
+snapshots themselves). Hence this dance:
+
+```sh
+sudo umount /.snapshots
+sudo rm -r /.snapshots
+sudo snapper -c root create-config /
+sudo btrfs subvolume delete /.snapshots   # remove snapper's nested subvolume
+sudo mkdir /.snapshots
+sudo mount -a                             # remounts @snapshots per fstab
+sudo chmod 750 /.snapshots
+sudo chown :wheel /.snapshots
+```
+
+### 5.3 Tune the config
+
+Edit `/etc/snapper/configs/root`:
+
+```
+ALLOW_GROUPS="wheel"          # snapper list without sudo
+TIMELINE_CREATE="no"          # no hourly noise — snap-pac's pacman snapshots
+                              # are the ones that matter for rollbacks
+NUMBER_LIMIT="20"
+NUMBER_LIMIT_IMPORTANT="10"
+```
+
+*(Optional: a second config for `/home` with `TIMELINE_CREATE="yes"` guards
+against accidental file deletion — separate decision, not required.)*
+
+### 5.4 Services
+
+```sh
+sudo systemctl enable --now snapper-cleanup.timer   # prunes per NUMBER_LIMIT
+sudo systemctl enable --now grub-btrfsd             # watches /.snapshots,
+                                                    # regenerates snapshot menu
+```
+
+### 5.5 Boot-into-snapshot support (overlayfs)
+
+Snapper snapshots are read-only; to boot one cleanly, GRUB needs the
+initramfs to lay a tmpfs overlay on top. Append `grub-btrfs-overlayfs` to
+the **end** of HOOKS in `/etc/mkinitcpio.conf`:
+
+```
+HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block encrypt filesystems fsck grub-btrfs-overlayfs)
+```
+
+```sh
+sudo mkinitcpio -P
+sudo grub-mkconfig -o /boot/grub/grub.cfg   # picks up the snapshots submenu
+```
+
+Changes made inside a booted snapshot are ephemeral (overlay in RAM) — it's
+an inspection/rescue environment, not a rollback by itself.
+
+### 5.6 Verify
+
+```sh
+sudo pacman -S tree        # any small package
+snapper list               # a pre/post pair should have appeared
+```
+
+Reboot once and confirm GRUB now shows an "Arch Linux snapshots" submenu.
+
+### 5.7 Rollback recipes
+
+**Small revert** (bad config change, one broken package) — revert file
+changes between two snapshots:
+
+```sh
+snapper list
+sudo snapper undochange <pre>..<post>
+```
+
+**Full rollback** (system won't work; boot a snapshot from GRUB to confirm
+which one is good, or boot the live ISO). Because root is mounted by name
+(`subvol=/@`), the rollback is swapping `@` out:
+
+```sh
+# from live ISO: cryptsetup open /dev/nvme0n1p3 cryptroot first
+sudo mount -o subvolid=5 /dev/mapper/cryptroot /mnt   # top level
+sudo mv /mnt/@ /mnt/@.broken
+sudo btrfs subvolume snapshot /mnt/@snapshots/<N>/snapshot /mnt/@
+sudo umount /mnt
+reboot
+# once satisfied: mount top level again and
+#   btrfs subvolume delete /mnt/@.broken
+```
+
+After a full rollback, resync `/boot` with the rolled-back system (kernels
+live outside btrfs): `sudo pacman -S linux linux-lts`.
+
+---
+
+## Step 6 — TBD
+
+*(zram swap, then niri workspace deployment)*
