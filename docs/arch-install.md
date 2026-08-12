@@ -11,7 +11,15 @@ Target: encrypted btrfs root with snapshot support, GRUB, niri workspace on top.
 - 477 GB NVMe SSD (`/dev/nvme0n1`)
 - UEFI; Secure Boot currently **on** (Linux Mint) — must be disabled before
   booting the Arch ISO (see Step 0)
-- Intel Wi-Fi (iwlwifi)
+- Intel Wi-Fi 6 AX201 (`iwlwifi`); AX201 Bluetooth present but unused
+  (kept soft-blocked; no bluez installed)
+- Integrated camera (Bison, `uvcvideo` — works out of the box)
+- No fingerprint reader (confirmed via lsusb) — no fprintd
+- Suspend: `s2idle` is the firmware default; `deep` (S3) is also
+  advertised — if standby drain ever bothers, add
+  `mem_sleep_default=deep` to `GRUB_CMDLINE_LINUX` and test
+- No `conservation_mode` battery-threshold interface exposed — TLP runs
+  with stock defaults, no charge cap to configure
 - Currently running Linux Mint (will be wiped)
 
 ## Decisions
@@ -626,15 +634,24 @@ One idempotent run does all of it:
   and `adwaita-icon-theme` (the gsettings dark theme and the Adwaita
   cursor from `input.kdl` actually resolve), `ttf-jetbrains-mono-nerd`,
   and `pacman-contrib` (the bar's updates module probes `checkupdates`).
+- **Desktop apps**, replacing the Mint flatpaks with native packages:
+  Obsidian, KeePassXC, Telegram from the official repos; Spotify and
+  Stremio through paru. No flatpak runtime on the system.
 - **AUR set** via paru (bootstrapped from `paru-bin` if absent): Mullvad
   VPN (+ `mullvad-daemon` enabled — the bar's vpn module needs it),
   Chrome, Mullvad Browser (stable channel; the alpha channel is Mullvad's
-  own self-updating tarball, installed by hand if wanted).
+  own self-updating tarball, installed by hand if wanted), Spotify,
+  Stremio.
+- **Power**: `thermald` (proactive thermal limits — Tiger Lake sustains
+  boost instead of emergency-throttling) and `tlp` (battery-side runtime
+  tuning, stock defaults) installed and enabled.
 - **greetd + tuigreet** installed, configured (`/etc/greetd/config.toml`)
   and enabled — takes over the VT at next boot, never mid-session.
 - **Maintenance**: `paccache.timer` enabled so the pacman cache stays
   bounded (the `@pkg` subvolume escapes snapshots, but nothing else
   limits its growth).
+- **Defaults**: Firefox as the system browser (`xdg-settings`), zathura
+  for PDFs, imv for images.
 - **Linking**: `config/` → `~/.config`, `bin/` → `~/.local/bin`; anything
   in the way is preserved once as `<name>.pre-dotfiles`.
 - **Glue**: MIME defaults, gsettings, the managed `~/.bashrc` block, the

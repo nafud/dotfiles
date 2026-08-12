@@ -57,6 +57,8 @@ install_packages() {
         alacritty waybar mako swaybg swayidle swaylock hyprlock rofi \
         yazi zellij cliphist starship chafa micro btop \
         zathura zathura-pdf-poppler imv mpv firefox \
+        obsidian keepassxc telegram-desktop \
+        tlp thermald \
         grim slurp ksnip imagemagick brightnessctl pulsemixer \
         fzf zoxide wl-clipboard fd ripgrep eza bat git-delta jq \
         p7zip unzip xdg-user-dirs \
@@ -78,11 +80,14 @@ install_packages() {
 }
 
 # ------------------------------------------------------------------ 2. AUR ---
-# The AUR set: Mullvad VPN (the bar's vpn module), Chrome, and Mullvad
-# Browser — none are in the official repos. paru-bin bootstraps without
-# a Rust compile; from then on `paru -Syu` upgrades repos and AUR alike.
-# Mullvad Browser note: the AUR package tracks the stable channel; the
-# alpha channel is Mullvad's own tarball with its built-in updater.
+# The paru set: Mullvad VPN (the bar's vpn module), Chrome, Mullvad
+# Browser and Spotify are AUR-only; stremio rides along because paru
+# resolves official repos first and falls back to the AUR, so it
+# installs correctly from wherever it lives. paru-bin bootstraps
+# without a Rust compile; from then on `paru -Syu` upgrades repos and
+# AUR alike. Mullvad Browser note: the AUR package tracks the stable
+# channel; the alpha channel is Mullvad's own tarball with its
+# built-in updater.
 install_aur() {
     if ! have paru; then
         log "bootstrapping paru (AUR helper)"
@@ -91,18 +96,28 @@ install_aur() {
         have paru || die "paru bootstrap failed"
     fi
     log "AUR packages"
-    paru -S --needed --noconfirm mullvad-vpn-bin google-chrome mullvad-browser-bin
+    paru -S --needed --noconfirm \
+        mullvad-vpn-bin google-chrome mullvad-browser-bin \
+        spotify stremio
 }
 
 # ----------------------------------------------------------- 3. system units ---
 # mullvad-daemon: the AUR package installs but does not enable the unit
 # the CLI and bar module talk to. paccache: bound the pacman cache (the
 # @pkg subvolume is excluded from snapshots but nothing else limits it).
+# thermald: proactive thermal limits on Tiger Lake — sustained boost
+# instead of emergency throttling. tlp: battery-side runtime power
+# tuning, stock defaults (this ThinkBook exposes no charge-threshold
+# interface, so there is nothing to configure beyond enabling it).
 enable_system_units() {
     sudo systemctl enable mullvad-daemon 2>/dev/null \
         || warn "could not enable mullvad-daemon"
     sudo systemctl enable paccache.timer 2>/dev/null \
         || warn "could not enable paccache.timer"
+    sudo systemctl enable thermald 2>/dev/null \
+        || warn "could not enable thermald"
+    sudo systemctl enable tlp 2>/dev/null \
+        || warn "could not enable tlp"
 }
 
 # --------------------------------------------------------------- 4. greetd ---
@@ -147,7 +162,9 @@ set_mime_default() {
 }
 
 set_default_apps() {
-    log "MIME defaults (zathura for PDFs, imv for images)"
+    log "MIME defaults (firefox for the web, zathura for PDFs, imv for images)"
+    xdg-settings set default-web-browser firefox.desktop 2>/dev/null \
+        || warn "could not set default browser"
     set_mime_default org.pwmt.zathura.desktop application/pdf
 
     # the imv package's desktop file name has varied; pick the one shipped
@@ -417,9 +434,16 @@ print_summary() {
     summary_row "Imv"           "image viewer"                           have imv-wayland
     summary_row "Mpv"           "media player"                           have mpv
     summary_row "Mullvad VPN"   "tunnel (bar's vpn module)"              have mullvad
-    summary_row "Firefox"       "browser"                                have firefox
+    summary_row "Firefox"       "browser (default)"                      have firefox
     summary_row "Chrome"        "browser"                                have google-chrome-stable
     summary_row "Mullvad Brows." "browser (stable; alpha = own tarball)" have mullvad-browser
+    summary_row "Obsidian"      "notes"                                  have obsidian
+    summary_row "KeePassXC"     "password manager"                       have keepassxc
+    summary_row "Telegram"      "messenger"                              have telegram-desktop
+    summary_row "Spotify"       "music"                                  have spotify
+    summary_row "Stremio"       "media center"                           have stremio
+    summary_row "TLP"           "battery power tuning"                   have tlp
+    summary_row "Thermald"      "Intel thermal daemon"                   have thermald
     summary_row "Chafa"         "terminal image renderer (yazi preview)" have chafa
     summary_row "Fzf"           "fuzzy finder"                           have fzf
     summary_row "Zoxide"        "directory jumper"                       have zoxide
