@@ -26,7 +26,7 @@ Target: encrypted btrfs root with snapshot support, GRUB, niri workspace on top.
 
 | Topic | Choice | Rationale |
 |---|---|---|
-| Filesystem | btrfs on LUKS2 (no LVM) | Subvolumes replace fixed-size volumes; manual snapshots before major upgrades (snapper + grub-btrfs) as an emergency revert point. ZFS considered and rejected: out-of-tree module on a rolling kernel, and its multi-disk strengths don't apply to a single-NVMe laptop |
+| Filesystem | btrfs on LUKS2 (no LVM) | Subvolumes replace fixed-size volumes; snapshots before updates (snapper + grub-btrfs) on a rolling release. ZFS considered and rejected: out-of-tree module on a rolling kernel, and its multi-disk strengths don't apply to a single-NVMe laptop |
 | Bootloader | GRUB | Required for grub-btrfs boot-into-snapshot entries |
 | `/boot` | Separate unencrypted ext4 partition | GRUB never has to unlock LUKS; LUKS2/argon2id defaults stay |
 | Kernels | `linux` + `linux-lts` | Snapshots don't cover `/boot`; LTS kernel is the fallback for kernel breakage |
@@ -387,57 +387,55 @@ arch-chroot /mnt
 
 **Base install complete.** Remaining post-install layer, in order:
 
-1. snapper + grub-btrfs (manual pre-upgrade snapshots)
+1. snapper + grub-btrfs (snapshot-before-update workflow)
 2. zram swap
 3. niri workspace deployment from this repo
 
-## Step 5 — Snapshots: snapper + grub-btrfs
+## Step 5 — Snapshots: snapper + snap-pac + grub-btrfs
 
 Everything from here on runs on the installed system, as the regular user
 with `sudo`.
 
 ### Snapshot strategy (decided)
 
-**Manual snapshots before major upgrades only** — an emergency revert
-point, nothing more. Options considered, and where each landed:
+Options considered, and where each landed:
 
-- **Manual pre-upgrade snapshots** — **chosen as the only trigger.** Before
-  a major upgrade, one command creates the revert point:
-
-  ```sh
-  sudo snapper create --cleanup-algorithm number -d "pre upgrade"
-  ```
-
-  The `--cleanup-algorithm number` flag matters: a manual snapshot created
-  without one is invisible to the cleanup timer and accumulates forever;
-  with it, old snapshots age out under `NUMBER_LIMIT`.
-- **Transaction snapshots (snap-pac, pre/post around every pacman
-  transaction)** — considered and dropped by policy: snapshots are wanted
-  before major upgrades only. Accepted tradeoff: a routine `-Syu` that
-  breaks something has no automatic pre-point — the fallback there is the
-  LTS kernel entry and chroot repair.
+- **Transaction-driven snapshots (snap-pac)** — **chosen as the only
+  automatic trigger.** Every pacman transaction gets a pre/post pair.
+  Why automatic: Arch updates the whole system in one transaction (partial
+  upgrades are unsupported), so there is no minor-vs-major distinction to
+  hang a manual habit on — whether an update was risky is only known in
+  hindsight. Automatic pairs make the revert point exist by construction;
+  snapshot count stays proportional to system changes, not to time.
 - **Timeline snapshots (hourly/daily/…)** — rejected. Time-based snapshots
-  of the root filesystem mostly capture nothing while burying the
-  meaningful pre-upgrade points in noise.
-- **Boot snapshots (`snapper-boot.timer`)** — rejected, same noise argument.
+  of the root filesystem mostly capture nothing (root barely changes between
+  transactions) while burying the meaningful pre-update snapshots in noise.
+- **Boot snapshots (`snapper-boot.timer`)** — rejected, same noise argument;
+  snap-pac already brackets every change that could make a boot differ.
 - **Timeshift (familiar from Mint)** — rejected on Arch: its pacman
   integration lives in the AUR, it fights snapper for `/.snapshots`-style
   layouts, and grub-btrfs needs a nonstandard daemon flag for it. snapper is
   the Arch-native path.
+- **Ad-hoc snapshots** stay available for experiments outside pacman
+  (config surgery, trying a dotfiles change):
+  `sudo snapper create --description "before X"`.
 
 Cleanup: `snapper-cleanup.timer` prunes by count (`NUMBER_LIMIT`), so disk
-use is bounded and old snapshots age out automatically. With `@log`, `@pkg`
-and `@home` as separate subvolumes, snapshots cover exactly the system
-itself — small under zstd, and a rollback never touches logs, package
-cache, or home.
+use is bounded and old pairs age out automatically. With `@log`, `@pkg` and
+`@home` as separate subvolumes, snapshots cover exactly the system itself —
+small under zstd, and a rollback never touches logs, package cache, or home.
 
 ### 5.1 Packages
 
 ```sh
-sudo pacman -S snapper grub-btrfs inotify-tools
+sudo pacman -S snapper snap-pac grub-btrfs inotify-tools
 ```
 
 - `snapper` — snapshot manager
+- `snap-pac` — pacman hooks: automatic pre/post snapshot around **every**
+  pacman transaction; zero config. Its pairs carry the `number` cleanup
+  algorithm, so `snapper-cleanup.timer` disposes of them automatically
+  under `NUMBER_LIMIT`
 - `grub-btrfs` — generates GRUB menu entries for snapshots
 - `inotify-tools` — needed by the grub-btrfs daemon to watch `/.snapshots`
 
@@ -465,7 +463,8 @@ Edit `/etc/snapper/configs/root`:
 
 ```
 ALLOW_GROUPS="wheel"          # snapper list without sudo
-TIMELINE_CREATE="no"          # manual pre-upgrade snapshots only
+TIMELINE_CREATE="no"          # no hourly noise — snap-pac's pacman snapshots
+                              # are the ones that matter for rollbacks
 NUMBER_LIMIT="20"
 NUMBER_LIMIT_IMPORTANT="10"
 ```
@@ -502,13 +501,11 @@ an inspection/rescue environment, not a rollback by itself.
 ### 5.6 Verify
 
 ```sh
-sudo snapper create --cleanup-algorithm number -d "test snapshot"
-snapper list               # the snapshot appears, Cleanup column "number"
+sudo pacman -S tree        # any small package
+snapper list               # a pre/post pair should have appeared
 ```
 
 Reboot once and confirm GRUB now shows an "Arch Linux snapshots" submenu.
-The test snapshot can then be dropped with `sudo snapper delete <N>`, or
-left to age out.
 
 ### 5.7 Monthly checksum scrub
 
