@@ -50,13 +50,13 @@ Target: encrypted btrfs root with snapshot support, GRUB, niri workspace on top.
 
 ---
 
-## Step 0.5 — ISO, USB stick, and SSH into the live environment
+## Step 0.5 — ISO, USB stick, and getting online
 
-The install runs over SSH from a second laptop (copy-paste, scrollback,
-docs open in a browser); only the bootstrap below and the LUKS passphrase
-ever need the destination laptop's own keyboard.
+The install runs at the laptop's own console. (Working over SSH from
+another machine is optional — see 0.5.4; every command is the same
+either way.)
 
-### 0.5.1 Download and verify the ISO (on the second laptop / Mint)
+### 0.5.1 Download and verify the ISO (from the current Mint system)
 
 Get `archlinux-x86_64.iso` and its checksum file from
 <https://archlinux.org/download/>, then:
@@ -76,33 +76,37 @@ Boot the destination laptop with **F12** and pick the **`UEFI:`-prefixed**
 entry for the stick — a legacy/BIOS entry may be listed next to it and
 would fail the UEFI check in step 1.
 
-### 0.5.3 Bootstrap SSH at the destination laptop's console
+### 0.5.3 Get online at the live ISO console
 
-sshd already runs on the live ISO, but root's password is empty and SSH
-refuses empty passwords — set one, get online, note the IP:
+Nothing installs without internet, so this comes first:
 
 ```sh
-passwd                          # root password for this live session only
 iwctl                           # Wi-Fi (Ethernet needs nothing)
   station wlan0 scan
   station wlan0 get-networks
   station wlan0 connect "SSID"
   exit
-ip -br addr                     # note the IP
+ping -c1 archlinux.org
 ```
 
-### 0.5.4 Connect from the second laptop
+### 0.5.4 (Optional) Work over SSH from another machine
+
+Buys copy-paste and scrollback, nothing more. sshd already runs on the
+live ISO, but root's password is empty and SSH refuses empty passwords:
 
 ```sh
+passwd                          # root password for this live session only
+ip -br addr                     # note the IP
+# then, from the other machine:
 ssh root@<ip>
 tmux                            # long steps survive an SSH hiccup;
                                 # reconnect with: tmux attach
 ```
 
-Steps 1–4 run in this session. After the step 4 reboot: LUKS passphrase
-and first login at the physical console, `nmtui` for Wi-Fi, then SSH back
-in **as the user** (root SSH login is disabled on the installed system;
-the IP may differ) for steps 5–7.
+Either way, steps 1–4 run in this session. After the step 4 reboot: LUKS
+passphrase and login at the console, `nmtui` for Wi-Fi, then continue
+with steps 5–7 from the console (or SSH back in **as the user** — root
+SSH login is disabled on the installed system, and the IP may differ).
 
 ---
 
@@ -349,11 +353,11 @@ cryptsetup close cryptroot    # also confirms nothing still holds the fs open
 reboot                        # remove the USB stick when the screen goes dark
 ```
 
-> The SSH session to the live ISO ends here. The LUKS passphrase is a
-> pre-boot prompt — it must be typed at the physical console. If `sshd` was
-> enabled in 3.7, post-install work can continue over SSH after logging in
-> and bringing up the network (log in as the user; root SSH login is
-> disabled by default).
+> The LUKS passphrase is a pre-boot prompt, answered at the console. (If
+> installing over SSH: that session ends with the reboot; with `sshd`
+> enabled in 3.7, post-install work can continue over SSH after logging
+> in and bringing up the network — as the user, since root SSH login is
+> disabled by default.)
 
 ### First-boot checklist
 
