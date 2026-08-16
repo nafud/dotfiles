@@ -5,9 +5,10 @@
 My Arch Linux workspace: the [niri](https://github.com/YaLTeR/niri)
 scrollable-tiling Wayland compositor and a keyboard-driven terminal stack
 (alacritty, zellij, yazi, waybar, rofi, mako, starship), everything in
-JetBrains Mono. Nearly everything comes from the official repositories;
-a small AUR set (Mullvad VPN, Chrome, Mullvad Browser) installs through
-paru, which setup.sh bootstraps.
+JetBrains Mono. Everything comes from the official repositories — the
+workspace alone, no end-user applications. setup.sh bootstraps paru as
+the tool for installing applications (a browser, a VPN, music) by hand
+afterwards, but installs nothing from the AUR itself.
 
 ## Fresh machine
 

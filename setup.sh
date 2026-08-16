@@ -13,10 +13,12 @@
 #             block, the btop setting), the linking itself, session
 #             reloads, and the final summary
 #
-# Nearly everything installs from the official repositories; the one
-# exception is a small AUR set (Mullvad VPN, Chrome, Mullvad Browser)
-# built with paru, which this script bootstraps. No other third-party
-# builds, no release-binary downloads.
+# Everything installs from the official repositories — the workspace
+# alone, no end-user applications (browsers, VPN, messengers, media
+# apps are installed by hand afterwards). paru is bootstrapped as the
+# tool for those later AUR installs, and the bar's updates module
+# upgrades through it, but this script installs nothing from the AUR.
+# No other third-party builds, no release-binary downloads.
 #
 # A real file or directory found where a link belongs is moved aside once
 # as <name>.pre-dotfiles. Version history lives in git log.
@@ -56,8 +58,7 @@ install_packages() {
         niri xwayland-satellite \
         alacritty waybar mako swaybg swayidle swaylock hyprlock rofi \
         yazi zellij cliphist starship chafa micro btop \
-        zathura zathura-pdf-poppler imv mpv firefox \
-        obsidian keepassxc telegram-desktop \
+        zathura zathura-pdf-poppler imv mpv \
         tlp thermald \
         grim slurp ksnip imagemagick brightnessctl pulsemixer \
         fzf zoxide wl-clipboard fd ripgrep eza bat git-delta jq \
@@ -80,38 +81,29 @@ install_packages() {
 }
 
 # ------------------------------------------------------------------ 2. AUR ---
-# The paru set: Mullvad VPN (the bar's vpn module), Chrome, Mullvad
-# Browser and Spotify are AUR-only; stremio rides along because paru
-# resolves official repos first and falls back to the AUR, so it
-# installs correctly from wherever it lives. paru-bin bootstraps
-# without a Rust compile; from then on `paru -Syu` upgrades repos and
-# AUR alike. Mullvad Browser note: the AUR package tracks the stable
-# channel; the alpha channel is Mullvad's own tarball with its
-# built-in updater.
-install_aur() {
+# paru is the tool, not a package source: this script installs nothing
+# from the AUR. It is bootstrapped so the bar's updates module can
+# upgrade repos and AUR alike (`paru -Syu`, plain pacman before paru
+# exists) and so applications chosen later (a browser, a VPN, music)
+# install by hand with `paru -S <pkg>`. paru-bin builds without a Rust
+# compile.
+install_paru() {
     if ! have paru; then
         log "bootstrapping paru (AUR helper)"
         git clone -q https://aur.archlinux.org/paru-bin.git "$WORK/paru-bin"
         (cd "$WORK/paru-bin" && makepkg -si --noconfirm)
         have paru || die "paru bootstrap failed"
     fi
-    log "AUR packages"
-    paru -S --needed --noconfirm \
-        mullvad-vpn-bin google-chrome mullvad-browser-bin \
-        spotify stremio
 }
 
 # ----------------------------------------------------------- 3. system units ---
-# mullvad-daemon: the AUR package installs but does not enable the unit
-# the CLI and bar module talk to. paccache: bound the pacman cache (the
-# @pkg subvolume is excluded from snapshots but nothing else limits it).
-# thermald: proactive thermal limits on Tiger Lake — sustained boost
-# instead of emergency throttling. tlp: battery-side runtime power
-# tuning, stock defaults (this ThinkBook exposes no charge-threshold
-# interface, so there is nothing to configure beyond enabling it).
+# paccache: bound the pacman cache (the @pkg subvolume is excluded from
+# snapshots but nothing else limits it). thermald: proactive thermal
+# limits on Tiger Lake — sustained boost instead of emergency
+# throttling. tlp: battery-side runtime power tuning, stock defaults
+# (this ThinkBook exposes no charge-threshold interface, so there is
+# nothing to configure beyond enabling it).
 enable_system_units() {
-    sudo systemctl enable mullvad-daemon 2>/dev/null \
-        || warn "could not enable mullvad-daemon"
     sudo systemctl enable paccache.timer 2>/dev/null \
         || warn "could not enable paccache.timer"
     sudo systemctl enable thermald 2>/dev/null \
@@ -162,9 +154,7 @@ set_mime_default() {
 }
 
 set_default_apps() {
-    log "MIME defaults (firefox for the web, zathura for PDFs, imv for images)"
-    xdg-settings set default-web-browser firefox.desktop 2>/dev/null \
-        || warn "could not set default browser"
+    log "MIME defaults (zathura for PDFs, imv for images)"
     set_mime_default org.pwmt.zathura.desktop application/pdf
 
     # the imv package's desktop file name has varied; pick the one shipped
@@ -433,15 +423,7 @@ print_summary() {
     # desktop file — probe the wayland binary, not a bare `imv`
     summary_row "Imv"           "image viewer"                           have imv-wayland
     summary_row "Mpv"           "media player"                           have mpv
-    summary_row "Mullvad VPN"   "tunnel (bar's vpn module)"              have mullvad
-    summary_row "Firefox"       "browser (default)"                      have firefox
-    summary_row "Chrome"        "browser"                                have google-chrome-stable
-    summary_row "Mullvad Brows." "browser (stable; alpha = own tarball)" have mullvad-browser
-    summary_row "Obsidian"      "notes"                                  have obsidian
-    summary_row "KeePassXC"     "password manager"                       have keepassxc
-    summary_row "Telegram"      "messenger"                              have telegram-desktop
-    summary_row "Spotify"       "music"                                  have spotify
-    summary_row "Stremio"       "media center"                           have stremio
+    summary_row "Paru"          "AUR helper (manual installs, updates)"  have paru
     summary_row "TLP"           "battery power tuning"                   have tlp
     summary_row "Thermald"      "Intel thermal daemon"                   have thermald
     summary_row "Chafa"         "terminal image renderer (yazi preview)" have chafa
@@ -466,7 +448,7 @@ main() {
     case "${1:-install}" in
         install)
             install_packages
-            install_aur
+            install_paru
             enable_system_units
             configure_greetd
             configure_git

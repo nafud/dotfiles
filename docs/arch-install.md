@@ -214,7 +214,7 @@ Why what:
 | `e2fsprogs dosfstools` | fsck for ext4 `/boot` and the FAT32 ESP |
 | `grub efibootmgr` | Bootloader (installed/configured in the chroot step) |
 | `networkmanager` | Network after reboot (same stack as on Mint; `nmtui`/`nm-applet`) |
-| `base-devel git` | `git` clones the workspace repo; `base-devel` builds the AUR set (paru, Mullvad VPN, Chrome, Mullvad Browser) |
+| `base-devel git` | `git` clones the workspace repo; `base-devel` builds paru and any AUR package installed by hand later |
 | `sudo vim man-db man-pages openssh` | Quality of life; `base` ships no editor/sudo/man |
 
 `-K` initializes a fresh pacman keyring in the target (recommended on
@@ -607,12 +607,13 @@ service to enable.
 ## Step 7 — Deploy the niri workspace
 
 The workspace lives in this repository (`config/` → `~/.config`, `bin/` →
-`~/.local/bin`), and `setup.sh` is Arch-native: nearly every component
-installs from the official repositories, plus one small AUR set —
-**Mullvad VPN, Chrome, Mullvad Browser** — built with `paru`, which
-setup.sh bootstraps (this is what `base-devel` from step 2 is for). What
-took apt + pacstall + a PPA + GitHub downloads on Mint is one pacman
-transaction and one paru transaction here.
+`~/.local/bin`), and `setup.sh` is Arch-native: every component installs
+from the official repositories in one pacman transaction. The script
+installs the workspace alone — no end-user applications; browsers, VPN
+and the like are installed by hand afterwards (step 7.3). `paru` is
+bootstrapped as the tool for those installs (this is what `base-devel`
+from step 2 is for). What took apt + pacstall + a PPA + GitHub downloads
+on Mint is one pacman transaction here.
 
 ### 7.1 One command
 
@@ -633,20 +634,18 @@ One idempotent run does all of it:
 
 - **Packages** (single `pacman -Syu --needed` transaction): the niri stack
   (niri, xwayland-satellite, waybar, mako, rofi 2.0 wayland, alacritty, …),
-  the terminal tools, Firefox, the PipeWire audio stack (`pipewire-pulse`
+  the terminal tools, the PipeWire audio stack (`pipewire-pulse`
   shim — `pulsemixer` talks to it unchanged), portals + gnome-keyring +
   `qt5-wayland` (ksnip runs native Wayland) + `gsettings-desktop-schemas`
   and `adwaita-icon-theme` (the gsettings dark theme and the Adwaita
   cursor from `input.kdl` actually resolve), `ttf-jetbrains-mono-nerd`,
   and `pacman-contrib` (the bar's updates module probes `checkupdates`).
-- **Desktop apps**, replacing the Mint flatpaks with native packages:
-  Obsidian, KeePassXC, Telegram from the official repos; Spotify and
-  Stremio through paru. No flatpak runtime on the system.
-- **AUR set** via paru (bootstrapped from `paru-bin` if absent): Mullvad
-  VPN (+ `mullvad-daemon` enabled — the bar's vpn module needs it),
-  Chrome, Mullvad Browser (stable channel; the alpha channel is Mullvad's
-  own self-updating tarball, installed by hand if wanted), Spotify,
-  Stremio.
+  The workspace alone — no browsers, no VPN, no messengers, no media
+  apps; those are step 7.3, by hand.
+- **paru** bootstrapped from `paru-bin` if absent — the tool for the
+  by-hand application installs, and what the bar's updates module runs
+  (`paru -Syu`) so repo and AUR packages upgrade together. Nothing is
+  installed from the AUR by the script itself.
 - **Power**: `thermald` (proactive thermal limits — Tiger Lake sustains
   boost instead of emergency-throttling) and `tlp` (battery-side runtime
   tuning, stock defaults) installed and enabled.
@@ -655,8 +654,8 @@ One idempotent run does all of it:
 - **Maintenance**: `paccache.timer` enabled so the pacman cache stays
   bounded (the `@pkg` subvolume escapes snapshots, but nothing else
   limits its growth).
-- **Defaults**: Firefox as the system browser (`xdg-settings`), zathura
-  for PDFs, imv for images.
+- **Defaults**: zathura for PDFs, imv for images. No browser default is
+  recorded — that follows the by-hand browser install in step 7.3.
 - **Linking**: `config/` → `~/.config`, `bin/` → `~/.local/bin`; anything
   in the way is preserved once as `<name>.pre-dotfiles`.
 - **Glue**: MIME defaults, gsettings, the managed `~/.bashrc` block, the
@@ -674,6 +673,22 @@ apps ever need privilege prompts — the terminal/sudo workflow doesn't.
 3. Audio: `pulsemixer` sees PipeWire sinks. Screenshots: `Print`.
 4. Updates module: badge counts pending pacman + AUR updates; click runs
    the upgrade (`paru -Syu`) in a terminal.
-5. VPN: `mullvad account login`, then the bar's vpn module shows the
-   tunnel state (left-click: app window; right-click: connect/disconnect).
-6. `bash ~/dotfiles/setup.sh summary` — all rows green.
+5. `bash ~/dotfiles/setup.sh summary` — all rows green.
+
+### 7.3 Applications, by hand
+
+The script keeps the workspace pure; applications are deliberate,
+per-machine choices installed afterwards. The configs already carry
+their integration points, which sit dormant until the package appears:
+
+- **Browser** — e.g. `paru -S firefox` (or any other), then record it
+  as the default: `xdg-settings set default-web-browser firefox.desktop`.
+- **Mullvad VPN** — `paru -S mullvad-vpn-bin`, then
+  `sudo systemctl enable --now mullvad-daemon` and `mullvad account
+  login`. The bar's vpn module hides itself while mullvad is absent and
+  lights up on the next bar restart (left-click: app window;
+  right-click: connect/disconnect). The niri window rule for the
+  mullvad popup is likewise already in place.
+- **Anything else** (Spotify, Telegram, Obsidian, KeePassXC, …) —
+  `paru -S <pkg>`; paru resolves official repos first and falls back to
+  the AUR.
