@@ -54,13 +54,6 @@ window-rule {
     default-column-width { proportion 0.7; }
 }
 
-// the mullvad GUI is a fixed-size popup by design (opened from the
-// bar's vpn module); tiled it would stretch into a mostly-empty column
-window-rule {
-    match app-id="^Mullvad VPN$"
-    open-floating true
-}
-
 // The bar pills, launcher and notifications are layer-shell surfaces,
 // so their blur comes from layer rules. Their surfaces carry the same
 // 92% alpha in their own configs.

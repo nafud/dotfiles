@@ -3,7 +3,8 @@
 # hyprlock draws the whole scene from config/hypr/hyprlock.conf: the
 # wallpaper blurred and sunk toward the theme ground on the GPU, the
 # clock, the layout mark, the state-colored ring. setup.sh installs it
-# from the hyprland PPA; until that has run, the swaylock fallback
+# from the official repositories; until that has run, the swaylock
+# fallback
 # below locks over a pre-rendered blur, so a lock always exists.
 
 # the session lock is single-holder: locked already means done

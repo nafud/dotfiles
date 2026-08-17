@@ -7,7 +7,7 @@
     "margin-right": 6,
     "modules-left": ["custom/workspaces"],
     "modules-center": ["group/stats"],
-    "modules-right": ["tray", "custom/updates", "group/levels", "custom/vpn", "network", "custom/layout", "clock", "custom/power"],
+    "modules-right": ["tray", "custom/updates", "group/levels", "network", "custom/layout", "clock", "custom/power"],
 
     "custom/updates": {
         "exec": "~/.config/waybar/updates.sh",
@@ -24,15 +24,6 @@
         "format": "{}",
         "tooltip": false,
         "on-click": "niri msg action switch-layout next"
-    },
-
-    "custom/vpn": {
-        "exec": "~/.config/waybar/vpn.sh",
-        "return-type": "json",
-        "restart-interval": 3,
-        "format": "{}",
-        "on-click": "~/.config/waybar/vpn.sh gui",
-        "on-click-right": "~/.config/waybar/vpn.sh toggle"
     },
 
     "tray": { "icon-size": 16, "spacing": 8 },

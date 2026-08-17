@@ -99,10 +99,10 @@ install_paru() {
 # ----------------------------------------------------------- 3. system units ---
 # paccache: bound the pacman cache (the @pkg subvolume is excluded from
 # snapshots but nothing else limits it). thermald: proactive thermal
-# limits on Tiger Lake — sustained boost instead of emergency
+# limits on Intel laptops — sustained boost instead of emergency
 # throttling. tlp: battery-side runtime power tuning, stock defaults
-# (this ThinkBook exposes no charge-threshold interface, so there is
-# nothing to configure beyond enabling it).
+# (machines that expose a charge-threshold interface can set thresholds
+# in /etc/tlp.conf; nothing else needs configuring).
 enable_system_units() {
     sudo systemctl enable paccache.timer 2>/dev/null \
         || warn "could not enable paccache.timer"

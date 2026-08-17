@@ -685,10 +685,9 @@ their integration points, which sit dormant until the package appears:
   as the default: `xdg-settings set default-web-browser firefox.desktop`.
 - **Mullvad VPN** — `paru -S mullvad-vpn-bin`, then
   `sudo systemctl enable --now mullvad-daemon` and `mullvad account
-  login`. The bar's vpn module hides itself while mullvad is absent and
-  lights up on the next bar restart (left-click: app window;
-  right-click: connect/disconnect). The niri window rule for the
-  mullvad popup is likewise already in place.
+  login`. The workspace configs carry nothing mullvad-specific; any
+  status integration (a bar module, a window rule for the popup) is a
+  per-user addition.
 - **Anything else** (Spotify, Telegram, Obsidian, KeePassXC, …) —
   `paru -S <pkg>`; paru resolves official repos first and falls back to
   the AUR.
