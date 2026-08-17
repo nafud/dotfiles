@@ -30,8 +30,8 @@ window#waybar {
 }
 
 /* the tray is the one place app icons are allowed: it exists so tray
-   apps (telegram, nm-applet) have a StatusNotifierWatcher to dock at —
-   without it their D-Bus tray registration has no host at all */
+   apps (nm-applet, chat clients) have a StatusNotifierWatcher to dock
+   at — without it their D-Bus tray registration has no host at all */
 #tray {
     padding: 0 8px;
 }

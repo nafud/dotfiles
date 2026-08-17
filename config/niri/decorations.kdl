@@ -8,8 +8,8 @@ window-rule {
 }
 
 // The layout owns window geometry: apps that remember a maximized
-// state across restarts (Telegram, Firefox) are denied it, so every
-// window opens as a regular framed tile. Mod+F still maximizes a
+// state across restarts (browsers, chat clients) are denied it, so
+// every window opens as a regular framed tile. Mod+F still maximizes a
 // column on demand.
 window-rule {
     open-maximized false

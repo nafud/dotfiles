@@ -3,24 +3,19 @@
 Manual (no archinstall) installation of Arch Linux, built step by step.
 Target: encrypted btrfs root with snapshot support, GRUB, niri workspace on top.
 
-## Hardware
+## Assumptions
 
-- Lenovo ThinkBook 14 G2 ITL (20VD)
-- Intel Core i7-1165G7 (Tiger Lake, 4c/8t) — Intel Iris Xe graphics (`i915`)
-- 24 GB RAM
-- 477 GB NVMe SSD (`/dev/nvme0n1`)
-- UEFI; Secure Boot currently **on** (Linux Mint) — must be disabled before
-  booting the Arch ISO (see Step 0)
-- Intel Wi-Fi 6 AX201 (`iwlwifi`); AX201 Bluetooth present but unused
-  (kept soft-blocked; no bluez installed)
-- Integrated camera (Bison, `uvcvideo` — works out of the box)
-- No fingerprint reader (confirmed via lsusb) — no fprintd
-- Suspend: `s2idle` is the firmware default; `deep` (S3) is also
-  advertised — if standby drain ever bothers, add
-  `mem_sleep_default=deep` to `GRUB_CMDLINE_LINUX` and test
-- No `conservation_mode` battery-threshold interface exposed — TLP runs
-  with stock defaults, no charge cap to configure
-- Currently running Linux Mint (will be wiped)
+The walkthrough is written for a common laptop shape and uses concrete
+values throughout; adjust them to the machine at hand:
+
+- x86_64 laptop booting UEFI (the step 1 sanity check confirms this)
+- A single NVMe disk, `/dev/nvme0n1` in every command — substitute your
+  device from `lsblk` (SATA disks appear as `/dev/sda`)
+- Intel CPU/GPU in the worked examples (`intel-ucode`, `mesa`,
+  `vulkan-intel`); the AMD equivalents are noted where they differ
+- Any existing OS on the disk will be wiped
+- No hibernation wanted (zram swap only, step 6); plain suspend covers
+  the laptop-lid use case
 
 ## Decisions
 
@@ -39,12 +34,13 @@ Target: encrypted btrfs root with snapshot support, GRUB, niri workspace on top.
 ## Step 0 — Before booting the ISO
 
 1. **Back up what dies with the disk.** The niri config is in this repo, but
-   sweep the Mint install for everything else: SSH keys (`~/.ssh` — needed to
-   clone this repo from the new system), GPG keys, browser profiles,
+   sweep the current OS for everything else: SSH keys (`~/.ssh` — needed to
+   push to this repo from the new system), GPG keys, browser profiles,
    `~/Documents`, any dotfiles not committed here.
-2. **Disable Secure Boot.** Mint boots via Microsoft-signed shim; the Arch ISO
-   is unsigned and will not boot with Secure Boot enabled. Enter firmware
-   setup (F1 at power-on on ThinkBooks) → Security → Secure Boot → Disabled.
+2. **Disable Secure Boot.** Most preinstalled systems boot via a
+   Microsoft-signed shim; the Arch ISO is unsigned and will not boot with
+   Secure Boot enabled. Enter firmware setup (F1/F2/Del at power-on,
+   vendor-dependent) → Security → Secure Boot → Disabled.
    Leave it off after the install (re-enabling later via `sbctl` with custom
    keys is possible but out of scope).
 
@@ -56,7 +52,7 @@ The install runs over SSH from a second laptop (copy-paste, scrollback,
 docs open in a browser); only the bootstrap below and the LUKS passphrase
 ever need the destination laptop's own keyboard.
 
-### 0.5.1 Download and verify the ISO (on the second laptop / Mint)
+### 0.5.1 Download and verify the ISO (on another machine)
 
 Get `archlinux-x86_64.iso` and its checksum file from
 <https://archlinux.org/download/>, then:
@@ -72,7 +68,8 @@ lsblk -d -o NAME,SIZE,MODEL      # identify the stick — NOT a hard disk
 sudo dd if=archlinux-x86_64.iso of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
-Boot the destination laptop with **F12** and pick the **`UEFI:`-prefixed**
+Boot the destination laptop from its firmware boot menu (F12 on many
+laptops, vendor-dependent) and pick the **`UEFI:`-prefixed**
 entry for the stick — a legacy/BIOS entry may be listed next to it and
 would fail the UEFI check in step 1.
 
@@ -108,7 +105,7 @@ the IP may differ) for steps 5–7.
 
 ## Step 1 — Disk setup (partition, encrypt, btrfs, mount)
 
-> **WARNING:** this wipes the entire disk, including the existing Linux Mint install.
+> **WARNING:** this wipes the entire disk, including whatever OS is on it.
 
 ### 1.1 Sanity checks
 
@@ -130,7 +127,7 @@ to `1` (EFI System), `w` to write.
 |---|---|---|---|
 | `nvme0n1p1` | 1G | EFI System | ESP, mounted at `/boot/efi` |
 | `nvme0n1p2` | 1G | Linux | `/boot`, unencrypted ext4 |
-| `nvme0n1p3` | rest (~475G) | Linux | LUKS2 container |
+| `nvme0n1p3` | rest of the disk | Linux | LUKS2 container |
 
 ### 1.3 Format the plain partitions
 
@@ -177,7 +174,7 @@ Notes:
 
 - `compress=zstd` — transparent compression, typically 30–50% savings on
   system files, negligible CPU cost.
-- No sizes anywhere: all subvolumes share the same ~473 G pool.
+- No sizes anywhere: all subvolumes share the one btrfs pool.
 - Reminder for the chroot step: mkinitcpio needs the `encrypt` hook and GRUB
   needs a `cryptdevice=` kernel parameter for the `cryptroot` mapping.
 
@@ -208,12 +205,12 @@ Why what:
 |---|---|
 | `base linux linux-firmware` | The core system |
 | `linux-lts` | Fallback kernel — snapshots don't cover `/boot`, LTS covers kernel breakage |
-| `intel-ucode` | CPU microcode for the i7-1165G7 (GRUB picks it up automatically) |
-| `sof-firmware` | Tiger Lake audio (Sound Open Firmware) — without it, no sound |
+| `intel-ucode` | CPU microcode (swap for `amd-ucode` on AMD; GRUB picks either up automatically) |
+| `sof-firmware` | Audio firmware for recent Intel laptops — without it, no sound there; harmless (droppable) elsewhere |
 | `btrfs-progs cryptsetup` | Root filesystem tools + LUKS unlock in the initramfs |
 | `e2fsprogs dosfstools` | fsck for ext4 `/boot` and the FAT32 ESP |
 | `grub efibootmgr` | Bootloader (installed/configured in the chroot step) |
-| `networkmanager` | Network after reboot (same stack as on Mint; `nmtui`/`nm-applet`) |
+| `networkmanager` | Network after reboot (`nmtui`/`nm-applet`) |
 | `base-devel git` | `git` clones the workspace repo; `base-devel` builds paru and any AUR package installed by hand later |
 | `sudo vim man-db man-pages openssh` | Quality of life; `base` ships no editor/sudo/man |
 
@@ -245,7 +242,7 @@ arch-chroot /mnt
 ### 3.1 Time & locale
 
 ```sh
-ln -sf /usr/share/zoneinfo/Asia/Baku /etc/localtime   # adjust if needed
+ln -sf /usr/share/zoneinfo/Region/City /etc/localtime   # your timezone
 hwclock --systohc
 sed -i 's/^#en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
 locale-gen
@@ -256,11 +253,11 @@ echo 'KEYMAP=us' > /etc/vconsole.conf
 ### 3.2 Hostname & hosts
 
 ```sh
-echo 'thinkbook' > /etc/hostname
+echo 'yourhostname' > /etc/hostname
 cat >> /etc/hosts <<'EOF'
 127.0.0.1   localhost
 ::1         localhost
-127.0.1.1   thinkbook
+127.0.1.1   yourhostname
 EOF
 ```
 
@@ -273,15 +270,17 @@ passwd yourname
 EDITOR=vim visudo               # uncomment:  %wheel ALL=(ALL:ALL) ALL
 ```
 
-### 3.4 GPU (Intel Iris Xe)
+### 3.4 GPU drivers
 
 ```sh
-pacman -S mesa vulkan-intel intel-media-driver
+pacman -S mesa vulkan-intel intel-media-driver      # Intel
+# AMD instead:  pacman -S mesa vulkan-radeon libva-mesa-driver
 ```
 
-`mesa` = OpenGL, `vulkan-intel` = Vulkan, `intel-media-driver` = VA-API
-hardware video decode (battery life). Do **not** install `xf86-video-intel`
-(deprecated Xorg driver; niri is Wayland and uses mesa + kernel i915).
+`mesa` = OpenGL, the vulkan package = Vulkan, the last = VA-API hardware
+video decode (battery life). Do **not** install `xf86-video-intel`
+(deprecated Xorg driver; niri is Wayland and uses mesa + the kernel
+driver).
 
 ### 3.5 initramfs — the `encrypt` hook (CRITICAL)
 
@@ -292,8 +291,8 @@ HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont bl
 ```
 
 - `keyboard`/`keymap` before `encrypt` — so the passphrase prompt has a keyboard
-- `microcode` — embeds intel-ucode into the initramfs
-- `kms` — early i915 for proper console graphics
+- `microcode` — embeds the CPU microcode into the initramfs
+- `kms` — early kernel modesetting for proper console graphics
 
 Then regenerate for both kernels:
 
@@ -335,8 +334,8 @@ Notes:
 - No display manager enabled here — that decision (greetd vs gdm) belongs to
   the niri deployment step.
 - No GNOME: niri is the session. A fallback DE can be added any time later.
-- `linux-headers`/`linux-lts-headers` not needed — no DKMS modules on this
-  hardware.
+- `linux-headers`/`linux-lts-headers` not needed unless DKMS modules
+  enter the picture later.
 
 ---
 
@@ -366,7 +365,7 @@ reboot                        # remove the USB stick when the screen goes dark
 ```sh
 ping -c3 archlinux.org
 timedatectl                   # NTP synced
-free -h                       # 24 GB visible
+free -h                       # all RAM visible
 findmnt /                     # /dev/mapper/cryptroot, subvol=/@, compress=zstd
 ```
 
@@ -412,7 +411,7 @@ Options considered, and where each landed:
   transactions) while burying the meaningful pre-update snapshots in noise.
 - **Boot snapshots (`snapper-boot.timer`)** — rejected, same noise argument;
   snap-pac already brackets every change that could make a boot differ.
-- **Timeshift (familiar from Mint)** — rejected on Arch: its pacman
+- **Timeshift** — rejected on Arch: its pacman
   integration lives in the AUR, it fights snapper for `/.snapshots`-style
   layouts, and grub-btrfs needs a nonstandard daemon flag for it. snapper is
   the Arch-native path.
@@ -566,10 +565,10 @@ zram-size = ram / 2
 compression-algorithm = zstd
 ```
 
-`ram / 2` = a 12 G zram device on this machine. With zstd's typical 3:1
-ratio on swapped pages, that costs ~4 G of RAM when completely full while
-extending effective memory well past physical — the right trade at 24 GB,
-where swap is occasional overflow, not a working set.
+`ram / 2` is the standard sizing. With zstd's typical 3:1 ratio on
+swapped pages, a completely full device costs about a sixth of RAM while
+extending effective memory well past physical — the right trade when swap
+is occasional overflow, not a working set.
 
 ### 6.2 Kernel tuning for zram
 
@@ -612,8 +611,7 @@ from the official repositories in one pacman transaction. The script
 installs the workspace alone — no end-user applications; browsers, VPN
 and the like are installed by hand afterwards (step 7.3). `paru` is
 bootstrapped as the tool for those installs (this is what `base-devel`
-from step 2 is for). What took apt + pacstall + a PPA + GitHub downloads
-on Mint is one pacman transaction here.
+from step 2 is for).
 
 ### 7.1 One command
 
@@ -646,9 +644,9 @@ One idempotent run does all of it:
   by-hand application installs, and what the bar's updates module runs
   (`paru -Syu`) so repo and AUR packages upgrade together. Nothing is
   installed from the AUR by the script itself.
-- **Power**: `thermald` (proactive thermal limits — Tiger Lake sustains
-  boost instead of emergency-throttling) and `tlp` (battery-side runtime
-  tuning, stock defaults) installed and enabled.
+- **Power**: `thermald` (proactive thermal limits on Intel — sustained
+  boost instead of emergency throttling; inert on other CPUs) and `tlp`
+  (battery-side runtime tuning, stock defaults) installed and enabled.
 - **greetd + tuigreet** installed, configured (`/etc/greetd/config.toml`)
   and enabled — takes over the VT at next boot, never mid-session.
 - **Maintenance**: `paccache.timer` enabled so the pacman cache stays
