@@ -1,10 +1,12 @@
 input {
     keyboard {
         xkb {
-            // us, az, ru in that order — the order is the Alt+Shift
-            // cycle; grp: is the xkb group switch, deliberately not a
-            // compositor bind so it also works on the lock screen
-            layout "us,az,ru"
+            // list layouts comma-separated ("us,de") and Alt+Shift
+            // cycles them; grp: is the xkb group switch, deliberately
+            // not a compositor bind so it also works on the lock
+            // screen. The bar's layout mark appears with the second
+            // layout (config/waybar/layout.sh).
+            layout "us"
             options "grp:alt_shift_toggle"
         }
         repeat-delay 500

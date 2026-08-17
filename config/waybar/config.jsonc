@@ -40,8 +40,7 @@
     "group/stats": { "orientation": "inherit", "modules": ["temperature", "cpu", "memory"] },
     "group/levels": { "orientation": "inherit", "modules": ["pulseaudio", "backlight", "battery"] },
 
-    "temperature": { "hwmon-path-abs": "/sys/devices/platform/coretemp.0/hwmon", "input-filename": "temp1_input",
-                     "critical-threshold": 80, "format": " {temperatureC}°C", "interval": 5 },
+    "temperature": { "critical-threshold": 80, "format": " {temperatureC}°C", "interval": 5 },
     "cpu": { "format": " {usage}%", "interval": 3,
              "on-click": "alacritty --class btop-float -e btop" },
     "memory": { "format": "<span size='138%'>󰘚</span> {percentage}%", "interval": 5,

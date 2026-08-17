@@ -1,13 +1,16 @@
 #!/bin/bash
-# current keyboard layout in the bar, as a two-letter mark: en, az, ru.
-# The mark is the layout name's first two letters — which is exactly
-# right for every layout configured (English (US), Azerbaijani,
-# Russian); a fourth layout that breaks the rule earns a real map here.
+# current keyboard layout in the bar, as a two-letter mark taken from
+# the layout name's first two letters; a layout set that breaks that
+# rule earns a real map here. With a single configured layout the mark
+# carries no information, so the module renders empty and the bar
+# collapses it — it appears with the second layout (the battery-module
+# convention: absent hardware, absent module).
 # Rendered once, then on each KeyboardLayout* event — the workspaces.sh
 # recipe: the event only says "changed", the state is re-read whole.
 render() {
     niri msg --json keyboard-layouts \
-        | jq -r '.names[.current_idx][0:2] | ascii_downcase'
+        | jq -r 'if (.names | length) < 2 then ""
+                 else .names[.current_idx][0:2] | ascii_downcase end'
 }
 render
 
