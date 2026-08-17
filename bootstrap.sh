@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bootstrap.sh — the whole workspace in one command, on a fresh Arch
-# install (base system per docs/arch-install.md):
+# install (base system per the Kiln guide linked in the README):
 #
 #   curl -fsSL https://raw.githubusercontent.com/nafud/dotfiles/main/bootstrap.sh | bash
 #

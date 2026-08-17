@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # setup.sh — bootstrap for the niri desktop dotfiles
-# Target: Arch Linux (base install per docs/arch-install.md), fresh or
-# existing.
+# Target: Arch Linux (base install per the Kiln guide linked in the
+# README), fresh or existing.
 #
 # The repository layout is the source of truth:
 #   config/   mirrors ~/.config and is symlinked there, entry by entry —
@@ -41,7 +41,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CFG="$HOME/.config"
 MONO_FONT="JetBrainsMono Nerd Font"
 
-WORK="$(mktemp -d -t niri-setup.XXXXXX)"
+WORK="$(mktemp -d -t dotfiles-setup.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 
 # Match the full family name: a vanilla "JetBrains Mono" install also greps
@@ -239,14 +239,17 @@ write_shell() {
     [ -f "$rc" ] || touch "$rc"
 
     log "writing managed block into ~/.bashrc"
+    # the niri-setup marker is the block's pre-rename name — stripping
+    # it too migrates existing installs to the dotfiles marker
     printf '%s\n\n' "$(awk '
+        /^# >>> dotfiles managed block >>>$/,/^# <<< dotfiles managed block <<<$/ { next }
         /^# >>> niri-setup managed block >>>$/,/^# <<< niri-setup managed block <<<$/ { next }
         /^# >>> terminal-readability block >>>$/,/^# <<< terminal-readability block <<<$/ { next }
         { print }
     ' "$rc")" > "$body"
 
     cat >> "$body" <<'EOF'
-# >>> niri-setup managed block >>>
+# >>> dotfiles managed block >>>
 # yazi wrapper: on quit the shell follows yazi's last directory
 function y() {
     local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
@@ -279,7 +282,7 @@ export MANPAGER="sh -c 'col -bx | bat -l man -p'"
 [ -f /usr/share/fzf/key-bindings.bash ] && source /usr/share/fzf/key-bindings.bash
 eval "$(zoxide init bash)"
 eval "$(starship init bash)"
-# <<< niri-setup managed block <<<
+# <<< dotfiles managed block <<<
 EOF
 
     cat "$body" > "$rc"

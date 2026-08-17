@@ -14,8 +14,10 @@ afterwards, but installs nothing from the AUR itself.
 
 Base system first: the
 [Arch Linux install guide](https://nafud.github.io/kiln/guides/arch-linux/)
-(encrypted btrfs, snapshots, zram); the pre-wipe backup checklist stays
-in [docs/arch-install.md](docs/arch-install.md). Then one command:
+(encrypted btrfs, snapshots, zram, Secure Boot re-enable). Before wiping
+the outgoing OS, back up what dies with the disk — SSH keys (`~/.ssh`),
+GPG keys, browser profiles, `~/Documents`, any dotfiles not committed
+here. Then one command:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/nafud/dotfiles/main/bootstrap.sh | bash
