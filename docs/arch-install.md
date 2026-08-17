@@ -1,21 +1,9 @@
 # Arch Linux Manual Installation Guide
 
 Manual (no archinstall) installation of Arch Linux, built step by step.
-Target: encrypted btrfs root with snapshot support, GRUB, niri workspace on top.
-
-## Assumptions
-
-The walkthrough is written for a common laptop shape and uses concrete
-values throughout; adjust them to the machine at hand:
-
-- x86_64 laptop booting UEFI (the step 1 sanity check confirms this)
-- A single NVMe disk, `/dev/nvme0n1` in every command — substitute your
-  device from `lsblk` (SATA disks appear as `/dev/sda`)
-- Intel CPU/GPU in the worked examples (`intel-ucode`, `mesa`,
-  `vulkan-intel`); the AMD equivalents are noted where they differ
-- Any existing OS on the disk will be wiped
-- No hibernation wanted (zram swap only, step 6); plain suspend covers
-  the laptop-lid use case
+Target: encrypted btrfs root with snapshot support, GRUB, niri workspace on
+top. Commands carry concrete example values — the disk `/dev/nvme0n1`, the
+hostname, the timezone; substitute your own.
 
 ## Decisions
 
@@ -192,7 +180,7 @@ reflector --country <your-country> --protocol https --sort rate --save /etc/pacm
 
 ```sh
 pacstrap -K /mnt \
-  base linux linux-lts linux-firmware intel-ucode sof-firmware \
+  base linux linux-lts linux-firmware \
   btrfs-progs cryptsetup e2fsprogs dosfstools \
   grub efibootmgr \
   networkmanager \
@@ -205,14 +193,16 @@ Why what:
 |---|---|
 | `base linux linux-firmware` | The core system |
 | `linux-lts` | Fallback kernel — snapshots don't cover `/boot`, LTS covers kernel breakage |
-| `intel-ucode` | CPU microcode (swap for `amd-ucode` on AMD; GRUB picks either up automatically) |
-| `sof-firmware` | Audio firmware for recent Intel laptops — without it, no sound there; harmless (droppable) elsewhere |
 | `btrfs-progs cryptsetup` | Root filesystem tools + LUKS unlock in the initramfs |
 | `e2fsprogs dosfstools` | fsck for ext4 `/boot` and the FAT32 ESP |
 | `grub efibootmgr` | Bootloader (installed/configured in the chroot step) |
 | `networkmanager` | Network after reboot (`nmtui`/`nm-applet`) |
 | `base-devel git` | `git` clones the workspace repo; `base-devel` builds paru and any AUR package installed by hand later |
 | `sudo vim man-db man-pages openssh` | Quality of life; `base` ships no editor/sudo/man |
+
+Add to the same list the machine's CPU microcode package (`*-ucode`;
+GRUB picks it up automatically) and any device firmware it needs beyond
+`linux-firmware`.
 
 `-K` initializes a fresh pacman keyring in the target (recommended on
 current archiso).
@@ -273,14 +263,12 @@ EDITOR=vim visudo               # uncomment:  %wheel ALL=(ALL:ALL) ALL
 ### 3.4 GPU drivers
 
 ```sh
-pacman -S mesa vulkan-intel intel-media-driver      # Intel
-# AMD instead:  pacman -S mesa vulkan-radeon libva-mesa-driver
+pacman -S mesa
 ```
 
-`mesa` = OpenGL, the vulkan package = Vulkan, the last = VA-API hardware
-video decode (battery life). Do **not** install `xf86-video-intel`
-(deprecated Xorg driver; niri is Wayland and uses mesa + the kernel
-driver).
+`mesa` provides OpenGL; add the machine's Vulkan and VA-API hardware
+video-decode packages on top. No legacy Xorg driver packages — niri is
+Wayland and runs on mesa plus the kernel's modesetting driver.
 
 ### 3.5 initramfs — the `encrypt` hook (CRITICAL)
 
@@ -644,9 +632,8 @@ One idempotent run does all of it:
   by-hand application installs, and what the bar's updates module runs
   (`paru -Syu`) so repo and AUR packages upgrade together. Nothing is
   installed from the AUR by the script itself.
-- **Power**: `thermald` (proactive thermal limits on Intel — sustained
-  boost instead of emergency throttling; inert on other CPUs) and `tlp`
-  (battery-side runtime tuning, stock defaults) installed and enabled.
+- **Power**: `tlp` (battery-side runtime power tuning, stock defaults)
+  installed and enabled.
 - **greetd + tuigreet** installed, configured (`/etc/greetd/config.toml`)
   and enabled — takes over the VT at next boot, never mid-session.
 - **Maintenance**: `paccache.timer` enabled so the pacman cache stays

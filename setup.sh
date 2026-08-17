@@ -59,7 +59,7 @@ install_packages() {
         alacritty waybar mako swaybg swayidle swaylock hyprlock rofi \
         yazi zellij cliphist starship chafa micro btop \
         zathura zathura-pdf-poppler imv mpv \
-        tlp thermald \
+        tlp \
         grim slurp ksnip imagemagick brightnessctl pulsemixer \
         fzf zoxide wl-clipboard fd ripgrep eza bat git-delta jq \
         p7zip unzip xdg-user-dirs \
@@ -98,16 +98,13 @@ install_paru() {
 
 # ----------------------------------------------------------- 3. system units ---
 # paccache: bound the pacman cache (the @pkg subvolume is excluded from
-# snapshots but nothing else limits it). thermald: proactive thermal
-# limits on Intel laptops — sustained boost instead of emergency
-# throttling. tlp: battery-side runtime power tuning, stock defaults
-# (machines that expose a charge-threshold interface can set thresholds
-# in /etc/tlp.conf; nothing else needs configuring).
+# snapshots but nothing else limits it). tlp: battery-side runtime power
+# tuning, stock defaults (machines that expose a charge-threshold
+# interface can set thresholds in /etc/tlp.conf; nothing else needs
+# configuring).
 enable_system_units() {
     sudo systemctl enable paccache.timer 2>/dev/null \
         || warn "could not enable paccache.timer"
-    sudo systemctl enable thermald 2>/dev/null \
-        || warn "could not enable thermald"
     sudo systemctl enable tlp 2>/dev/null \
         || warn "could not enable tlp"
 }
@@ -425,7 +422,6 @@ print_summary() {
     summary_row "Mpv"           "media player"                           have mpv
     summary_row "Paru"          "AUR helper (manual installs, updates)"  have paru
     summary_row "TLP"           "battery power tuning"                   have tlp
-    summary_row "Thermald"      "Intel thermal daemon"                   have thermald
     summary_row "Chafa"         "terminal image renderer (yazi preview)" have chafa
     summary_row "Fzf"           "fuzzy finder"                           have fzf
     summary_row "Zoxide"        "directory jumper"                       have zoxide
