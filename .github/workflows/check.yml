@@ -40,3 +40,18 @@ jobs:
                   tomllib.load(fh)
               print("ok", f)
           PYEOF
+
+  # The niri config is the one file that can lock you out of a session,
+  # so it gets a real parse by the real binary on the platform these
+  # dotfiles target.
+  niri-validate:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install niri
+        run: pacman -Syu --noconfirm niri
+
+      - name: niri config validates
+        run: niri validate --config config/niri/config.kdl

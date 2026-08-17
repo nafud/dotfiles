@@ -90,6 +90,9 @@ install_packages() {
 install_paru() {
     if ! have paru; then
         log "bootstrapping paru (AUR helper)"
+        # makepkg needs the base-devel group; --needed makes this free
+        # on systems that already carry it
+        sudo pacman -S --needed --noconfirm base-devel
         git clone -q https://aur.archlinux.org/paru-bin.git "$WORK/paru-bin"
         (cd "$WORK/paru-bin" && makepkg -si --noconfirm)
         have paru || die "paru bootstrap failed"
@@ -220,6 +223,10 @@ enable_units() {
     systemctl --user daemon-reload 2>/dev/null || true
     systemctl --user enable --now waybar-updates.path 2>/dev/null \
         || warn "could not enable waybar-updates.path (no user session?)"
+    # gcr-4 ships the ssh agent that gnome-keyring no longer carries;
+    # the bashrc block exports its socket path
+    systemctl --user enable --now gcr-ssh-agent.socket 2>/dev/null \
+        || warn "could not enable gcr-ssh-agent.socket (no user session?)"
 }
 
 # --------------------------------------------------------- 7. shell setup ---
@@ -262,10 +269,12 @@ export EDITOR=micro
 export VISUAL=micro
 export MANPAGER="sh -c 'col -bx | bat -l man -p'"
 
-# gnome-keyring's ssh agent, unlocked with the login keyring; never
-# clobbers an agent that is already set (e.g. one forwarded over ssh)
-[ -z "${SSH_AUTH_SOCK:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$UID}/keyring/ssh" ] \
-    && export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR:-/run/user/$UID}/keyring/ssh"
+# gcr's ssh agent — gnome-keyring dropped its own, gcr-4 carries it
+# now, socket-activated by the user unit setup enables. The user-unit
+# environment doesn't reach a greetd-launched shell, hence the export;
+# never clobbers an agent already set (e.g. one forwarded over ssh)
+[ -z "${SSH_AUTH_SOCK:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$UID}/gcr/ssh" ] \
+    && export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR:-/run/user/$UID}/gcr/ssh"
 
 [ -f /usr/share/fzf/key-bindings.bash ] && source /usr/share/fzf/key-bindings.bash
 eval "$(zoxide init bash)"

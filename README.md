@@ -12,8 +12,10 @@ afterwards, but installs nothing from the AUR itself.
 
 ## Fresh machine
 
-Base system first: [docs/arch-install.md](docs/arch-install.md) (encrypted
-btrfs, snapshots, zram). Then one command:
+Base system first: the
+[Arch Linux install guide](https://nafud.github.io/kiln/guides/arch-linux/)
+(encrypted btrfs, snapshots, zram); the pre-wipe backup checklist stays
+in [docs/arch-install.md](docs/arch-install.md). Then one command:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/nafud/dotfiles/main/bootstrap.sh | bash

@@ -4,12 +4,14 @@
 # a critical banner on screen until dismissed, so repeating it every
 # few minutes only nagged. Polling, deliberately: sysfs power_supply
 # exposes no change events a shell can wait on, and a minute is far
-# finer than battery drain.
+# finer than battery drain. The lowest battery drives the thresholds
+# and any discharging battery arms them, so dual-battery machines warn
+# on the pack that empties first.
 notified=100
 while true; do
-    bat=$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1)
-    stat=$(cat /sys/class/power_supply/BAT*/status 2>/dev/null | head -1)
-    if [ -n "$bat" ] && [ "$stat" = "Discharging" ]; then
+    bat=$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | sort -n | head -1)
+    if [ -n "$bat" ] \
+        && cat /sys/class/power_supply/BAT*/status 2>/dev/null | grep -qx "Discharging"; then
         th=100
         for t in 15 10 5; do
             [ "$bat" -le "$t" ] && th=$t

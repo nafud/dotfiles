@@ -44,12 +44,12 @@ if swaylock --help 2>&1 | grep -q -- --clock; then
     clock_args=(--clock --timestr "%H:%M" --datestr "%a %d %b")
 fi
 
-if [ -f "$wall" ] && command -v convert >/dev/null; then
+if [ -f "$wall" ] && command -v magick >/dev/null; then
     if [ ! -f "$img" ] || [ "$wall" -nt "$img" ] || [ "$0" -nt "$img" ]; then
         mkdir -p "$(dirname "$img")"
         # desaturate, then sink toward the theme ground — the same feel
         # as the 0.9 glass surfaces, dim enough to rest the eyes
-        convert "$wall" -resize 1920x -blur 0x12 -modulate 100,55 \
+        magick "$wall" -resize 1920x -blur 0x12 -modulate 100,55 \
             -fill '#0d0d0d' -colorize 60% "$img" \
             || exec swaylock -f -c 0d0d0d "${clock_args[@]}"
     fi
