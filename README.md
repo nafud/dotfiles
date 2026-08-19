@@ -8,7 +8,7 @@
 
 </div>
 
-Base system: [docs/arch-install.md](docs/arch-install.md). Then:
+Base system: the [Arch Linux guide](https://nafud.github.io/kiln/guides/arch-linux/). Then:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/nafud/dotfiles/main/bootstrap.sh | bash
