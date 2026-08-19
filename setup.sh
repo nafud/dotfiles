@@ -85,18 +85,41 @@ install_packages() {
 # from the AUR. It is bootstrapped so the bar's updates module can
 # upgrade repos and AUR alike (`paru -Syu`, plain pacman before paru
 # exists) and so applications chosen later (a browser, a VPN, music)
-# install by hand with `paru -S <pkg>`. paru-bin builds without a Rust
-# compile.
+# install by hand with `paru -S <pkg>`. paru-bin skips the Rust
+# compile, but its prebuilt binary hard-links a libalpm soname and
+# lags pacman's soname bumps (broken against pacman >= 7.1 when this
+# was written) — a binary that exists but cannot load looks installed
+# to `command -v`. So the probe is `paru --version` actually running,
+# and the fallback builds the paru source package, which links
+# whatever libalpm the system really has.
+paru_ok() { paru --version >/dev/null 2>&1; }
+
+aur_build() {
+    git clone -q "https://aur.archlinux.org/$1.git" "$WORK/$1"
+    # -s pulls makedeps from the repos (cargo/rust for the source paru;
+    # rust stays installed — paru's own self-updates recompile with it)
+    (cd "$WORK/$1" && makepkg -si --noconfirm)
+}
+
 install_paru() {
-    if ! have paru; then
-        log "bootstrapping paru (AUR helper)"
-        # makepkg needs the base-devel group; --needed makes this free
-        # on systems that already carry it
-        sudo pacman -S --needed --noconfirm base-devel
-        git clone -q https://aur.archlinux.org/paru-bin.git "$WORK/paru-bin"
-        (cd "$WORK/paru-bin" && makepkg -si --noconfirm)
-        have paru || die "paru bootstrap failed"
+    paru_ok && return 0
+    log "bootstrapping paru (AUR helper)"
+    # makepkg needs the base-devel group; --needed makes this free
+    # on systems that already carry it
+    sudo pacman -S --needed --noconfirm base-devel
+    if have paru; then
+        # present but not runnable: a stale prebuilt against an older
+        # libalpm — drop whichever package owns it before rebuilding
+        warn "installed paru does not run — replacing with source build"
+        sudo pacman -R --noconfirm "$(pacman -Qoq "$(command -v paru)")"
+    else
+        aur_build paru-bin
+        paru_ok && return 0
+        warn "paru-bin links an older libalpm — building paru from source"
+        sudo pacman -R --noconfirm paru-bin
     fi
+    aur_build paru
+    paru_ok || die "paru bootstrap failed"
 }
 
 # ----------------------------------------------------------- 3. system units ---
@@ -432,7 +455,7 @@ print_summary() {
     # desktop file — probe the wayland binary, not a bare `imv`
     summary_row "Imv"           "image viewer"                           have imv-wayland
     summary_row "Mpv"           "media player"                           have mpv
-    summary_row "Paru"          "AUR helper (manual installs, updates)"  have paru
+    summary_row "Paru"          "AUR helper (manual installs, updates)"  paru_ok
     summary_row "TLP"           "battery power tuning"                   have tlp
     summary_row "Chafa"         "terminal image renderer (yazi preview)" have chafa
     summary_row "Fzf"           "fuzzy finder"                           have fzf
