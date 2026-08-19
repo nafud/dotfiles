@@ -44,3 +44,8 @@ hyperlinks = true
 command = "xdg-open"
 post_processing = true
 binding = { key = "T", mods = "Control|Shift" }
+
+[[keyboard.bindings]]
+key = "Return"
+mods = "Shift"
+chars = "\u001B\r"
