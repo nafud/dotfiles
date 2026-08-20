@@ -5,9 +5,9 @@
     "margin-top": 6,
     "margin-left": 6,
     "margin-right": 6,
-    "modules-left": ["custom/workspaces"],
+    "modules-left": ["niri/workspaces"],
     "modules-center": ["group/stats"],
-    "modules-right": ["tray", "custom/updates", "group/levels", "network", "custom/layout", "clock", "custom/power"],
+    "modules-right": ["tray", "custom/updates", "group/levels", "network", "custom/mullvad", "custom/layout", "clock", "custom/power"],
 
     "custom/updates": {
         "exec": "~/.config/waybar/updates.sh",
@@ -16,6 +16,15 @@
         "signal": 8,
         "format": "{}",
         "on-click": "~/.config/waybar/updates.sh gui"
+    },
+
+    "custom/mullvad": {
+        "exec": "~/.config/waybar/mullvad.sh",
+        "return-type": "json",
+        "restart-interval": 3,
+        "format": "{}",
+        "on-click": "~/.config/waybar/mullvad.sh gui",
+        "on-click-right": "~/.config/waybar/mullvad.sh toggle"
     },
 
     "custom/layout": {
@@ -28,22 +37,28 @@
 
     "tray": { "icon-size": 16, "spacing": 8 },
 
-    "custom/workspaces": {
-        "exec": "~/.config/waybar/workspaces.sh",
-        "restart-interval": 3,
-        "format": "{}",
-        "on-click": "niri msg action toggle-overview",
+    // niri's own workspace list, one button per workspace: the index lit
+    // by state in style.css. Clicking a button focuses that workspace;
+    // scrolling steps through them; a right click opens the overview.
+    "niri/workspaces": {
+        "format": "{value}",
+        "on-click-right": "niri msg action toggle-overview",
         "on-scroll-up": "niri msg action focus-workspace-up",
         "on-scroll-down": "niri msg action focus-workspace-down"
     },
 
     "group/stats": { "orientation": "inherit", "modules": ["temperature", "cpu", "memory"] },
-    "group/levels": { "orientation": "inherit", "modules": ["pulseaudio", "backlight", "battery"] },
+    "group/levels": { "orientation": "inherit", "modules": ["pulseaudio", "battery"] },
 
-    "temperature": { "critical-threshold": 80, "format": " {temperatureC}°C", "interval": 5 },
+    // CPU package temperature: waybar's default sensor is thermal zone 0,
+    // which on laptops is the ACPI board sensor (acpitz) reading ~15°C
+    // below the CPU. The coretemp platform path is stable across reboots
+    // where hwmonN numbering is not.
+    "temperature": { "hwmon-path-abs": "/sys/devices/platform/coretemp.0/hwmon", "input-filename": "temp1_input",
+                     "critical-threshold": 80, "format": " {temperatureC}°C", "interval": 5 },
     "cpu": { "format": " {usage}%", "interval": 3,
              "on-click": "alacritty --class btop-float -e btop" },
-    "memory": { "format": "<span size='138%'>󰘚</span> {percentage}%", "interval": 5,
+    "memory": { "format": " {percentage}%", "interval": 5,
                 "on-click": "alacritty --class btop-float -e btop" },
     "pulseaudio": {
         "format": "{icon} {volume}%",
@@ -52,7 +67,6 @@
         "scroll-step": 5,
         "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
     },
-    "backlight": { "format": "{icon} {percent}%", "format-icons": ["󰃞", "󰃟", "󰃠"] },
     "battery": {
         "format": "{icon} {capacity}%",
         "format-charging": "󰂄 {capacity}%",
@@ -66,6 +80,6 @@
         "on-click": "alacritty --class nmtui-float -e nmtui"
     },
     "clock": { "format": "󰥔 {:%a %d %b  %H:%M:%S}", "interval": 1, "tooltip": false },
-    "custom/power": { "format": "", "tooltip": false,
+    "custom/power": { "format": "󰐥", "tooltip": false,
                       "on-click": "sh -c \"$HOME/.local/bin/powermenu\"" }
 }

@@ -55,8 +55,8 @@ window-rule {
 }
 
 // The bar pills, launcher and notifications are layer-shell surfaces,
-// so their blur comes from layer rules. Their surfaces carry the same
-// 92% alpha in their own configs.
+// so their blur comes from layer rules. Each surface carries its own
+// alpha in its config (the bar 0.6, launcher and notifications 0.9).
 layer-rule {
     match namespace="waybar"
     background-effect {

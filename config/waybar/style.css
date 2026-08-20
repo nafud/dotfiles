@@ -1,8 +1,10 @@
-/* One uniform frosted line at the shared 0.9 glass (blurred by the
-   waybar layer-rule in config/niri/decorations.kdl): no chips, no
-   borders — icons and text sit directly on the strip. Color marks
-   states only: charging green, critical red, muted faint; the power
-   glyph reddens on hover. */
+/* One uniform frosted line at 0.6 glass (blurred by the waybar
+   layer-rule in config/niri/decorations.kdl): no chips, no borders —
+   icons and text sit directly on the strip. Color marks states only:
+   charging and VPN-up green, critical red, connecting amber, muted
+   faint; the power glyph reddens on hover. Glyphs stay at the text
+   size — an oversized glyph grows its line box and floats above the
+   others. */
 * {
     font-family: "JetBrainsMono Nerd Font", monospace;
     font-size: 13px;
@@ -12,18 +14,47 @@
 }
 
 window#waybar {
-    background: rgba(13, 13, 13, 0.9);
+    background: rgba(13, 13, 13, 0.6);
     color: #c0c0c0;
     border-radius: 8px;
 }
 
-#custom-workspaces {
-    color: #ffffff;
-    padding: 0 10px;
+/* workspaces: bare indices on the strip, lit by state — focused white,
+   occupied grey, the trailing empty one niri always keeps faint, urgent
+   amber. Buttons carry none of GTK's button chrome. */
+#workspaces {
+    padding: 0 4px;
 }
 
-#temperature, #cpu, #memory, #pulseaudio, #backlight, #battery,
-#custom-updates, #network, #custom-layout, #clock {
+#workspaces button {
+    color: #909090;
+    padding: 0 6px;
+    background: transparent;
+    box-shadow: none;
+    text-shadow: none;
+    transition: color 150ms ease;
+}
+
+#workspaces button.empty {
+    color: #666666;
+}
+
+#workspaces button.urgent {
+    color: #b0a06a;
+}
+
+#workspaces button.focused {
+    color: #ffffff;
+}
+
+#workspaces button:hover {
+    color: #e8e8e8;
+    background: transparent;
+    box-shadow: none;
+}
+
+#temperature, #cpu, #memory, #pulseaudio, #battery,
+#custom-updates, #network, #custom-mullvad, #custom-layout, #clock {
     color: #c0c0c0;
     padding: 0 8px;
     transition: color 150ms ease;
@@ -41,7 +72,7 @@ window#waybar {
 }
 
 #cpu:hover, #memory:hover, #pulseaudio:hover,
-#custom-updates:hover, #custom-layout:hover {
+#custom-updates:hover, #custom-mullvad:hover, #custom-layout:hover {
     color: #e8e8e8;
 }
 
@@ -61,11 +92,15 @@ window#waybar {
     color: #b5626a;
 }
 
-#battery.charging {
+#battery.charging, #custom-mullvad.connected {
     color: #98b898;
 }
 
-#battery.critical:not(.charging), #temperature.critical {
+#custom-mullvad.connecting {
+    color: #b0a06a;
+}
+
+#battery.critical:not(.charging), #temperature.critical, #custom-mullvad.error {
     color: #ff5555;
 }
 

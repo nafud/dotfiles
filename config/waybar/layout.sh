@@ -5,8 +5,8 @@
 # carries no information, so the module renders empty and the bar
 # collapses it — it appears with the second layout (the battery-module
 # convention: absent hardware, absent module).
-# Rendered once, then on each KeyboardLayout* event — the workspaces.sh
-# recipe: the event only says "changed", the state is re-read whole.
+# Rendered once, then on each KeyboardLayout* event: the event only
+# says "changed", the state is re-read whole.
 render() {
     niri msg --json keyboard-layouts \
         | jq -r 'if (.names | length) < 2 then ""
@@ -14,9 +14,15 @@ render() {
 }
 render
 
-# stream and bar-watchdog in the background, the group felled when the
-# bar goes — the workspaces.sh recipe: waybar orphans its scripts, so
-# each script owns its own lifetime
+# The stream must die with the bar. waybar never signals its module
+# scripts — on reload and on exit alike they are silently orphaned, the
+# stream rendering into a dead pipe forever (bash survives the EPIPE:
+# jq takes it, the loop reads on). So the script owns its lifetime: it
+# finds the bar it was spawned under and a watchdog takes the process
+# group down the moment that bar is gone. The group is ours alone
+# (waybar setpgids each module), so kill 0 fells exactly this pipeline;
+# everything runs in the background because a foreground pipeline would
+# hold bash's traps hostage until the stream ended.
 bar=$PPID
 while [ "${bar:-1}" -gt 1 ] && [ "$(ps -o comm= -p "$bar" 2>/dev/null)" != "waybar" ]; do
     bar=$(ps -o ppid= -p "$bar" 2>/dev/null | tr -d ' ')
