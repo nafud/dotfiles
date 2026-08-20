@@ -1,0 +1,48 @@
+// The greeter compositor: the same niri as the session, on its own
+// config, so the login page is drawn by the stack it hands over to.
+// regreet runs fullscreen; the compositor quits the moment it exits.
+spawn-sh-at-startup "regreet; niri msg action quit --skip-confirmation"
+
+hotkey-overlay {
+    skip-at-startup
+}
+prefer-no-csd
+
+// the password is typed here in whichever layout the session will
+// use: the layout list of config/niri/input.kdl, Alt+Shift cycling
+input {
+    keyboard {
+        xkb {
+            layout "us,ru,az"
+            options "grp:alt_shift_toggle"
+        }
+        numlock
+    }
+    touchpad {
+        tap
+    }
+}
+
+cursor {
+    xcursor-theme "Adwaita"
+    xcursor-size 24
+    hide-when-typing
+}
+
+// one window, no frame around it: the page is the screen
+layout {
+    focus-ring {
+        off
+    }
+    border {
+        off
+    }
+}
+
+window-rule {
+    open-fullscreen true
+}
+
+animations {
+    off
+}

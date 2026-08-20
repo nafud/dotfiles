@@ -1,0 +1,12 @@
+#!/bin/bash
+# glass IN OUT — render an image as the desktop's glass: blurred,
+# desaturated and sunk toward the 0d0d0d ground, the look hyprlock draws
+# live on the GPU (config/hypr/hyprlock.conf). For the places that need
+# a pre-rendered copy: the swaylock fallback in bin/lock and the login
+# page's background (setup.sh → /usr/share/backgrounds/greeter.jpg).
+set -euo pipefail
+in="${1:?usage: glass IN OUT}"
+out="${2:?usage: glass IN OUT}"
+mkdir -p "$(dirname "$out")"
+exec magick "$in" -resize 1920x -blur 0x12 -modulate 100,55 \
+    -fill '#0d0d0d' -colorize 60% "$out"

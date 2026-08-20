@@ -1,0 +1,44 @@
+#!/bin/bash
+# render-plymouth-mono — draws the images of the mono plymouth theme
+# into system/usr/share/plymouth/themes/mono (committed alongside
+# mono.plymouth; re-run after a design change). The geometry is the lock
+# screen's (config/hypr/hyprlock.conf): a 300px ring with a 3px #333333
+# edge on the 0d0d0d ground. two-step's parts map onto it as
+#   watermark.png     the ring itself, drawn beneath everything
+#   throbber-NNNN.png a 45° arc of c0c0c0 on the ring, 36 frames a turn
+#                     (two-step plays 30 frames a second: 1.2s a turn)
+#   entry.png         the passphrase field, 200x34, inside the ring
+#   bullet.png        one typed character: a 6px c0c0c0 dot
+#   lock.png          required by the plugin, drawn left of the field —
+#                     a clear pixel: the ring is the lock
+#   capslock.png      the caps-lock glyph in the lock screens' amber
+set -euo pipefail
+
+# PNG32: keeps every image RGBA — ImageMagick would otherwise store the
+# grey-only ones as grayscale without alpha, and plymouth composites
+# with alpha
+out="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/system/usr/share/plymouth/themes/mono"
+mkdir -p "$out"
+
+size=306 r=150 c=153           # canvas, ring radius, centre: 3px edge fits
+edge=(-strokewidth 3 -fill none)
+
+magick -size "${size}x${size}" xc:none -stroke '#333333' "${edge[@]}" \
+    -draw "circle $c,$c $((c + r)),$c" "PNG32:$out/watermark.png"
+
+for i in $(seq 1 36); do
+    a0=$(( (i - 1) * 10 - 90 ))                  # start at 12 o'clock
+    magick -size "${size}x${size}" xc:none -stroke '#c0c0c0' "${edge[@]}" \
+        -draw "arc $((c - r)),$((c - r)) $((c + r)),$((c + r)) $a0,$((a0 + 45))" \
+        "PNG32:$out/$(printf 'throbber-%04d.png' "$i")"
+done
+
+magick -size 200x34 xc:none -fill 'rgba(13,13,13,0.9)' -stroke '#333333' -strokewidth 1 \
+    -draw "roundrectangle 0.5,0.5 199.5,33.5 6,6" "PNG32:$out/entry.png"
+magick -size 12x12 xc:none -fill '#c0c0c0' -draw "circle 6,6 6,9" "PNG32:$out/bullet.png"
+magick -size 1x1 xc:none "PNG32:$out/lock.png"
+magick -background none -fill '#b0a06a' \
+    -font "$(fc-match -f '%{file}' 'JetBrainsMono Nerd Font')" -pointsize 22 \
+    label:"$(printf '\U000F0A9B')" "PNG32:$out/capslock.png"
+
+echo "rendered $(find "$out" -name '*.png' | wc -l) images into $out"

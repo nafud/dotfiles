@@ -8,10 +8,18 @@
 #   config/   mirrors ~/.config and is symlinked there, entry by entry —
 #             edits in the repo are live (niri and starship reload on save)
 #   bin/      mirrors ~/.local/bin, symlinked the same way
+#   system/   mirrors / and is installed there, file by file (root-owned
+#             copies, not links): the boot chain (GRUB and mkinitcpio
+#             drop-ins, plymouth and its theme, the plymouth-quit
+#             hand-off) and the login page (greetd, the greeter niri,
+#             regreet) — what the desktop needs below the user
+#   tools/    generators for committed assets (the plymouth theme's
+#             images); not installed anywhere
 #   setup.sh  everything a config file cannot express: packages, system
-#             glue (greetd, units, MIME defaults, gsettings, the ~/.bashrc
-#             block, the btop setting), the linking itself, session
-#             reloads, and the final summary
+#             glue (units, the initramfs and grub.cfg rebuilds, the
+#             greeter's state dirs and background, MIME defaults,
+#             gsettings, the ~/.bashrc block, the btop setting), the
+#             linking itself, session reloads, and the final summary
 #
 # Everything installs from the official repositories — the workspace
 # alone, no end-user applications (browsers, VPN, messengers, media
@@ -25,6 +33,9 @@
 #
 # Usage:  bash setup.sh          full run: install everything + link configs
 #         bash setup.sh link     (re)link configs + validate + reload only
+#         bash setup.sh system   packages + the system/ tree + boot and
+#                                greeter glue only (sudo; the user half
+#                                untouched)
 #         bash setup.sh summary  print the probed component summary
 #
 set -euo pipefail
@@ -67,7 +78,7 @@ install_packages() {
         gsettings-desktop-schemas adwaita-icon-theme \
         xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-gnome \
         pipewire pipewire-pulse pipewire-alsa wireplumber \
-        greetd greetd-tuigreet \
+        plymouth greetd greetd-regreet \
         ttf-jetbrains-mono-nerd pacman-contrib
 
     [ -f /usr/share/wayland-sessions/niri.desktop ] \
@@ -122,7 +133,7 @@ install_paru() {
     paru_ok || die "paru bootstrap failed"
 }
 
-# ----------------------------------------------------------- 3. system units ---
+# --------------------------------------------------------- 3. system units ---
 # paccache: bound the pacman cache (the @pkg subvolume is excluded from
 # snapshots but nothing else limits it). tlp: battery-side runtime power
 # tuning, stock defaults (machines that expose a charge-threshold
@@ -135,24 +146,79 @@ enable_system_units() {
         || warn "could not enable tlp"
 }
 
-# --------------------------------------------------------------- 4. greetd ---
-# tuigreet on VT1 answers the login; niri.desktop under wayland-sessions is
-# what --sessions lists. Enable only writes symlinks — greetd takes the VT
-# at the next boot, never mid-session.
-configure_greetd() {
-    local conf=/etc/greetd/config.toml want
-    want="$(cat <<'EOF'
-[terminal]
-vt = 1
+# ---------------------------------------------------------- 4. system tree ---
+# system/ mirrors /: every file under it is installed to the same path,
+# root-owned, the way config/ mirrors ~/.config — one tree, one rule.
+# Files already identical in place are left alone, so a rerun is quiet;
+# the paths that did change are collected for the stages below, which
+# rebuild only what those files feed (the initramfs, grub.cfg).
+SYSTEM_CHANGED=()
 
-[default_session]
-command = "tuigreet --time --remember --remember-session --sessions /usr/share/wayland-sessions"
-user = "greeter"
-EOF
-)"
-    if [ ! -f "$conf" ] || [ "$(cat "$conf")" != "$want" ]; then
-        log "writing $conf"
-        printf '%s\n' "$want" | sudo tee "$conf" >/dev/null
+install_system_files() {
+    local src dest
+    while IFS= read -r -d '' src; do
+        dest="${src#"$REPO/system"}"
+        cmp -s "$src" "$dest" && continue
+        log "installing $dest"
+        sudo install -Dm644 "$src" "$dest"
+        SYSTEM_CHANGED+=("$dest")
+    done < <(find "$REPO/system" -type f -print0 | sort -z)
+}
+
+system_changed_under() {
+    local path
+    for path in "${SYSTEM_CHANGED[@]}"; do
+        [[ $path == "$1"* ]] && return 0
+    done
+    return 1
+}
+
+# ----------------------------------------------------------------- 5. boot ---
+# The boot chain is plymouth from the initramfs to the greeter: the
+# mkinitcpio drop-in puts the hook in, plymouthd.conf names the theme,
+# the GRUB drop-in hides the menu and adds `splash`. Those files only
+# take effect inside the images they feed, so the initramfs is rebuilt
+# when anything plymouth or mkinitcpio changed (the theme and its font
+# are packed into it) and grub.cfg when the GRUB drop-in did. A fresh
+# plymouth install is caught the same way: its drop-in is new then.
+# Should a splash ever misbehave, `plymouth.enable=0` on the kernel
+# line (Esc at boot, e on the entry) boots with the text prompt.
+configure_boot() {
+    if system_changed_under /etc/mkinitcpio.conf.d \
+        || system_changed_under /etc/plymouth \
+        || system_changed_under /usr/share/plymouth; then
+        log "rebuilding the initramfs (plymouth + theme)"
+        sudo mkinitcpio -P
+    fi
+    if system_changed_under /etc/default/grub.d; then
+        log "regenerating grub.cfg"
+        sudo grub-mkconfig -o /boot/grub/grub.cfg
+    fi
+    # the plymouth-quit drop-in is read at the next boot; reload so a
+    # `systemctl cat` shows it now
+    if system_changed_under /etc/systemd/system; then
+        sudo systemctl daemon-reload
+    fi
+}
+
+# -------------------------------------------------------------- 6. greeter ---
+# greetd runs the greeter niri (system/etc/greetd/niri.kdl), which runs
+# regreet. regreet keeps the last user and session under /var/lib and
+# logs under /var/log — both owned by the greeter user the package
+# creates. Its background is the wallpaper sunk to glass (bin/glass),
+# rendered here because only setup runs with the privilege to place it;
+# it is refreshed whenever the wallpaper is newer than the copy. Enable
+# only writes symlinks — greetd takes the VT at the next boot, never
+# mid-session.
+configure_greeter() {
+    sudo install -d -o greeter -g greeter -m 0755 /var/lib/regreet /var/log/regreet
+    local wall="$HOME/Pictures/wallpaper.jpg" bg=/usr/share/backgrounds/greeter.jpg
+    if [ -f "$wall" ] && have magick; then
+        if [ ! -f "$bg" ] || [ "$wall" -nt "$bg" ] || [ "$REPO/bin/glass" -nt "$bg" ]; then
+            log "rendering the login page background from the wallpaper"
+            "$REPO/bin/glass" "$wall" "$WORK/greeter.jpg"
+            sudo install -Dm644 "$WORK/greeter.jpg" "$bg"
+        fi
     fi
     sudo systemctl enable greetd 2>/dev/null \
         || warn "could not enable greetd"
@@ -164,7 +230,7 @@ configure_git() {
     git config --global delta.navigate true
 }
 
-# --------------------------------------------------- 5. MIME associations ---
+# ---------------------------------------------------- 7. MIME associations ---
 # xdg-mime records an association even for a desktop file that does not
 # exist, silently breaking xdg-open; only associate what is actually shipped.
 set_mime_default() {
@@ -192,7 +258,7 @@ set_default_apps() {
     fi
 }
 
-# ----------------------------------------------------------- 6. link tree ---
+# ------------------------------------------------------------ 8. link tree ---
 # Symlink each top-level entry of config/ into ~/.config and each file in
 # bin/ into ~/.local/bin. Directory-level links keep the mapping obvious:
 # one entry in the repo, one link on disk. A real file or directory already
@@ -252,7 +318,7 @@ enable_units() {
         || warn "could not enable gcr-ssh-agent.socket (no user session?)"
 }
 
-# --------------------------------------------------------- 7. shell setup ---
+# ---------------------------------------------------------- 9. shell setup ---
 # ~/.bashrc is shared with the system's own content, so it is not linked;
 # only the marked block is owned, and it is replaced in place on every run
 # so edits here reach existing installs.
@@ -348,7 +414,7 @@ configure_micro() {
     link_one "$REPO/config/micro/colorschemes" "$CFG/micro/colorschemes"
 }
 
-# ------------------------------------------------------------- 8. desktop ---
+# ------------------------------------------------------------- 10. desktop ---
 apply_desktop_prefs() {
     gsettings set org.gnome.desktop.interface color-scheme prefer-dark 2>/dev/null || true
     gsettings set org.gnome.desktop.interface gtk-theme Adwaita-dark 2>/dev/null || true
@@ -360,7 +426,7 @@ apply_desktop_prefs() {
     gsettings set org.gnome.desktop.interface cursor-size 24 2>/dev/null || true
 }
 
-# -------------------------------------------------------------- 9. reload ---
+# -------------------------------------------------------------- 11. reload ---
 # The live niri session's IPC socket: NIRI_SOCKET inside the session,
 # discovered under XDG_RUNTIME_DIR otherwise — so a run over ssh still
 # reaches the desktop. Empty output means no session is up.
@@ -409,7 +475,7 @@ reload_session() {
         makoctl reload >/dev/null 2>&1 || true
 }
 
-# ------------------------------------------------------------ 10. summary ---
+# ------------------------------------------------------------- 12. summary ---
 portals_ok() {
     pacman -Qq xdg-desktop-portal-gtk >/dev/null 2>&1 \
         && pacman -Qq xdg-desktop-portal-gnome >/dev/null 2>&1
@@ -433,7 +499,8 @@ print_summary() {
     summary_row "Niri"          "scrollable-tiling Wayland compositor"   have niri
     summary_row "Dotfiles"      "config/ linked into ~/.config"          configs_linked
     summary_row "Xwayland-sat." "X11 bridge, auto-spawned by niri"       have xwayland-satellite
-    summary_row "Greetd"        "login greeter (tuigreet)"               have tuigreet
+    summary_row "Plymouth"      "boot splash (mono theme)"               have plymouthd
+    summary_row "Greetd"        "login page (regreet on niri)"           have regreet
     summary_row "PipeWire"      "audio server (pulse shim)"              have pipewire
     summary_row "Portals"       "xdg-desktop-portal gtk + gnome"         portals_ok
     summary_row "Keyring"       "gnome-keyring (Secret portal)"          have gnome-keyring-daemon
@@ -474,14 +541,16 @@ print_summary() {
     printf '\n'
 }
 
-# --------------------------------------------------------------- 11. main ---
+# ---------------------------------------------------------------- 13. main ---
 main() {
     case "${1:-install}" in
         install)
             install_packages
             install_paru
             enable_system_units
-            configure_greetd
+            install_system_files
+            configure_boot
+            configure_greeter
             configure_git
             set_default_apps
             link_configs
@@ -496,7 +565,16 @@ main() {
             reload_session
             print_summary
             log "wallpaper: put an image at ~/Pictures/wallpaper.jpg (optional)"
-            log "reboot (or log out) and pick the 'niri' session in tuigreet"
+            log "reboot: plymouth asks the passphrase, regreet the login — pick 'niri'"
+            ;;
+        system)
+            install_packages
+            enable_system_units
+            install_system_files
+            configure_boot
+            configure_greeter
+            print_summary
+            log "reboot: plymouth asks the passphrase, regreet the login — pick 'niri'"
             ;;
         link|configure)
             link_configs
@@ -519,7 +597,7 @@ main() {
             print_summary
             ;;
         *)
-            die "unknown command: $1 (usage: bash setup.sh [link|summary])"
+            die "unknown command: $1 (usage: bash setup.sh [link|system|summary])"
             ;;
     esac
 }

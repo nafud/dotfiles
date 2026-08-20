@@ -1,0 +1,62 @@
+[Plymouth Theme]
+Name=Mono
+Description=The desktop's glass from the first frame: a ring on the flat ground, an arc turning on it while the system comes up, the passphrase inside it.
+ModuleName=two-step
+
+[two-step]
+# the same face as the bar and the lock; the mkinitcpio hook packs the
+# file fc-match resolves for this name
+Font=JetBrainsMono Nerd Font 12
+TitleFont=JetBrainsMono Nerd Font 30
+ImageDir=/usr/share/plymouth/themes/mono
+# ring (watermark), arc (throbber) and the passphrase dialog all sit on
+# the screen centre: the dialog is drawn over the ring, the arc over
+# both — the field ends up inside the ring, the arc turning around it
+HorizontalAlignment=.5
+VerticalAlignment=.5
+WatermarkHorizontalAlignment=.5
+WatermarkVerticalAlignment=.5
+DialogHorizontalAlignment=.5
+DialogVerticalAlignment=.5
+TitleHorizontalAlignment=.5
+TitleVerticalAlignment=.382
+Transition=none
+TransitionDuration=0.0
+BackgroundStartColor=0x0d0d0d
+BackgroundEndColor=0x0d0d0d
+ProgressBarBackgroundColor=0x333333
+ProgressBarForegroundColor=0xc0c0c0
+MessageBelowAnimation=true
+
+[boot-up]
+UseEndAnimation=false
+
+[shutdown]
+UseEndAnimation=false
+
+[reboot]
+UseEndAnimation=false
+
+# offline updates (packagekit-style) would show the bar and a title;
+# none of these modes is used by this desktop, they are listed so the
+# plugin has an answer for them
+[updates]
+SuppressMessages=true
+ProgressBarShowPercentComplete=true
+UseProgressBar=true
+Title=Installing updates
+SubTitle=Do not turn off the computer
+
+[system-upgrade]
+SuppressMessages=true
+ProgressBarShowPercentComplete=true
+UseProgressBar=true
+Title=Upgrading system
+SubTitle=Do not turn off the computer
+
+[firmware-upgrade]
+SuppressMessages=true
+ProgressBarShowPercentComplete=true
+UseProgressBar=true
+Title=Upgrading firmware
+SubTitle=Do not turn off the computer

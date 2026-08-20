@@ -46,11 +46,9 @@ fi
 
 if [ -f "$wall" ] && command -v magick >/dev/null; then
     if [ ! -f "$img" ] || [ "$wall" -nt "$img" ] || [ "$0" -nt "$img" ]; then
-        mkdir -p "$(dirname "$img")"
-        # desaturate, then sink toward the theme ground — the same feel
-        # as the 0.9 glass surfaces, dim enough to rest the eyes
-        magick "$wall" -resize 1920x -blur 0x12 -modulate 100,55 \
-            -fill '#0d0d0d' -colorize 60% "$img" \
+        # the desktop's glass recipe (bin/glass), shared with the login
+        # page's background
+        "$HOME/.local/bin/glass" "$wall" "$img" \
             || exec swaylock -f -c 0d0d0d "${clock_args[@]}"
     fi
     exec swaylock -f -c 0d0d0d "${clock_args[@]}" -i "$img" -s fill

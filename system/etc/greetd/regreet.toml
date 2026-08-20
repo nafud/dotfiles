@@ -1,0 +1,28 @@
+# regreet — the login page, drawn inside the greeter niri (niri.kdl).
+# Type and palette follow the desktop; the card is styled in regreet.css
+# beside this file (regreet loads it from here by default).
+[background]
+# the desktop wallpaper sunk to glass by setup.sh through bin/glass —
+# the lock screen's recipe; with no wallpaper the flat ground shows
+path = "/usr/share/backgrounds/greeter.jpg"
+fit = "Cover"
+
+[GTK]
+application_prefer_dark_theme = true
+cursor_theme_name = "Adwaita"
+font_name = "JetBrainsMono Nerd Font 12"
+icon_theme_name = "Adwaita"
+theme_name = "Adwaita"
+
+[commands]
+reboot = ["systemctl", "reboot"]
+poweroff = ["systemctl", "poweroff"]
+
+[appearance]
+# the message row carries login feedback; it starts empty
+greeting_msg = ""
+
+[widget.clock]
+format = "%a %d %b  %H:%M"
+resolution = "1s"
+label_width = 220
