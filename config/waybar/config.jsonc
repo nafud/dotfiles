@@ -36,10 +36,6 @@
     },
 
     "tray": { "icon-size": 16, "spacing": 8 },
-
-    // niri's own workspace list, one button per workspace: the index lit
-    // by state in style.css. Clicking a button focuses that workspace;
-    // scrolling steps through them; a right click opens the overview.
     "niri/workspaces": {
         "format": "{value}",
         "on-click-right": "niri msg action toggle-overview",
@@ -49,11 +45,6 @@
 
     "group/stats": { "orientation": "inherit", "modules": ["temperature", "cpu", "memory"] },
     "group/levels": { "orientation": "inherit", "modules": ["pulseaudio", "battery"] },
-
-    // CPU package temperature: waybar's default sensor is thermal zone 0,
-    // which on laptops is the ACPI board sensor (acpitz) reading ~15°C
-    // below the CPU. The coretemp platform path is stable across reboots
-    // where hwmonN numbering is not.
     "temperature": { "hwmon-path-abs": "/sys/devices/platform/coretemp.0/hwmon", "input-filename": "temp1_input",
                      "critical-threshold": 80, "format": " {temperatureC}°C", "interval": 5 },
     "cpu": { "format": " {usage}%", "interval": 3,
