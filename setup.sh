@@ -501,6 +501,10 @@ main() {
         link|configure)
             link_configs
             enable_units
+            # MIME defaults are re-applied here too: any hand-installed
+            # app (a browser most of all) can rewrite mimeapps.list and
+            # silently take the PDF and image types with it
+            set_default_apps
             write_shell
             configure_btop
             configure_micro
