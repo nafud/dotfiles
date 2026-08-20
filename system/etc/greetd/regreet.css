@@ -8,14 +8,20 @@ window {
     background-color: #0d0d0d;
 }
 
+/* every frame is bare; only the two glass ones (the card, the clock)
+   carry the edge — the notification frame's default border would
+   otherwise draw a stray line above the power buttons. Text takes its
+   color from the surface it sits on, so button labels follow their
+   button. */
+frame {
+    border: none;
+    background: none;
+}
+
 frame.background {
     background-color: rgba(13, 13, 13, 0.9);
     border: 1px solid #333333;
     border-radius: 8px;
-    color: #c0c0c0;
-}
-
-label {
     color: #c0c0c0;
 }
 
@@ -90,8 +96,15 @@ popover row:selected {
     color: #98b898;
 }
 
-/* login feedback at the bottom of the screen */
-infobar,
+/* login feedback at the bottom of the screen: the bar itself stays
+   bare (collapsed it is 0px high — an edge on it would draw as a line
+   above the power buttons); the revealed content is the glass */
+infobar {
+    background: none;
+    border: none;
+    box-shadow: none;
+}
+
 infobar > revealer > box {
     background-color: rgba(13, 13, 13, 0.9);
     border: 1px solid #333333;
