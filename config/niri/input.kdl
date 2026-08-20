@@ -5,7 +5,8 @@ input {
             // cycles them; grp: is the xkb group switch, deliberately
             // not a compositor bind so it also works on the lock
             // screen. The bar's layout mark appears with the second
-            // layout (config/waybar/layout.sh).
+            // layout (config/waybar/layout.sh); the lock's marks under
+            // its ring are listed in this order (config/hypr/hyprlock.conf).
             layout "us,ru,az"
             options "grp:alt_shift_toggle"
         }

@@ -30,6 +30,14 @@ separator-color=00000000
 ignore-empty-password
 show-failed-attempts
 
+# keyboard layout under the ring: swaylock shows the xkb name on its
+# own once more than one layout is configured (config/niri/input.kdl);
+# the box it draws around the text is dropped so the name sits on the
+# blur like the rest
+layout-bg-color=00000000
+layout-border-color=00000000
+layout-text-color=c0c0c0ff
+
 # caps lock: warn in the muted yellow before a password goes in wrong
 indicator-caps-lock
 inside-caps-lock-color=0d0d0d99
