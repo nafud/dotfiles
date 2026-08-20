@@ -1,5 +1,5 @@
 # greetd: the login page is a niri session of its own (niri.kdl beside
-# this file) that runs regreet fullscreen and quits when it exits —
+# this file) that runs monogreet fullscreen and quits when it exits —
 # greetd starts the chosen session only once the greeter is gone.
 # dbus-run-session gives GTK its session bus. Enable only writes
 # symlinks — greetd takes the VT at the next boot, never mid-session.

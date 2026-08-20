@@ -1,7 +1,8 @@
 // The greeter compositor: the same niri as the session, on its own
 // config, so the login page is drawn by the stack it hands over to.
-// regreet runs fullscreen; the compositor quits the moment it exits.
-spawn-sh-at-startup "regreet; niri msg action quit --skip-confirmation"
+// monogreet (system/usr/local/bin) runs fullscreen; the compositor
+// quits the moment it exits — greetd then starts the chosen session.
+spawn-sh-at-startup "monogreet; niri msg action quit --skip-confirmation"
 
 hotkey-overlay {
     skip-at-startup

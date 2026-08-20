@@ -12,7 +12,7 @@
 #             copies, not links): the boot chain (GRUB and mkinitcpio
 #             drop-ins, plymouth and its theme, the plymouth-quit
 #             hand-off) and the login page (greetd, the greeter niri,
-#             regreet) — what the desktop needs below the user
+#             monogreet) — what the desktop needs below the user
 #   tools/    generators for committed assets (the plymouth theme's
 #             images); not installed anywhere
 #   setup.sh  everything a config file cannot express: packages, system
@@ -78,7 +78,7 @@ install_packages() {
         gsettings-desktop-schemas adwaita-icon-theme \
         xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-gnome \
         pipewire pipewire-pulse pipewire-alsa wireplumber \
-        plymouth greetd greetd-regreet \
+        plymouth greetd python-gobject gtk4 \
         ttf-jetbrains-mono-nerd pacman-contrib
 
     [ -f /usr/share/wayland-sessions/niri.desktop ] \
@@ -148,19 +148,22 @@ enable_system_units() {
 
 # ---------------------------------------------------------- 4. system tree ---
 # system/ mirrors /: every file under it is installed to the same path,
-# root-owned, the way config/ mirrors ~/.config — one tree, one rule.
+# root-owned, the way config/ mirrors ~/.config — one tree, one rule;
+# a file executable in the repo (monogreet) is executable in place.
 # Files already identical in place are left alone, so a rerun is quiet;
 # the paths that did change are collected for the stages below, which
 # rebuild only what those files feed (the initramfs, grub.cfg).
 SYSTEM_CHANGED=()
 
 install_system_files() {
-    local src dest
+    local src dest mode
     while IFS= read -r -d '' src; do
         dest="${src#"$REPO/system"}"
         cmp -s "$src" "$dest" && continue
+        mode=644
+        [ -x "$src" ] && mode=755
         log "installing $dest"
-        sudo install -Dm644 "$src" "$dest"
+        sudo install -D -m "$mode" "$src" "$dest"
         SYSTEM_CHANGED+=("$dest")
     done < <(find "$REPO/system" -type f -print0 | sort -z)
 }
@@ -203,15 +206,15 @@ configure_boot() {
 
 # -------------------------------------------------------------- 6. greeter ---
 # greetd runs the greeter niri (system/etc/greetd/niri.kdl), which runs
-# regreet. regreet keeps the last user and session under /var/lib and
-# logs under /var/log — both owned by the greeter user the package
-# creates. Its background is the wallpaper sunk to glass (bin/glass),
-# rendered here because only setup runs with the privilege to place it;
-# it is refreshed whenever the wallpaper is newer than the copy. Enable
-# only writes symlinks — greetd takes the VT at the next boot, never
-# mid-session.
+# monogreet (system/usr/local/bin). monogreet keeps the last user and
+# session under /var/lib/monogreet, owned by the greeter user the greetd
+# package creates. Its background is the wallpaper sunk to glass
+# (bin/glass), rendered here because only setup runs with the privilege
+# to place it; it is refreshed whenever the wallpaper is newer than the
+# copy. Enable only writes symlinks — greetd takes the VT at the next
+# boot, never mid-session.
 configure_greeter() {
-    sudo install -d -o greeter -g greeter -m 0755 /var/lib/regreet /var/log/regreet
+    sudo install -d -o greeter -g greeter -m 0755 /var/lib/monogreet
     local wall="$HOME/Pictures/wallpaper.jpg" bg=/usr/share/backgrounds/greeter.jpg
     if [ -f "$wall" ] && have magick; then
         if [ ! -f "$bg" ] || [ "$wall" -nt "$bg" ] || [ "$REPO/bin/glass" -nt "$bg" ]; then
@@ -500,7 +503,7 @@ print_summary() {
     summary_row "Dotfiles"      "config/ linked into ~/.config"          configs_linked
     summary_row "Xwayland-sat." "X11 bridge, auto-spawned by niri"       have xwayland-satellite
     summary_row "Plymouth"      "boot splash (mono theme)"               have plymouthd
-    summary_row "Greetd"        "login page (regreet on niri)"           have regreet
+    summary_row "Greetd"        "login page (monogreet on niri)"         have monogreet
     summary_row "PipeWire"      "audio server (pulse shim)"              have pipewire
     summary_row "Portals"       "xdg-desktop-portal gtk + gnome"         portals_ok
     summary_row "Keyring"       "gnome-keyring (Secret portal)"          have gnome-keyring-daemon
@@ -565,7 +568,7 @@ main() {
             reload_session
             print_summary
             log "wallpaper: put an image at ~/Pictures/wallpaper.jpg (optional)"
-            log "reboot: plymouth asks the passphrase, regreet the login — pick 'niri'"
+            log "reboot: plymouth asks the passphrase, monogreet the login"
             ;;
         system)
             install_packages
@@ -574,7 +577,7 @@ main() {
             configure_boot
             configure_greeter
             print_summary
-            log "reboot: plymouth asks the passphrase, regreet the login — pick 'niri'"
+            log "reboot: plymouth asks the passphrase, monogreet the login"
             ;;
         link|configure)
             link_configs

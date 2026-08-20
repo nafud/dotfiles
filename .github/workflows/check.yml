@@ -28,6 +28,9 @@ jobs:
               [ -x "$f" ] || { echo "$f is not executable"; exit 1; }
           done
 
+      - name: python compiles
+        run: python3 -m py_compile system/usr/local/bin/monogreet
+
       - name: waybar config is valid JSON
         run: jq . config/waybar/config.jsonc > /dev/null
 

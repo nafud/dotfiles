@@ -1,0 +1,550 @@
+#!/usr/bin/env python3
+"""monogreet — the login page in the lock screen's image.
+
+A greetd greeter (greetd-ipc(7)) drawn like config/hypr/hyprlock.conf:
+the 300px ring on the glass wallpaper, the hour inside, the password
+typed into the ring — hidden, each keystroke lighting one segment — and
+one line under it: user · session · layout. The ring alone carries
+state: checking e8e8e8, wrong b5626a, caps lock b0a06a.
+
+Keys: type and Enter to log in; Up/Down cycle users, Tab cycles
+sessions, Alt+Shift cycles layouts (the compositor's bind); F10 powers
+off, F11 reboots; Esc clears what was typed. The mouse reaches the same:
+the user and session words cycle on click, the two glyphs at the bottom
+power off and reboot.
+
+Runs fullscreen under the greeter niri (system/etc/greetd/niri.kdl),
+which supplies the layout list and its switch events over niri's IPC —
+no NIRI_SOCKET, no layout mark. Remembers the last user and session in
+/var/lib/monogreet/state.json. greetd does the authentication; this
+program only relays its prompts and the answers.
+"""
+
+import json
+import os
+import pwd
+import shlex
+import socket
+import struct
+import subprocess
+import sys
+import threading
+import queue
+import configparser
+from datetime import datetime
+from pathlib import Path
+
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+gi.require_version("Gsk", "4.0")
+gi.require_version("Graphene", "1.0")
+from gi.repository import GLib, Gdk, Gsk, Graphene, Gtk, Pango  # noqa: E402
+
+BACKGROUND = Path("/usr/share/backgrounds/greeter.jpg")
+STATE_FILE = Path("/var/lib/monogreet/state.json")
+SESSION_DIRS = [Path("/usr/share/wayland-sessions"), Path("/usr/share/xsessions")]
+FONT = "JetBrainsMono Nerd Font"
+
+# the palette of config/waybar/style.css and config/hypr/hyprlock.conf
+GROUND = (0x0D / 255, 0x0D / 255, 0x0D / 255)
+REST = (0xC0 / 255, 0xC0 / 255, 0xC0 / 255)
+LIT = (0xE8 / 255, 0xE8 / 255, 0xE8 / 255)
+EDGE = (0x33 / 255, 0x33 / 255, 0x33 / 255)
+MUTED = (0x66 / 255, 0x66 / 255, 0x66 / 255)
+WARN = (0xB0 / 255, 0xA0 / 255, 0x6A / 255)
+FAIL = (0xB5 / 255, 0x62 / 255, 0x6A / 255)
+
+RING_RADIUS = 150
+RING_WIDTH = 3
+POWER_GLYPH = "\U000F0425"    # nf-md-power
+REBOOT_GLYPH = "\U000F0709"   # nf-md-restart
+
+
+# ---------------------------------------------------------------- greetd ---
+class Greetd:
+    """One conversation with greetd over its socket."""
+
+    def __init__(self, path):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.connect(path)
+
+    def send(self, **request):
+        payload = json.dumps(request).encode()
+        self.sock.sendall(struct.pack("=I", len(payload)) + payload)
+        (length,) = struct.unpack("=I", self._recv(4))
+        return json.loads(self._recv(length))
+
+    def _recv(self, n):
+        data = b""
+        while len(data) < n:
+            chunk = self.sock.recv(n - len(data))
+            if not chunk:
+                raise ConnectionError("greetd closed the socket")
+            data += chunk
+        return data
+
+    def close(self):
+        self.sock.close()
+
+
+# -------------------------------------------------------------- sessions ---
+def sessions():
+    """Session entries from the usual dirs: (id, name, argv, env)."""
+    found = []
+    for directory in SESSION_DIRS:
+        for path in sorted(directory.glob("*.desktop")):
+            entry = configparser.ConfigParser(interpolation=None)
+            entry.read(path, encoding="utf-8")
+            if not entry.has_section("Desktop Entry"):
+                continue
+            desktop = entry["Desktop Entry"]
+            if desktop.getboolean("Hidden", False) or desktop.getboolean("NoDisplay", False):
+                continue
+            if "Exec" not in desktop:
+                continue
+            session_type = "wayland" if directory.name == "wayland-sessions" else "x11"
+            env = [f"XDG_SESSION_TYPE={session_type}", f"XDG_SESSION_DESKTOP={path.stem}"]
+            if desktop.get("DesktopNames"):
+                env.append(f"XDG_CURRENT_DESKTOP={desktop['DesktopNames']}")
+            found.append((path.stem, desktop.get("Name", path.stem),
+                          shlex.split(desktop["Exec"]), env))
+    return found
+
+
+def users():
+    """Login users: the ordinary UID range, with a shell that logs in."""
+    names = []
+    for entry in pwd.getpwall():
+        if 1000 <= entry.pw_uid < 60000 and not entry.pw_shell.endswith(("nologin", "/false")):
+            names.append(entry.pw_name)
+    return sorted(names)
+
+
+def load_state():
+    try:
+        return json.loads(STATE_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(state):
+    try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        STATE_FILE.write_text(json.dumps(state))
+    except OSError as error:
+        print(f"monogreet: state not saved: {error}", file=sys.stderr)
+
+
+# --------------------------------------------------------------- layouts ---
+def layout_mark():
+    """The bar's mark (config/waybar/layout.sh): two letters of the
+    current layout's name; empty with one layout or without niri."""
+    if "NIRI_SOCKET" not in os.environ:
+        return ""
+    try:
+        out = subprocess.run(["niri", "msg", "--json", "keyboard-layouts"],
+                             capture_output=True, text=True, check=True, timeout=2).stdout
+        layouts = json.loads(out)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return ""
+    names = layouts.get("names", [])
+    if len(names) < 2:
+        return ""
+    return names[layouts.get("current_idx", 0)][:2].lower()
+
+
+# ------------------------------------------------------------------ page ---
+def rgba(color, alpha=1.0):
+    value = Gdk.RGBA()
+    value.red, value.green, value.blue, value.alpha = (*color, alpha)
+    return value
+
+
+class Page(Gtk.Widget):
+    """The whole screen as one widget, drawn with GTK's snapshot API
+    (render nodes, no cairo): glass, ring, hour, the line, feedback, the
+    power glyphs. Drawing records where the clickable words and glyphs
+    landed, so the pointer can find them."""
+
+    def __init__(self, greeter):
+        super().__init__(hexpand=True, vexpand=True)
+        self.greeter = greeter
+        self.background = None
+        if BACKGROUND.is_file():
+            try:
+                self.background = Gdk.Texture.new_from_filename(str(BACKGROUND))
+            except GLib.Error as error:
+                print(f"monogreet: background not loaded: {error}", file=sys.stderr)
+        self.hit_boxes = {}          # name → (x0, y0, x1, y1)
+        self.hover = None
+
+    # -- primitives ------------------------------------------------------------
+    def layout(self, string, size):
+        layout = self.create_pango_layout(string)
+        description = Pango.FontDescription(FONT)
+        description.set_absolute_size(size * Pango.SCALE)
+        layout.set_font_description(description)
+        return layout
+
+    def measure_text(self, string, size):
+        return self.layout(string, size).get_pixel_extents()[1].width
+
+    def text(self, snapshot, string, size, color, x, y, anchor="center", name=None):
+        """Draw text with its anchor at (x, y) — the centre, or the left edge
+        at mid-height — and record a hit box under name."""
+        layout = self.layout(string, size)
+        _, logical = layout.get_pixel_extents()
+        x0 = x - logical.width / 2 if anchor == "center" else x
+        y0 = y - logical.height / 2
+        snapshot.save()
+        snapshot.translate(Graphene.Point().init(x0 - logical.x, y0 - logical.y))
+        snapshot.append_layout(layout, rgba(color))
+        snapshot.restore()
+        if name:
+            self.hit_boxes[name] = (x0 - 8, y0 - 8, x0 + logical.width + 8, y0 + logical.height + 8)
+        return logical.width
+
+    def ring(self, snapshot, cx, cy, color, alpha=1.0, clip=None):
+        """The ring's edge — a rounded rect whose radius is half its side — in
+        one color, optionally only inside a clip rect (a keystroke's quadrant)."""
+        rect = Graphene.Rect().init(cx - RING_RADIUS, cy - RING_RADIUS, 2 * RING_RADIUS, 2 * RING_RADIUS)
+        rounded = Gsk.RoundedRect()
+        rounded.init_from_rect(rect, RING_RADIUS)
+        if clip is not None:
+            snapshot.push_clip(clip)
+        snapshot.append_border(rounded, [RING_WIDTH] * 4, [rgba(color, alpha)] * 4)
+        if clip is not None:
+            snapshot.pop()
+        return rect, rounded
+
+    # -- the frame ---------------------------------------------------------
+    def do_snapshot(self, snapshot):
+        g = self.greeter
+        width, height = self.get_width(), self.get_height()
+        self.hit_boxes = {}
+        full = Graphene.Rect().init(0, 0, width, height)
+
+        # glass: the pre-rendered wallpaper covering the screen, else the ground
+        snapshot.append_color(rgba(GROUND), full)
+        if self.background:
+            tw, th = self.background.get_width(), self.background.get_height()
+            scale = max(width / tw, height / th)
+            cover = Graphene.Rect().init((width - tw * scale) / 2, (height - th * scale) / 2,
+                                         tw * scale, th * scale)
+            snapshot.push_clip(full)
+            snapshot.append_texture(self.background, cover)
+            snapshot.pop()
+
+        cx, cy = width / 2, height / 2
+
+        # the ring: the disc, then the edge in the state's color, then the
+        # keystroke quadrants fading out over their lifetime
+        rect, rounded = self.ring(snapshot, cx, cy, g.ring_color())
+        snapshot.push_rounded_clip(rounded)
+        snapshot.append_color(rgba(GROUND, 0.9), rect)
+        snapshot.pop()
+        self.ring(snapshot, cx, cy, g.ring_color())
+        now = GLib.get_monotonic_time()
+        r = RING_RADIUS
+        quadrants = [(cx, cy - r), (cx, cy), (cx - r, cy), (cx - r, cy - r)]   # clockwise from top-right
+        for quadrant, born in g.flashes:
+            alpha = max(0.0, 1 - (now - born) / g.FLASH_US)
+            qx, qy = quadrants[quadrant % 4]
+            self.ring(snapshot, cx, cy, LIT, alpha, Graphene.Rect().init(qx, qy, r, r))
+
+        # the hour inside; the date at the top
+        self.text(snapshot, datetime.now().strftime("%H:%M"), 60, LIT, cx, cy)
+        self.text(snapshot, datetime.now().strftime("%a %d %b"), 16, REST, cx, 28)
+
+        # user · session · layout, one line under the ring
+        parts = [("user", g.user), None, ("session", g.session_name())]
+        if g.layout:
+            parts += [None, (None, g.layout)]
+        widths = [self.measure_text("·" if part is None else part[1], 16) for part in parts]
+        gap = 18
+        x = cx - (sum(widths) + gap * (len(parts) - 1)) / 2
+        y = cy + RING_RADIUS + 36
+        for part, w in zip(parts, widths):
+            if part is None:
+                self.text(snapshot, "·", 16, MUTED, x, y, anchor="left")
+            else:
+                name, string = part
+                self.text(snapshot, string, 16, LIT if self.hover == name else REST,
+                          x, y, anchor="left", name=name)
+            x += w + gap
+
+        # a prompt or feedback line below that; a visible prompt (an OTP,
+        # a question) shows the answer as it is typed
+        line = g.message
+        if not g.secret and g.typed:
+            line = f"{g.message}  {g.typed}" if g.message else g.typed
+        if line:
+            self.text(snapshot, line, 13, FAIL if g.message_is_error else REST, cx, y + 30)
+
+        # the two glyphs that end the greeter
+        for name, glyph, dx in (("poweroff", POWER_GLYPH, -16), ("reboot", REBOOT_GLYPH, 16)):
+            self.text(snapshot, glyph, 22, LIT if self.hover == name else MUTED,
+                      cx + dx, height - 40, name=name)
+
+    def hit(self, x, y):
+        for name, (x0, y0, x1, y1) in self.hit_boxes.items():
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return name
+        return None
+
+
+# --------------------------------------------------------------- greeter ---
+class Greeter(Gtk.Application):
+    FLASH_US = 400_000            # a keystroke's segment fades over 0.4s
+    FAIL_US = 1_200_000           # the red edge after a wrong password
+
+    def __init__(self):
+        super().__init__(application_id="dev.nafud.monogreet")
+        self.users = users() or [pwd.getpwuid(os.getuid()).pw_name]
+        self.sessions = sessions()
+        state = load_state()
+        self.user = state.get("user") if state.get("user") in self.users else self.users[0]
+        ids = [s[0] for s in self.sessions]
+        self.session_index = ids.index(state["session"]) if state.get("session") in ids else 0
+        self.layout = layout_mark()
+        self.typed = ""
+        self.secret = True            # the current prompt hides its input
+        self.flashes = []             # (quadrant, born)
+        self.checking = False
+        self.failed_at = 0
+        self.caps = False
+        self.message = ""
+        self.message_is_error = False
+        self.answers = queue.Queue()  # the auth thread waits here for further answers
+        self.in_conversation = False
+        self.page = None
+
+    # -- state ---------------------------------------------------------------
+    def ring_color(self):
+        now = GLib.get_monotonic_time()
+        if self.checking:
+            return LIT
+        if now - self.failed_at < self.FAIL_US:
+            return FAIL
+        if self.caps:
+            return WARN
+        return EDGE
+
+    def session_name(self):
+        """The session's id (niri, sway…): the line is lowercase marks."""
+        return self.sessions[self.session_index][0] if self.sessions else "no session"
+
+    def say(self, message, error=False):
+        self.message, self.message_is_error = message, error
+        self.page.queue_draw()
+
+    # -- window --------------------------------------------------------------
+    def do_activate(self):
+        window = Gtk.ApplicationWindow(application=self, title="monogreet")
+        self.page = Page(self)
+        window.set_child(self.page)
+        window.set_decorated(False)
+
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key)
+        window.add_controller(keys)
+        click = Gtk.GestureClick()
+        click.connect("released", self.on_click)
+        self.page.add_controller(click)
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", self.on_motion)
+        self.page.add_controller(motion)
+
+        window.fullscreen()
+        window.present()
+        GLib.timeout_add_seconds(1, self.tick)
+        GLib.timeout_add(40, self.animate)
+        self.watch_layouts()
+
+    def tick(self):
+        self.page.queue_draw()
+        return True
+
+    def animate(self):
+        now = GLib.get_monotonic_time()
+        live = [f for f in self.flashes if now - f[1] < self.FLASH_US]
+        if live or self.flashes or (0 < now - self.failed_at < self.FAIL_US + 100_000):
+            self.flashes = live
+            self.page.queue_draw()
+        return True
+
+    # -- layouts over niri's IPC ---------------------------------------------
+    def watch_layouts(self):
+        if "NIRI_SOCKET" not in os.environ:
+            return
+        try:
+            stream = subprocess.Popen(["niri", "msg", "--json", "event-stream"],
+                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        except OSError:
+            return
+
+        def on_event(source, _condition):
+            line = source.readline()
+            if not line:
+                return False
+            if "KeyboardLayout" in line:
+                self.layout = layout_mark()
+                self.page.queue_draw()
+            return True
+        GLib.io_add_watch(stream.stdout, GLib.IO_IN | GLib.IO_HUP, on_event)
+
+    # -- input ---------------------------------------------------------------
+    def refresh_caps(self):
+        seat = Gdk.Display.get_default().get_default_seat()
+        keyboard = seat.get_keyboard() if seat else None
+        self.caps = bool(keyboard and keyboard.get_caps_lock_state())
+        self.page.queue_draw()
+        return False
+
+    def on_key(self, _controller, keyval, _keycode, _state):
+        GLib.timeout_add(50, self.refresh_caps)
+        if self.checking:
+            return True
+        if keyval == Gdk.KEY_Escape:
+            self.typed = ""
+            self.secret = True
+            self.say("")
+        elif keyval == Gdk.KEY_BackSpace:
+            self.typed = self.typed[:-1]
+        elif keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self.submit()
+        elif keyval == Gdk.KEY_Tab:
+            self.cycle_session(1)
+        elif keyval == Gdk.KEY_ISO_Left_Tab:
+            self.cycle_session(-1)
+        elif keyval in (Gdk.KEY_Up, Gdk.KEY_Down):
+            self.cycle_user(-1 if keyval == Gdk.KEY_Up else 1)
+        elif keyval == Gdk.KEY_F10:
+            self.power("poweroff")
+        elif keyval == Gdk.KEY_F11:
+            self.power("reboot")
+        else:
+            char = Gdk.keyval_to_unicode(keyval)
+            if char >= 32:
+                self.typed += chr(char)
+                self.flashes.append((len(self.typed) % 4, GLib.get_monotonic_time()))
+        self.page.queue_draw()
+        return True
+
+    def on_click(self, _gesture, _n, x, y):
+        target = self.page.hit(x, y)
+        if target == "user":
+            self.cycle_user(1)
+        elif target == "session":
+            self.cycle_session(1)
+        elif target in ("poweroff", "reboot"):
+            self.power(target)
+
+    def on_motion(self, _controller, x, y):
+        target = self.page.hit(x, y)
+        if target != self.page.hover:
+            self.page.hover = target
+            self.page.set_cursor(Gdk.Cursor.new_from_name("pointer" if target else "default"))
+            self.page.queue_draw()
+
+    def cycle_user(self, step):
+        self.user = self.users[(self.users.index(self.user) + step) % len(self.users)]
+        self.typed = ""
+        self.page.queue_draw()
+
+    def cycle_session(self, step):
+        if self.sessions:
+            self.session_index = (self.session_index + step) % len(self.sessions)
+        self.page.queue_draw()
+
+    def power(self, action):
+        subprocess.Popen(["systemctl", action])
+
+    # -- authentication ------------------------------------------------------
+    def submit(self):
+        if self.checking or not self.typed:      # hyprlock's ignore_empty_input
+            return
+        answer, self.typed = self.typed, ""
+        if self.in_conversation:
+            self.answers.put(answer)             # answers a further prompt
+            self.busy()
+            return
+        if not self.sessions:
+            self.say("no session to start", error=True)
+            return
+        self.busy()
+        self.say("")
+        threading.Thread(target=self.converse, args=(self.user, answer), daemon=True).start()
+
+    def converse(self, user, answer):
+        """The greetd conversation for one login attempt, on its own thread:
+        create the session, answer every prompt (the first with what was
+        typed, later ones with what the user types next), start the
+        session on success. UI changes go through the main loop."""
+        self.in_conversation = True
+        session_id, _, argv, env = self.sessions[self.session_index]
+        try:
+            greetd = Greetd(os.environ["GREETD_SOCK"])
+        except (KeyError, OSError) as error:
+            GLib.idle_add(self.finish, False, f"greetd unreachable: {error}")
+            return
+        try:
+            reply = greetd.send(type="create_session", username=user)
+            while True:
+                kind = reply.get("type")
+                if kind == "success":
+                    reply = greetd.send(type="start_session", cmd=argv, env=env)
+                    if reply.get("type") == "success":
+                        save_state({"user": user, "session": session_id})
+                        GLib.idle_add(self.quit)
+                        return
+                    GLib.idle_add(self.finish, False, reply.get("description", "session not started"))
+                    return
+                if kind == "auth_message":
+                    prompt_type = reply.get("auth_message_type")
+                    prompt = reply.get("auth_message", "").strip().rstrip(":")
+                    if prompt_type in ("visible", "secret"):
+                        if answer is None:
+                            GLib.idle_add(self.ask, prompt, prompt_type == "secret")
+                            answer = self.answers.get()
+                        reply = greetd.send(type="post_auth_message_response", response=answer)
+                        answer = None
+                        GLib.idle_add(self.busy)
+                    else:
+                        GLib.idle_add(self.say, prompt, prompt_type == "error")
+                        reply = greetd.send(type="post_auth_message_response")
+                    continue
+                # error: auth_error is a wrong answer, anything else is news
+                description = reply.get("description", "login failed")
+                greetd.send(type="cancel_session")
+                GLib.idle_add(self.finish, False,
+                              "wrong password" if reply.get("error_type") == "auth_error" else description)
+                return
+        except (OSError, ValueError) as error:
+            GLib.idle_add(self.finish, False, f"greetd: {error}")
+        finally:
+            greetd.close()
+            self.in_conversation = False
+
+    def ask(self, prompt, secret):
+        """A further prompt: show it, take the ring out of checking so the
+        next line typed answers it."""
+        self.secret = secret
+        self.checking = False
+        self.say(prompt or ("password" if secret else ""))
+
+    def busy(self):
+        self.checking = True
+        self.page.queue_draw()
+
+    def finish(self, ok, message):
+        self.checking = False
+        self.secret = True
+        if not ok:
+            self.failed_at = GLib.get_monotonic_time()
+            self.say(message, error=True)
+
+
+if __name__ == "__main__":
+    sys.exit(Greeter().run([]))
