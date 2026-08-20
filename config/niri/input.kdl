@@ -6,7 +6,7 @@ input {
             // not a compositor bind so it also works on the lock
             // screen. The bar's layout mark appears with the second
             // layout (config/waybar/layout.sh).
-            layout "us"
+            layout "us,ru,az"
             options "grp:alt_shift_toggle"
         }
         repeat-delay 500
