@@ -46,13 +46,9 @@ window#waybar {
 }
 
 /* the updates glyph rests monochrome when up to date; pending updates
-   take the caps-warning amber, pending security fixes the muted rose */
+   take the caps-warning amber */
 #custom-updates.updates {
     color: #b0a06a;
-}
-
-#custom-updates.security {
-    color: #b5626a;
 }
 
 #custom-power {
