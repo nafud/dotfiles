@@ -1,4 +1,5 @@
 # mono.toml carries the palette.
+[general]
 import = [
     "~/.config/alacritty/mono.toml",
 ]
