@@ -11,7 +11,7 @@ render() {
 }
 render
 
-# The stream must die with the bar. waybar 0.9 never signals its module
+# The stream must die with the bar. waybar never signals its module
 # scripts — on reload and on exit alike they are silently orphaned, the
 # stream rendering into a dead pipe forever (bash survives the EPIPE:
 # jq takes it, the loop reads on). So the script owns its lifetime: it
