@@ -1,6 +1,8 @@
 # mako — notifications on the shared surface recipe: 0.9 glass, faint
 # 1px border, radius 8 (niri blurs behind via the notifications
-# layer-rule). Text only — icons stay out, the waybar discipline.
+# layer-rule). Cards sit 6 px from the screen edge like the bar, so
+# their right edge is flush with the bar's; 10 px below it and between
+# cards. Text only — icons stay out, the waybar discipline.
 # Mod+Shift+D dismisses all from the keyboard (config/niri/binds.kdl);
 # a right click anywhere on a notification does the same.
 font=JetBrainsMono Nerd Font 11
@@ -10,7 +12,7 @@ border-color=#2a2a2a
 border-size=1
 border-radius=8
 padding=10
-margin=10
+margin=10,6
 default-timeout=5000
 layer=top
 icons=0

@@ -5,7 +5,9 @@ binds {
     Mod+Return { spawn "alacritty" "--class" "Alacritty-floating"; }
     // every rofi bind toggles: pressing it again dismisses (rofi-toggle)
     Mod+D { spawn "sh" "-c" "$HOME/.local/bin/rofi-toggle -show drun"; }
-    Mod+B { spawn "alacritty" "--class" "btop-float" "-e" "btop"; }
+    // the default browser, whichever xdg-settings names (firefox here)
+    Mod+B { spawn "sh" "-c" "gtk-launch $(xdg-settings get default-web-browser)"; }
+    Mod+Shift+B { spawn "alacritty" "--class" "btop-float" "-e" "btop"; }
     // Dedicated yazi terminal. The cwd-following y() wrapper is for
     // interactive shells; here the shell would die with the window anyway.
     Mod+E { spawn "alacritty" "-e" "yazi"; }

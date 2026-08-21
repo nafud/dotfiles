@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Print the Pango <span> that sizes a Nerd Font icon for the waybar strip.
+
+The bar's icons come from several icon families (Material, Font Awesome,
+Octicons) patched into JetBrainsMono Nerd Font, and each family fills its
+em box differently: an MDI battery is 0.83 em tall, a FA thermometer 0.92,
+the MDI gauge 0.725, while the digits' cap height is 0.73 em.  Rendered at
+one font size they come out 8.5-12 px tall.  This tool measures a glyph's
+ink box with pango-view (the renderer waybar uses) and prints the span that
+makes it uniform:
+
+  size            so the ink height equals the cap height (0.73 em);
+                  never above 100% - a larger run grows the label's line
+                  box and vertical centring then shifts the whole label
+  rise            puts the scaled ink's centre back on the digits' centre
+                  (icons are drawn centred on the cap height, so shrinking
+                  about the baseline drops them)
+  letter_spacing  wide icons sit left-aligned in their 0.6 em cell and
+                  overflow it to the right, eating the space before the
+                  number; Pango applies letter spacing half each side and
+                  drops the leading half on a line's first glyph, so the
+                  trailing half is set to make icon-to-digit ink distance
+                  equal the digit-space-digit distance (0.06 em + space +
+                  0.09 em bearings).  Negative for narrow icons.
+  padding-left    (style.css) what makes the icon's ink start where a
+                  text glyph's would (8 px + 0.09 em bearing); 9 px for
+                  every icon in the bar, the tool prints it anyway.
+
+Units: rise and letter_spacing are Pango units = 1/1024 px here (a "pt"
+suffix is NOT points - Pango maps it to the same units), so both are
+emitted as integers; size is a percentage of the CSS font size.  The bar
+renders at GTK's integer scale 2 on a 1.25 display: digits' caps hint to
+20 device px, unhinted icons land on 19 - the 0.5 px is the quantum.
+
+Usage: waybar-icon-span [--px 13] GLYPH...    (GLYPH literal or U+XXXX)
+Needs pango-view (pango) and magick (imagemagick).
+"""
+import re, subprocess, sys, tempfile, os
+
+FONT = "JetBrainsMono Nerd Font"
+CAP = 0.73        # em, JetBrainsMono cap height = digit height
+CELL = 0.6        # em, advance of every glyph in the font
+EM = 200          # render size: 0.005 em resolution
+
+def ink(text):
+    with tempfile.TemporaryDirectory() as d:
+        png = os.path.join(d, "g.png")
+        subprocess.run(["pango-view", "-q", "--backend=cairo", "--font", f"{FONT} {EM}px",
+                        "--margin", "40", "--text", text, "-o", png], check=True)
+        out = subprocess.run(["magick", png, "-alpha", "off", "-colorspace", "gray", "-threshold", "50%",
+                              "-negate", "-define", "connected-components:verbose=true",
+                              "-define", "connected-components:area-threshold=40",
+                              "-connected-components", "8", "null:"], capture_output=True, text=True).stdout
+    cs = []
+    for l in out.splitlines():
+        m = re.match(r"\s*\d+: (\d+)x(\d+)\+(\d+)\+(\d+) [\d.,]+ \d+ (\S+)", l)
+        if m and "255" in m.group(5):
+            w, h, x, y = map(int, m.groups()[:4]); cs.append((x, y, w, h))
+    cs.sort()
+    return cs
+
+def measure(glyph):
+    cs = ink(f"1 {glyph} 1")           # the two '1's are the cap-height reference
+    ref = cs[0]; mid = [c for c in cs if c not in (cs[0], cs[-1])]
+    if not mid:
+        sys.exit(f"no ink for {glyph!r}")
+    y0 = min(c[1] for c in mid); y1 = max(c[1] + c[3] for c in mid)
+    h = (y1 - y0) / EM
+    centre = (ref[1] + ref[3] / 2 - (y0 + y1) / 2) / EM   # + = icon centre above cap centre
+    # horizontal: render " G " so the cell starts one space (0.6 em) in
+    with tempfile.TemporaryDirectory() as d:
+        png = os.path.join(d, "h.png")
+        subprocess.run(["pango-view", "-q", "--backend=cairo", "--font", f"{FONT} {EM}px",
+                        "--margin", "0", "--text", f" {glyph} ", "-o", png], check=True)
+        w, _, x, _ = map(int, subprocess.run(["magick", png, "-alpha", "off", "-colorspace", "gray", "-threshold", "50%",
+                              "-negate", "-trim", "-format", "%w %h %X %Y", "info:"], capture_output=True, text=True).stdout.split())
+    x0 = (x - CELL * EM) / EM; x1 = (x + w - CELL * EM) / EM   # ink edges from the cell start, em
+    return h, x0, x1, centre
+
+BEAR_L, BEAR_R = 0.09, 0.06     # em, JetBrainsMono digit side bearings
+
+def span(glyph, px):
+    h, x0, x1, centre = measure(glyph)
+    scale = min(1.0, CAP / h)
+    spx = px * scale
+    rise = (CAP / 2) * px - ((CAP / 2) - centre) * spx               # px, + = up
+    ls = 2 * (BEAR_R * px + (x1 - CELL) * spx)                        # px; trailing half lands after the ink
+    pad = round(8 + BEAR_L * px - x0 * spx)
+    attrs = []
+    if abs(scale - 1) >= 0.005: attrs.append(f"size='{scale*100:.1f}%'")
+    if abs(rise) >= 0.125:     attrs.append(f"rise='{round(rise*1024)}'")
+    if abs(ls) >= 0.25:        attrs.append(f"letter_spacing='{round(ls*1024)}'")
+    note = f"ink {h:.3f} em tall, x {x0:.3f}..{x1:.3f} em -> {h*spx:.2f} px at {spx:.2f} px; padding-left {pad}px"
+    if not attrs:
+        return f"{glyph}  (no span needed; {note})"
+    return f"<span {' '.join(attrs)}>{glyph}</span>  ({note})"
+
+if __name__ == "__main__":
+    args = sys.argv[1:]; px = 13.0
+    if args[:1] == ["--px"]: px = float(args[1]); args = args[2:]
+    if not args: sys.exit(__doc__)
+    for a in args:
+        g = chr(int(a[2:], 16)) if a.upper().startswith("U+") else a
+        print(f"U+{ord(g):04X}  {span(g, px)}")

@@ -2,10 +2,11 @@
 # pacman + AUR updates in the bar. checkupdates (pacman-contrib) syncs a
 # throwaway copy of the sync databases, so counting pending updates
 # never touches the real DB (the partial-upgrade trap `pacman -Sy`
-# would set); paru -Qua adds the AUR set's pending bumps. Monochrome at
-# rest; color marks pending updates. Clicking the module runs the
-# upgrade in a terminal; applying it rewrites the pacman DB, which
-# waybar-updates.path turns into a poke that clears the badge.
+# would set); paru -Qua adds the AUR set's pending bumps. Absent while
+# up to date; the count appears, in amber, when there is something to
+# apply. Clicking the module runs the upgrade in a terminal; applying
+# it rewrites the pacman DB, which waybar-updates.path turns into a
+# poke that re-renders the module — empty again.
 command -v checkupdates >/dev/null || exit 0
 
 if [ "${1:-}" = "gui" ]; then
@@ -36,8 +37,10 @@ fi
 
 list="$(printf '%s\n%s\n' "$repo" "$aur" | grep .)" || true
 total=$(grep -c . <<<"$list")
+# nothing pending: render empty and the bar collapses the module (the
+# battery-module convention: absent condition, absent module)
 if [ "$total" -eq 0 ]; then
-    jq -cn '{text: "󰚰", tooltip: "up to date", class: "uptodate"}'
+    echo
     exit 0
 fi
 
@@ -46,5 +49,5 @@ fi
 tooltip=$(head -n 15 <<<"$list" | awk '{printf "%s%s %s → %s", sep, $1, $2, $4; sep="\n"}')
 [ "$total" -gt 15 ] && tooltip="$tooltip"$'\n'"… $((total - 15)) more"
 
-jq -cn --arg text "󰚰 $total" --arg tooltip "$tooltip" \
+jq -cn --arg text "<span size='98.0%' letter_spacing='5511'>󰚰</span> $total" --arg tooltip "$tooltip" \
     '{text: $text, tooltip: $tooltip, class: "updates"}'

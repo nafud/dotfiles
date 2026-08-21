@@ -7,7 +7,7 @@
     "margin-right": 6,
     "modules-left": ["niri/workspaces"],
     "modules-center": ["group/stats"],
-    "modules-right": ["tray", "custom/updates", "group/levels", "network", "custom/mullvad", "custom/layout", "clock", "custom/power"],
+    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "group/levels", "network", "custom/mullvad", "custom/layout", "clock"],
 
     "custom/updates": {
         "exec": "~/.config/waybar/updates.sh",
@@ -35,9 +35,18 @@
         "on-click": "niri msg action switch-layout next"
     },
 
-    "tray": { "icon-size": 16, "spacing": 8 },
+    "tray": { "icon-size": 12, "spacing": 8 },
+    "privacy": {
+        "icon-size": 12, "icon-spacing": 8,
+        "modules": [ { "type": "screenshare" }, { "type": "audio-in" } ]
+    },
+    "systemd-failed-units": {
+        "format": "<span size='92.4%' rise='308' letter_spacing='9347'>󰀦</span> {nr_failed}", "hide-on-ok": true,
+        "on-click": "alacritty --class btop-float -e sh -c 'systemctl --failed; systemctl --user --failed; printf \"\\nEnter to close \"; read -r _'"
+    },
     "niri/workspaces": {
-        "format": "{value}",
+        "format": "{icon}",
+        "format-icons": { "empty": "○", "default": "●" },
         "on-click-right": "niri msg action toggle-overview",
         "on-scroll-up": "niri msg action focus-workspace-up",
         "on-scroll-down": "niri msg action focus-workspace-down"
@@ -46,31 +55,31 @@
     "group/stats": { "orientation": "inherit", "modules": ["temperature", "cpu", "memory"] },
     "group/levels": { "orientation": "inherit", "modules": ["pulseaudio", "battery"] },
     "temperature": { "hwmon-path-abs": "/sys/devices/platform/coretemp.0/hwmon", "input-filename": "temp1_input",
-                     "critical-threshold": 80, "format": " {temperatureC}°C", "interval": 5 },
-    "cpu": { "format": " {usage}%", "interval": 3,
+                     "critical-threshold": 80, "format": "<span size='79.3%' rise='951' letter_spacing='752'></span> {temperatureC}°C", "interval": 5 },
+    "cpu": { "format": "<span letter_spacing='7721'>󰓅</span> {usage:>2}%", "interval": 3,
              "on-click": "alacritty --class btop-float -e btop" },
-    "memory": { "format": " {percentage}%", "interval": 5,
+    "memory": { "format": "<span letter_spacing='13312'></span> {percentage:>2}%", "interval": 5,
                 "on-click": "alacritty --class btop-float -e btop" },
     "pulseaudio": {
         "format": "{icon} {volume}%",
-        "format-muted": "󰝟 mute",
-        "format-icons": { "default": ["󰕿", "󰖀", "󰕾"] },
+        "format-muted": "<span letter_spacing='6656'>󰝟</span> mute",
+        "format-icons": { "default": ["<span letter_spacing='-1464'>󰕿</span>", "<span letter_spacing='1065'>󰖀</span>", "<span letter_spacing='5591'>󰕾</span>"] },
         "scroll-step": 5,
         "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
     },
     "battery": {
         "format": "{icon} {capacity}%",
-        "format-charging": "󰂄 {capacity}%",
-        "format-icons": ["", "", "", "", ""],
+        "format-charging": "<span size='88.0%' rise='527' letter_spacing='427'>󰂄</span> {capacity}%",
+        "format-plugged": "<span size='88.0%' rise='527' letter_spacing='427'>󰂄</span> {capacity}%",
+        "format-full": "<span size='88.0%' rise='527' letter_spacing='427'>󰂄</span> {capacity}%",
+        "format-icons": ["<span size='88.0%' rise='527' letter_spacing='427'>󰁺</span>", "<span size='88.0%' rise='527' letter_spacing='427'>󰁼</span>", "<span size='88.0%' rise='527' letter_spacing='427'>󰁾</span>", "<span size='88.0%' rise='527' letter_spacing='427'>󰂀</span>", "<span size='88.0%' rise='527' letter_spacing='427'>󰁹</span>"],
         "states": { "critical": 15 }
     },
     "network": {
-        "format-wifi": "󰖩 {signalStrength}%",
-        "format-ethernet": "󰈀 up",
-        "format-disconnected": "󰖪 down",
+        "format-wifi": "<span size='97.3%' letter_spacing='9242'>󰖩</span> {signalStrength}%",
+        "format-ethernet": "<span size='92.4%' rise='308' letter_spacing='7256'>󰈀</span> up",
+        "format-disconnected": "<span size='97.3%' letter_spacing='9501'>󰖪</span> down",
         "on-click": "alacritty --class nmtui-float -e nmtui"
     },
-    "clock": { "format": "󰥔 {:%a %d %b  %H:%M:%S}", "interval": 1, "tooltip": false },
-    "custom/power": { "format": "󰐥", "tooltip": false,
-                      "on-click": "sh -c \"$HOME/.local/bin/powermenu\"" }
+    "clock": { "format": "{:%a %d %b  %H:%M:%S}", "interval": 1, "tooltip": false }
 }
