@@ -4,8 +4,10 @@
 A greetd greeter (greetd-ipc(7)) drawn like config/hypr/hyprlock.conf:
 the 300px ring on the glass wallpaper, the hour inside, the password
 typed into the ring — hidden, each keystroke lighting one segment — and
-one line under it: user · session · layout. The ring alone carries
-state: checking e8e8e8, wrong b5626a, caps lock b0a06a.
+one line under it: the user, then the session and the layout, each only
+when there is a choice to make (one session, one layout: nothing to
+say). The ring alone carries state: checking e8e8e8, wrong b5626a, caps
+lock b0a06a.
 
 Keys: type and Enter to log in; Up/Down cycle users, Tab cycles
 sessions, Alt+Shift cycles layouts (the compositor's bind); F10 powers
@@ -257,8 +259,12 @@ class Page(Gtk.Widget):
         self.text(snapshot, datetime.now().strftime("%H:%M"), 60, LIT, cx, cy)
         self.text(snapshot, datetime.now().strftime("%a %d %b"), 16, REST, cx, 28)
 
-        # user · session · layout, one line under the ring
-        parts = [("user", g.user), None, ("session", g.session_name())]
+        # user · session · layout, one line under the ring; the session
+        # only when there is more than one to choose from (or none to
+        # start), the layout the same way (layout_mark is empty with one)
+        parts = [("user", g.user)]
+        if len(g.sessions) != 1:
+            parts += [None, ("session", g.session_name())]
         if g.layout:
             parts += [None, (None, g.layout)]
         widths = [self.measure_text("·" if part is None else part[1], 16) for part in parts]
