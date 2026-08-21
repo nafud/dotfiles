@@ -62,7 +62,10 @@ font_ok() { fc-match "$MONO_FONT" | grep -q "JetBrainsMono Nerd Font"; }
 # ------------------------------------------------------------- 1. packages ---
 # One transaction, official repos only. --needed keeps reruns cheap and
 # never reinstalls; the full-system upgrade first is the supported way to
-# install on Arch (partial upgrades are not).
+# install on Arch (partial upgrades are not). noto-fonts and
+# noto-fonts-emoji stand behind JetBrains Mono for the scripts and emoji
+# it lacks — without a fallback those render as hex boxes (in
+# notifications first: chat apps).
 install_packages() {
     log "pacman packages"
     sudo pacman -Syu --needed --noconfirm \
@@ -74,12 +77,12 @@ install_packages() {
         grim slurp ksnip imagemagick brightnessctl pulsemixer \
         fzf zoxide wl-clipboard fd ripgrep eza bat git-delta jq \
         p7zip unzip xdg-user-dirs \
-        libnotify gnome-keyring qt5-wayland \
+        libnotify gcr-4 qt5-wayland \
         gsettings-desktop-schemas adwaita-icon-theme \
         xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-gnome \
         pipewire pipewire-pulse pipewire-alsa wireplumber \
         plymouth greetd python-gobject gtk4 \
-        ttf-jetbrains-mono-nerd pacman-contrib
+        ttf-jetbrains-mono-nerd noto-fonts noto-fonts-emoji pacman-contrib
 
     [ -f /usr/share/wayland-sessions/niri.desktop ] \
         || die "niri.desktop missing from wayland-sessions — session not registered"
@@ -315,8 +318,8 @@ enable_units() {
     systemctl --user daemon-reload 2>/dev/null || true
     systemctl --user enable --now waybar-updates.path 2>/dev/null \
         || warn "could not enable waybar-updates.path (no user session?)"
-    # gcr-4 ships the ssh agent that gnome-keyring no longer carries;
-    # the bashrc block exports its socket path
+    # gcr-4 ships the ssh agent (gnome-keyring, which once carried it, is
+    # not part of this desktop); the bashrc block exports its socket path
     systemctl --user enable --now gcr-ssh-agent.socket 2>/dev/null \
         || warn "could not enable gcr-ssh-agent.socket (no user session?)"
 }
@@ -506,7 +509,7 @@ print_summary() {
     summary_row "Greetd"        "login page (monogreet on niri)"         have monogreet
     summary_row "PipeWire"      "audio server (pulse shim)"              have pipewire
     summary_row "Portals"       "xdg-desktop-portal gtk + gnome"         portals_ok
-    summary_row "Keyring"       "gnome-keyring (Secret portal)"          have gnome-keyring-daemon
+    summary_row "SSH agent"     "gcr-ssh-agent (gcr-4)"                  test -x /usr/lib/gcr-ssh-agent
     summary_row "Alacritty"     "terminal emulator"                      have alacritty
     summary_row "Rofi"          "application launcher (wayland 2.0)"     have rofi
     summary_row "Waybar"        "status bar"                             have waybar
