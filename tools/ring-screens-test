@@ -6,9 +6,12 @@ The three screens share one design (config/hypr/hyprlock.conf is the
 reference; system/usr/local/bin/monogreet and system/usr/share/plymouth/
 themes/mono follow it) and one unit, the panel's own pixel. This tool
 checks the claim with numbers rather than eyes: ring diameter, edge,
-centre, the hour's and the line's ink, and the field's opacity through
-its fade, on each screen, at the scale the panel runs. Every run writes
-its frames and a report into a fresh directory and leaves them there.
+centre, the hour's and the line's ink, the field's opacity through its
+fade, and the words the lock and the login page say for caps lock and
+a wrong password, on each screen, at the scale the panel runs; on the
+splash, which has no ring, the prompt's and the dots' place. Every run
+writes its frames and a report into a fresh directory and leaves them
+there.
 
   ring-screens-test lock          the lock screen (hyprlock)
   ring-screens-test login         the login page (monogreet)
@@ -82,8 +85,15 @@ EDGE = 3                      # the edge, inside the 300
 LINE = 185                    # centre to the line under the ring
 HOUR_INK = (226, 60)          # "00:00" at 60pt: ink box, digits' cap height
 LINE_INK_TOP = 180.5          # centre to the line's x-height top row at 16pt (measured on the lock)
+MESSAGE = 30                  # the line to the feedback line under it ("caps lock", "wrong password")
+# the feedback line's ink widths at 13pt (17.3px, 10.4px per character),
+# as measured on the lock and the login page: the words tell each other
+# apart by length alone
+CAPS_WIDTH = (78, 100)        # "caps lock"
+WRONG_WIDTH = (128, 152)      # "wrong password"
+BOTH_WIDTH = (250, 290)       # "caps lock · wrong password"
+SPLASH_LINE = 30              # the splash: prompt on the centre, the dots one line under
 REST, LIT, EDGE_GREY, GROUND = (0xC0,) * 3, (0xE8,) * 3, (0x33,) * 3, (0x0D,) * 3
-FAIL_RED, CAPS_YELLOW = (0xB5, 0x62, 0x6A), (0xB0, 0xA0, 0x6A)
 FADE_TIMEOUT = 2.0            # the field goes this long after it empties …
 FADE = 0.8                    # … over this long
 
@@ -207,17 +217,6 @@ class Frame:
                if self.near(self.px(round(cx + sx * radius / 2 ** 0.5),
                                     round(cy + sy * radius / 2 ** 0.5)), LIT, tolerance)]
         return lit[0] if len(lit) == 1 else (None if not lit else -1)
-
-    def colour_on_ring(self, cx, cy, colour, tolerance=12, radius=148.0):
-        """Whether any pixel around the ring's edge is near a colour (the
-        reds and yellows that must not appear)."""
-        import math
-        for i in range(360):
-            a = math.radians(i)
-            if self.near(self.px(round(cx + radius * math.cos(a)), round(cy + radius * math.sin(a))),
-                         colour, tolerance):
-                return True
-        return False
 
     # -- ink --
     def ink_box(self, x0, y0, x1, y1, predicate, disc=None):
@@ -376,6 +375,14 @@ class Nested:
         for name in names:
             subprocess.run(["wtype", "-k", name], env=self.env(), check=True)
 
+    def caps_lock(self, on):
+        """Caps lock as GTK sees it: the virtual keyboard's own modifier
+        state (wtype -M/-m), because the keysym route says nothing —
+        wtype's generated keymap binds Caps_Lock to no Lock modifier, so
+        pressing the key changes no state. The lock state holds from -M
+        until -m, and the compositor forwards it to its clients."""
+        subprocess.run(["wtype", "-M" if on else "-m", "capslock"], env=self.env(), check=True)
+
     def shot(self, name):
         """Capture the nested output into the run directory."""
         path = self.out / f"{name}.png"
@@ -456,11 +463,24 @@ def ring_report(report, frame, reference, cx, cy, label):
     report.measure(f"{label}: ring outer diameter", f"{width} x {height} px (outer radius {width / 2:g}), "
                    f"centre ({centre[0]:g}, {centre[1]:g})")
     report.check(f"{label}: ring outer diameter is {RING}", (width, height) == (RING, RING))
-    runs = {side: frame.edge_run(cx, cy, side, EDGE_GREY) or frame.edge_run(cx, cy, side, LIT)
-            for side in ("left", "right", "top", "bottom")}
-    widths = {side: (run[1] - run[0] + 1) if run else None for side, run in runs.items()}
-    report.measure(f"{label}: edge runs (distance from ({cx:g}, {cy:g}))", runs)
-    report.check(f"{label}: edge is {EDGE} px on every side", all(w == EDGE for w in widths.values()), widths)
+    # the edge's width is read on the lit quadrant, 4px off the axis into
+    # its half: on the axis itself the quadrant's clip boundary
+    # antialiases the row, and the rest-grey edge is no measure at all —
+    # the glass disc's rim over the blurred wallpaper can locally blend
+    # to the same grey, while the quadrant's lit e8e8e8 is beyond any
+    # background blend. At 4px the circle's edge sits 0.05px inside its
+    # on-axis place, so the outermost pixel is 95% covered; the widened
+    # tolerance accepts that blend and nothing of the disc or the ground
+    quadrant = frame.quadrant_lit(cx, cy)
+    report.check(f"{label}: a quadrant is lit to measure the edge on", quadrant not in (None, -1), quadrant)
+    if quadrant in (None, -1):
+        return
+    side, off = {0: ("right", -4), 1: ("right", 4), 2: ("left", 4), 3: ("left", -4)}[quadrant]
+    run = frame.edge_run(cx, cy + off, side, LIT, tolerance=12)
+    report.measure(f"{label}: lit edge run on the {side} at cy{off:+d}", run)
+    inner = RING / 2 - EDGE + 0.5
+    report.check(f"{label}: edge is {EDGE} px — lit from {inner} out (outer radius measured above)",
+                 run is not None and run[0] == inner, run)
 
 
 def hour_report(report, frame, cx, cy, label):
@@ -479,9 +499,23 @@ def line_report(report, frame, cx, cy, label, expect_height):
                  box is not None and abs((box[1] - cy) - LINE_INK_TOP) <= 1 and box[3] >= expect_height, box)
 
 
-def no_colour_report(report, frame, cx, cy, label):
-    report.check(f"{label}: no fail red on the ring", not frame.colour_on_ring(cx, cy, FAIL_RED))
-    report.check(f"{label}: no caps yellow on the ring", not frame.colour_on_ring(cx, cy, CAPS_YELLOW))
+def message_box(frame, cx, cy):
+    """The ink on the feedback line under the layout mark / the name."""
+    return frame.ink_box(round(cx - 400), round(cy + LINE + MESSAGE - 15), round(cx + 400), round(cy + LINE + MESSAGE + 15), rest_ink)
+
+
+def message_report(report, frame, cx, cy, label, expected):
+    """The feedback line says something (expected: a rough ink width,
+    which tells "caps lock" from "wrong password" and both from one)
+    or nothing."""
+    box = message_box(frame, cx, cy)
+    report.measure(f"{label}: feedback line ink box (x, y, w, h)", box)
+    if expected is None:
+        report.check(f"{label}: the feedback line is empty", box is None, box)
+    else:
+        low, high = expected
+        report.check(f"{label}: the feedback line reads about {low}–{high} px wide, centred",
+                     box is not None and low <= box[2] <= high and abs((box[0] + box[2] / 2) - cx) <= 3, box)
 
 
 class Clock:
@@ -520,7 +554,14 @@ def fade_checks(report, nested, clock, reference, cx, cy, label, colour=EDGE_GRE
 def test_lock(out, scale, pixel_size, report):
     print(f"\nlock screen — hyprlock, nested at scale {scale}")
     config = out / "hyprlock.conf"
-    config.write_text(HYPRLOCK_CONF.read_text()
+    # the nested compositor drives no keyboard LEDs, so the caps-lock file
+    # bin/lock-line reads is this run's own, written here around the
+    # Caps_Lock keystrokes: the label's plumbing is what is tested
+    capslock = out / "capslock"
+    capslock.write_text("0\n")
+    conf = HYPRLOCK_CONF.read_text()
+    assert "lock-line $ATTEMPTS\n" in conf, "the feedback label's command has moved"
+    config.write_text(conf.replace("lock-line $ATTEMPTS\n", f"lock-line $ATTEMPTS {capslock}\n")
                       + "\n# this run only: PAM's `vlock` service (pam_unix alone) — it asks for the\n"
                         "# password, a wrong try costs nothing in faillock, and is answered after\n"
                         "# pam_unix's fail delay\nauth {\n    pam {\n        module = vlock\n    }\n}\n")
@@ -538,6 +579,7 @@ def test_lock(out, scale, pixel_size, report):
         hour_report(report, idle, cx, cy, "lock idle")
         line_report(report, idle, cx, cy, "lock idle", 12)
         report.check("lock idle: the field is not there before the first keystroke", idle.field_absent(cx, cy))
+        message_report(report, idle, cx, cy, "lock idle", None)
 
         nested.keys("a"); clock.act()
         clock.at(0.3); early = nested.shot("typed1-early")
@@ -558,27 +600,52 @@ def test_lock(out, scale, pixel_size, report):
         report.check("lock: never the same quadrant twice running",
                      all(q not in (None, -1) for q in quadrants) and all(a != b for a, b in zip(quadrants, quadrants[1:])))
 
-        nested.keys("Caps_Lock"); clock.act(); clock.at(0.4)
+        # caps lock: hyprlock learns it from the keysym (its field would
+        # recolour, were a colour set), the line from the LED file
+        capslock.write_text("1\n"); nested.keys("Caps_Lock"); clock.act(); clock.at(0.6)
         caps = nested.shot("caps-on")
-        no_colour_report(report, caps, cx, cy, "lock caps lock on")
-        report.check("lock caps lock on: ring rest colour unchanged",
-                     caps.edge_run(cx, cy, "left", EDGE_GREY) is not None or caps.edge_run(cx, cy, "left", LIT) is not None)
+        report.check("lock caps lock on: ring edge stays at rest grey",
+                     caps.edge_run(cx, cy, "left", EDGE_GREY) is not None, caps.edge_run(cx, cy, "left", EDGE_GREY))
+        message_report(report, caps, cx, cy, "lock caps lock on", CAPS_WIDTH)
         nested.keys("d"); clock.act(); clock.at(0.3)
-        no_colour_report(report, nested.shot("caps-typed"), cx, cy, "lock caps lock typed")
-        nested.keys("Caps_Lock"); clock.at(0.4)
+        typed_caps = nested.shot("caps-typed")
+        report.check("lock caps lock typed: ring edge stays at rest grey",
+                     typed_caps.edge_run(cx, cy, "left", EDGE_GREY) is not None)
+        capslock.write_text("0\n"); nested.keys("Caps_Lock"); clock.act(); clock.at(0.6)
+        message_report(report, nested.shot("caps-off"), cx, cy, "lock caps lock off", None)
 
-        nested.keys("Return"); clock.act(); clock.at(0.1)
+        nested.keys("Return"); clock.act(); clock.at(0.5)
         checked = nested.shot("checked")
-        report.measure("lock 0.1s after Return: ring toward the check colour e8e8e8 (1 = fully lit)",
+        report.measure("lock 0.5s after Return: ring toward the check colour e8e8e8 (1 = fully lit)",
                        checked.opacity(idle, cx, cy, LIT))
-        report.check("lock: the check colour shows after Return", checked.opacity(idle, cx, cy, LIT) > 0.4)
-        clock.at(1.2)
-        failed = nested.shot("failed")
-        no_colour_report(report, checked, cx, cy, "lock right after a wrong password")
-        no_colour_report(report, failed, cx, cy, "lock after a wrong password")
-        report.check("lock after a wrong password: ring back at rest grey (no red)",
-                     failed.edge_run(cx, cy, "left", EDGE_GREY) is not None, failed.edge_run(cx, cy, "left", EDGE_GREY))
+        report.check("lock: the check colour shows while the password is checked",
+                     checked.opacity(idle, cx, cy, LIT) > 0.4)
+        # pam_unix answers a wrong password after its fail delay (about
+        # two seconds, randomised); a frame poll cannot anchor that
+        # moment (one nested grim takes about a second), but hyprlock
+        # logs "Failed attempts" the instant the reply lands — poll the
+        # log and start the fade clock there, as the login test starts
+        # its at the fake greetd's pause. The fade runs first, while the
+        # clock is fresh: its held-late frame doubles as the ring's fall
+        # back to rest grey (the lit-to-grey move is done well inside
+        # the fade timeout, and the frame's grey-opacity check is that
+        # colour check); the message is read once the field is gone —
+        # it stays, that is the point.
+        for _ in range(100):
+            if "Failed attempts: 1" in log.read_text():
+                break
+            time.sleep(0.05)
+        else:
+            report.check("lock: the wrong password was answered (hyprlock log)", False)
+        clock.act()
         fade_checks(report, nested, clock, idle, cx, cy, "lock after a wrong password")
+        failed = nested.shot("failed")
+        report.check("lock after a wrong password: field gone, the hour back",
+                     failed.field_absent(cx, cy) and failed.hour_box(cx, cy) is not None)
+        message_report(report, failed, cx, cy, "lock after a wrong password", WRONG_WIDTH)
+        capslock.write_text("1\n"); clock.act(); clock.at(0.6)
+        message_report(report, nested.shot("failed-caps"), cx, cy, "lock after a wrong password, caps lock on", BOTH_WIDTH)
+        capslock.write_text("0\n"); clock.act(); clock.at(0.6)
 
         nested.keys("x"); clock.act(); clock.at(FADE + 0.2)
         retyped = nested.shot("retyped")
@@ -603,6 +670,7 @@ def test_login(out, scale, pixel_size, report):
             hour_report(report, idle, cx, cy, "login idle")
             line_report(report, idle, cx, cy, "login idle", 16)
             report.check("login idle: the field is not there before the first keystroke", idle.field_absent(cx, cy))
+            message_report(report, idle, cx, cy, "login idle", None)
 
             nested.keys("a"); clock.act()
             clock.at(0.3); early = nested.shot("typed1-early")
@@ -628,13 +696,23 @@ def test_login(out, scale, pixel_size, report):
             report.check("login: Escape empties the field — no quadrant lit", escaped.quadrant_lit(cx, cy) is None)
             fade_checks(report, nested, clock, idle, cx, cy, "login after Escape")
 
+            # caps lock reaches the page as GDK's caps-lock-state, from the
+            # nested compositor's modifier events
+            nested.caps_lock(True); clock.act(); clock.at(0.6)
+            message_report(report, nested.shot("caps-on"), cx, cy, "login caps lock on", CAPS_WIDTH)
+            nested.caps_lock(False); clock.act(); clock.at(0.6)
+            message_report(report, nested.shot("caps-off"), cx, cy, "login caps lock off", None)
+
             nested.keys("a", "b", "c", "Return"); clock.act()
             clock.at(0.25); on1 = nested.shot("check-on")
             clock.at(0.75); off = nested.shot("check-off")
             clock.at(1.25); on2 = nested.shot("check-on2")
-            for name, frame in (("check-on", on1), ("check-off", off), ("check-on2", on2)):
+            # at the first shot the field may still be fading in from the
+            # first of the four keystrokes; the widened tolerance reads
+            # lit through the last of the fade — nothing else comes near
+            for name, frame, tol in (("check-on", on1, 24), ("check-off", off, 6), ("check-on2", on2, 6)):
                 report.check(f"login {name}: ring lit e8e8e8 all round",
-                             all(frame.edge_run(cx, cy, s, LIT) for s in ("left", "right", "top", "bottom")))
+                             all(frame.edge_run(cx, cy, s, LIT, tolerance=tol) for s in ("left", "right", "top", "bottom")))
             marks = [f.hour_box(cx, cy) for f in (on1, off, on2)]
             report.measure("login checking: ink in the hour's place at 0.25 / 0.75 / 1.25 s (λ on, off, on)", marks)
             report.check("login checking: the λ blinks (ink, none, ink)",
@@ -643,9 +721,7 @@ def test_login(out, scale, pixel_size, report):
             report.check("login after a wrong password: ring back at rest grey",
                          failed.edge_run(cx, cy, "left", EDGE_GREY) is not None)
             report.check("login after a wrong password: the hour is back", failed.hour_box(cx, cy) is not None)
-            message = failed.ink_box(round(cx - 300), round(cy + LINE + 10), round(cx + 300), round(cy + LINE + 50), rest_ink)
-            report.check("login after a wrong password: a line under the name", message is not None, message)
-            no_colour_report(report, failed, cx, cy, "login after a wrong password")
+            message_report(report, failed, cx, cy, "login after a wrong password", WRONG_WIDTH)
             # the field empties when the answer is sent; the fade clock starts at the verdict
             clock.mark += 3.0
             fade_checks(report, nested, clock, idle, cx, cy, "login after a wrong password")
@@ -653,6 +729,10 @@ def test_login(out, scale, pixel_size, report):
             retyped = nested.shot("retyped")
             report.check("login: field back on the next keystroke", retyped.opacity(idle, cx, cy, EDGE_GREY) >= 0.97,
                          retyped.opacity(idle, cx, cy, EDGE_GREY))
+            message_report(report, retyped, cx, cy, "login retyping after a wrong password", WRONG_WIDTH)
+            nested.caps_lock(True); clock.act(); clock.at(0.6)
+            message_report(report, nested.shot("retyped-caps"), cx, cy, "login retyping, caps lock on", BOTH_WIDTH)
+            nested.caps_lock(False); clock.act(); clock.at(0.6)
             errors = log.read_text().strip() if log.exists() else ""
             report.check("login: monogreet wrote nothing to stderr", not errors, errors[-300:])
     finally:
@@ -663,9 +743,7 @@ def test_login(out, scale, pixel_size, report):
 XTEST = None
 
 
-def xtest_keys(*names):
-    """Keys into the X display's focused window through XTEST — the x11
-    renderer's only input path."""
+def x_display():
     global XTEST
     if XTEST is None:
         x11, xtst = ctypes.CDLL("libX11.so.6"), ctypes.CDLL("libXtst.so.6")
@@ -673,12 +751,28 @@ def xtest_keys(*names):
         x11.XStringToKeysym.restype = ctypes.c_ulong
         x11.XKeysymToKeycode.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
         x11.XFlush.argtypes = [ctypes.c_void_p]
+        x11.XDisplayWidth.argtypes = x11.XDisplayHeight.argtypes = [ctypes.c_void_p, ctypes.c_int]
         xtst.XTestFakeKeyEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
         display = x11.XOpenDisplay(None)
         if not display:
             raise SystemExit("no X display (DISPLAY unset? xwayland-satellite not running?)")
         XTEST = (x11, xtst, display)
-    x11, xtst, display = XTEST
+    return XTEST
+
+
+def x_root_size():
+    """The X root's size: the x11 renderer sizes plymouth's window to it,
+    so the theme's screen centre is this size's centre — not the
+    output's, when the two differ (the fullscreened window is drawn 1:1
+    from the output's top-left, the excess cropped)."""
+    x11, _, display = x_display()
+    return x11.XDisplayWidth(display, 0), x11.XDisplayHeight(display, 0)
+
+
+def xtest_keys(*names):
+    """Keys into the X display's focused window through XTEST — the x11
+    renderer's only input path."""
+    x11, xtst, display = x_display()
     for name in names:
         code = x11.XKeysymToKeycode(display, x11.XStringToKeysym(name.encode()))
         xtst.XTestFakeKeyEvent(display, code, 1, 0); x11.XFlush(display); time.sleep(0.03)
@@ -722,7 +816,11 @@ def test_splash(out, pixel_size, report):
             time.sleep(0.1)
         else:
             raise SystemExit(f"plymouthd did not start — see {log}")
-        ply = ["plymouth", f"--pid-file={pid}"]
+        # the client finds the daemon over its abstract socket, which an
+        # unshared mount namespace does not hide (plymouth's client no
+        # longer takes --pid-file; the pid file above only says the
+        # daemon is up)
+        ply = ["plymouth"]
         subprocess.run(ply + ["show-splash"], check=True)
         for _ in range(50):
             windows = [w for w in host_windows() if (w.get("title") or "").lower().startswith("plymouth")
@@ -737,7 +835,21 @@ def test_splash(out, pixel_size, report):
         subprocess.run(["niri", "msg", "action", "focus-window", "--id", str(window["id"])], check=True)
         time.sleep(1.0)
         clock = Clock()
-        cx, cy = (pixel_size[0] - 1) / 2, (pixel_size[1] - 1) / 2
+        # niri need not honour the fullscreen ask — a fixed-size X window
+        # is floated instead, under the bar — so the window's real place
+        # comes from the layout it ended up in. The x11 renderer sizes
+        # plymouth's window to the X root and its buffer maps 1:1 onto
+        # output pixels, so the theme's centre is that buffer's centre at
+        # the window's origin, wherever the compositor put it.
+        _, host_scale = host_output()
+        layout = next(w for w in host_windows() if w["id"] == window["id"])["layout"]
+        pos = layout.get("tile_pos_in_workspace_view") or (0.0, 0.0)
+        off = layout.get("window_offset_in_tile") or (0.0, 0.0)
+        origin = ((pos[0] + off[0]) * host_scale, (pos[1] + off[1]) * host_scale)
+        root = x_root_size()
+        cx, cy = origin[0] + (root[0] - 1) / 2, origin[1] + (root[1] - 1) / 2
+        report.measure("splash: plymouth's window",
+                       f"X root {root[0]}x{root[1]}, drawn 1:1 with its origin at ({origin[0]:g}, {origin[1]:g})")
 
         def shot(name):
             path = out / f"{name}.png"
@@ -745,38 +857,41 @@ def test_splash(out, pixel_size, report):
             return Frame(path)
 
         idle = shot("idle")
-        report.check("splash: ring edge at rest grey on all sides",
-                     all(idle.edge_run(cx, cy, s, EDGE_GREY) for s in ("left", "right", "top", "bottom")),
-                     {s: idle.edge_run(cx, cy, s, EDGE_GREY) for s in ("left", "right", "top", "bottom")})
-        runs = {s: idle.edge_run(cx, cy, s, EDGE_GREY) for s in ("left", "right", "top", "bottom")}
-        if all(runs.values()):
-            width = runs["left"][1] + runs["right"][1] + 1
-            height = runs["top"][1] + runs["bottom"][1] + 1
-            report.measure("splash: ring outer diameter", f"{width} x {height} px")
-            report.check(f"splash: ring outer diameter is {RING}", (width, height) == (RING, RING))
-            report.check(f"splash: edge is {EDGE} px", all(r[1] - r[0] + 1 == EDGE for r in runs.values()))
-        asker = subprocess.Popen(ply + ["ask-for-password", "--command=/bin/false", "--number-of-tries=2"],
+        report.check("splash idle: nothing drawn — no ink anywhere near the centre",
+                     idle.ink_box(round(cx - 400), round(cy - 200), round(cx + 400), round(cy + 200), rest_ink) is None)
+        # a prompt is passed as systemd would pass one: without it the
+        # script is handed NULL, which plymouth's script language would
+        # print as "#NULL"
+        asker = subprocess.Popen(ply + ["ask-for-password", "--prompt=Enter passphrase for disk luks-test:",
+                                        "--command=/bin/false", "--number-of-tries=2"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(1.0)
         prompt = shot("prompt")
-        line_report(report, prompt, cx, cy, "splash prompt", 12)
-        box = prompt.ink_box(round(cx - 300), round(cy + LINE - 20), round(cx + 300), round(cy + LINE + 20), rest_ink)
-        report.measure("splash prompt: line ink box", box)
+        # the prompt's logical box is centred on the screen's centre; its
+        # ink (lowercase with descenders, a colon) sits within the 21px
+        # line around it
+        box = prompt.ink_box(round(cx - 400), round(cy - 20), round(cx + 400), round(cy + 20), rest_ink)
+        report.measure("splash prompt: ink box (x, y, w, h)", box)
+        report.check("splash prompt: text centred on the screen's centre (x within 3px, ink within the 16pt line)",
+                     box is not None and abs((box[0] + box[2] / 2) - (cx + 0.5)) <= 3
+                     and box[1] >= cy - 12 and box[1] + box[3] <= cy + 12, box)
         xtest_keys("a", "b", "c"); clock.act(); clock.at(0.4)
         typed = shot("typed3")
-        dots = typed.ink_box(round(cx - 140), round(cy - 10), round(cx + 140), round(cy + 10), rest_ink)
+        dots = typed.ink_box(round(cx - 140), round(cy + SPLASH_LINE - 10), round(cx + 140), round(cy + SPLASH_LINE + 10), rest_ink)
         report.measure("splash typed 3: dots' ink box", dots)
-        report.check("splash typed 3: three dots centred on the ring's centre (3 x 12px cells)",
-                     dots is not None and abs((dots[0] + dots[2] / 2) - (cx + 0.5)) <= 1.5 and 26 <= dots[2] <= 30, dots)
+        report.check(f"splash typed 3: three dots centred one line ({SPLASH_LINE}px) under the prompt (3 x 12px cells)",
+                     dots is not None and abs((dots[0] + dots[2] / 2) - (cx + 0.5)) <= 1.5 and 26 <= dots[2] <= 30
+                     and abs((dots[1] + dots[3] / 2) - (cy + SPLASH_LINE + 0.5)) <= 1.5, dots)
+        report.check("splash typed 3: the prompt still reads the same",
+                     typed.ink_box(round(cx - 400), round(cy - 20), round(cx + 400), round(cy + 20), rest_ink) == box)
         xtest_keys("Return"); clock.act(); clock.at(0.6)
         retry = shot("after-enter")
-        report.check("splash after a wrong passphrase: asked again, dots cleared, no colour",
-                     retry.ink_box(round(cx - 140), round(cy - 10), round(cx + 140), round(cy + 10), rest_ink) is None
-                     and not retry.colour_on_ring(cx, cy, FAIL_RED))
+        report.check("splash after a wrong passphrase: asked again, dots cleared",
+                     retry.ink_box(round(cx - 140), round(cy + SPLASH_LINE - 10), round(cx + 140), round(cy + SPLASH_LINE + 10), rest_ink) is None)
         xtest_keys("Return"); time.sleep(0.5)
         asker.wait(5)
     finally:
-        subprocess.run(["plymouth", f"--pid-file={pid}", "quit"], capture_output=True)
+        subprocess.run(["plymouth", "quit"], capture_output=True)
         try:
             process.wait(5)
         except subprocess.TimeoutExpired:

@@ -1,30 +1,26 @@
 #!/bin/bash
 # render-plymouth-mono — draws the images of the mono plymouth theme
 # into system/usr/share/plymouth/themes/mono (committed alongside
-# mono.plymouth and mono.script; re-run after a design change). The
-# geometry is the lock screen's (config/hypr/hyprlock.conf) and the
-# login page's (system/usr/local/bin/monogreet): a 300px ring whose
-# 3px #333333 edge is part of the 300, on the 0d0d0d ground.
-#   ring.png      the ring, still, from the first frame to the greeter
+# mono.plymouth and mono.script; re-run after a design change). One
+# image: the typed character's dot, the lock screen's measure
+# (config/hypr/hyprlock.conf; the login page, system/usr/local/bin/
+# monogreet, follows it) on the 0d0d0d ground.
 #   bullet.png    one typed character: a 6px c0c0c0 dot in a 12px cell,
-#                 the script sets the row of them centred in the ring
-# The theme draws nothing else: no field, no throbber, no lock glyph.
+#                 the script sets the row of them under the prompt
+# The theme draws nothing else: no ring, no field, no throbber, no lock
+# glyph — the text it is asked to show, and the dots.
 set -euo pipefail
 
 out="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/system/usr/share/plymouth/themes/mono"
 mkdir -p "$out"
 
-size=300 edge=3                 # outer diameter; the edge lies inside it
-# ImageMagick addresses pixel centres: a ring whose outer edge is the
-# canvas edge has its centre at 149.5, and its 3px stroke centred on
-# radius 148.5 covers 147..150
-c=149.5 r=148.5
+# PNG32 keeps the image RGBA — ImageMagick would otherwise store a
+# grey-only one as grayscale without alpha, and plymouth composites
+# with alpha; without the date chunks a rerun writes the same bytes, so
+# git sees a change only when the image changed. ImageMagick addresses
+# pixel centres: a 6px dot centred in the 12px cell is the circle about
+# (5.5, 5.5) through (5.5, 8.5)
+magick -size 12x12 xc:none -fill '#c0c0c0' -draw "circle 5.5,5.5 5.5,8.5" \
+    -define png:exclude-chunks=date,tIME "PNG32:$out/bullet.png"
 
-# PNG32 keeps every image RGBA — ImageMagick would otherwise store the
-# grey-only ones as grayscale without alpha, and plymouth composites
-# with alpha
-magick -size "${size}x${size}" xc:none -stroke '#333333' -strokewidth "$edge" -fill none \
-    -draw "circle $c,$c $(awk "BEGIN{print $c + $r}"),$c" "PNG32:$out/ring.png"
-magick -size 12x12 xc:none -fill '#c0c0c0' -draw "circle 5.5,5.5 5.5,8.5" "PNG32:$out/bullet.png"
-
-echo "rendered $(find "$out" -name '*.png' | wc -l) images into $out"
+echo "rendered $(find "$out" -name '*.png' | wc -l) image(s) into $out"

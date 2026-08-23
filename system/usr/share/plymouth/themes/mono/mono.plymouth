@@ -1,14 +1,14 @@
 [Plymouth Theme]
 Name=Mono
-Description=The desktop's glass from the first frame: a ring on the flat ground, still; the passphrase typed into it as a row of dots on its centre, the prompt one line under it.
+Description=The desktop's ground from the first frame, and on it only what is asked: the passphrase prompt on the screen's centre, the characters typed as a row of dots one line under it.
 ModuleName=script
 
 [script]
 ImageDir=/usr/share/plymouth/themes/mono
 ScriptFile=/usr/share/plymouth/themes/mono/mono.script
-# The face of the bar, the lock and the login page, for the prompt under
-# the ring. The mkinitcpio hook packs the file fc-match resolves for
-# each of these two names into the initramfs; plymouth's label plugin
+# The face of the bar, the lock and the login page, for the prompt. The
+# mkinitcpio hook packs the file fc-match resolves for each of these two
+# names into the initramfs; plymouth's label plugin
 # draws any font whose name contains "Mono" from the MonospaceFont file,
 # so both names are given and both are this face. (The size here is
 # only read by the hook's regex; the script names its own.)

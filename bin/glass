@@ -1,12 +1,39 @@
 #!/bin/bash
-# glass IN OUT — render an image as the desktop's glass: blurred,
-# desaturated and sunk toward the 0d0d0d ground, the look hyprlock draws
-# live on the GPU (config/hypr/hyprlock.conf). For the place that needs
-# a pre-rendered copy: the login page's background (setup.sh →
-# /usr/share/backgrounds/greeter.jpg).
+# glass IN OUT — render an image as the lock screen's glass: what hyprlock
+# draws live on the GPU from config/hypr/hyprlock.conf's background
+# block, for the one place that needs a still copy — the login page's
+# background (setup.sh → /usr/share/backgrounds/greeter.jpg).
+#
+# hyprlock 0.9.6's pipeline (src/renderer/Renderer.cpp, Shaders.hpp),
+# in the image's own sRGB values, no linearising:
+#   1. contrast: gain(x, k) per channel — x < 0.5 ? 0.5 (2x)^k
+#      : 1 - 0.5 (2 - 2x)^k — with k = contrast (0.9)
+#   2. blur: dual kawase, blur_passes 3 at blur_size 4, in the output's
+#      pixels; simulated on a unit impulse, that kernel has a standard
+#      deviation of 17.3 px, so a gaussian of that sigma stands in for
+#      it (the kawase kernel is a little flatter at its middle, the
+#      spread is the same)
+#   3. brightness: every channel × 0.45 — the image darkens toward the
+#      ground and keeps its colour: no desaturation, no grey mix
+# (vibrancy is 0 and the noise, ±0.6 of a level, is dithering; neither is
+# reproduced.) The image is first brought to the panel's width so the
+# blur means the same pixels as on the lock.
 set -euo pipefail
 in="${1:?usage: glass IN OUT}"
 out="${2:?usage: glass IN OUT}"
 mkdir -p "$(dirname "$out")"
-exec magick "$in" -resize 1920x -blur 0x12 -modulate 100,55 \
-    -fill '#0d0d0d' -colorize 60% "$out"
+
+contrast=0.9 brightness=0.45 sigma=17.3 width=1920
+
+# the contrast curve as a 256-entry lookup table (-fx over a gradient,
+# then -clut: one evaluation per level instead of one per pixel)
+lut="$(mktemp -t glass-lut.XXXXXX.png)"
+trap 'rm -f "$lut"' EXIT
+magick -size 256x1 gradient:black-white \
+    -fx "u < 0.5 ? 0.5*pow(2*u, $contrast) : 1 - 0.5*pow(2*(1 - u), $contrast)" \
+    "$lut"
+
+magick "$in" -resize "${width}x" "$lut" -clut \
+    -blur "0x$sigma" \
+    -evaluate Multiply "$brightness" \
+    "$out"

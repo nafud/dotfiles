@@ -1,0 +1,46 @@
+#!/bin/bash
+# lock-line ATTEMPTS [LED...] — the lock screen's feedback line, in
+# words: "caps lock" while caps lock is on, "wrong password" once a
+# password has been refused, both joined by the line's muted dot, or
+# nothing. hyprlock runs it from a label (config/hypr/hyprlock.conf:
+# cmd[update:200]) with its $ATTEMPTS — the count of refused passwords
+# this lock — and prints what it returns under the ring.
+#
+# Said in words because hyprlock paints these two states and says
+# neither: caps lock reaches a label only as the field's capslock_color,
+# and a failure as $FAIL (PAM's own wording, "Authentication failed",
+# left standing until the next failure) or as $ATTEMPTS. A label's
+# command is its one channel to state outside hyprlock, so the count
+# comes in as the argument and caps lock is read where the compositor
+# writes it:
+# the keyboards' caps-lock LEDs, which niri sets on every keyboard it
+# drives — /sys/class/leds/<input>::capslock/brightness, 1 while caps
+# lock is on (the lock holds the keys, the compositor still keeps the
+# modifier state and the LEDs). A machine whose keyboards expose no
+# such LED says nothing about caps. The files can be named after the
+# count, for a run off the real keyboards.
+#
+# The line is Pango markup (hyprlock's labels are): the dot in the
+# palette's muted 666666, the words in the label's own colour.
+set -u
+attempts="${1:?usage: lock-line ATTEMPTS [LED...]}"
+shift
+if [ "$#" -eq 0 ]; then
+    set -- /sys/class/leds/*::capslock/brightness
+fi
+
+words=()
+for led; do
+    [ -r "$led" ] || continue
+    if [ "$(< "$led")" != 0 ]; then
+        words+=("caps lock")
+        break
+    fi
+done
+[ "$attempts" -gt 0 ] 2>/dev/null && words+=("wrong password")
+
+line=""
+for word in "${words[@]}"; do
+    line+="${line:+ <span foreground=\"#666666\">·</span> }$word"
+done
+printf '%s' "$line"

@@ -278,11 +278,11 @@ configure_boot() {
 # greetd runs the greeter niri (system/etc/greetd/niri.kdl), which runs
 # monogreet (system/usr/local/bin). monogreet keeps the last user and
 # session under /var/lib/monogreet, owned by the greeter user the greetd
-# package creates. Its background is the wallpaper sunk to glass
-# (bin/glass), rendered here because only setup runs with the privilege
-# to place it; it is refreshed whenever the wallpaper is newer than the
-# copy. Enable only writes symlinks — greetd takes the VT at the next
-# boot, never mid-session.
+# package creates. Its background is the wallpaper as the lock screen's
+# glass — bin/glass renders what hyprlock draws live — made here because
+# only setup runs with the privilege to place it; it is remade whenever
+# the wallpaper or bin/glass is newer than the copy. Enable only writes
+# symlinks — greetd takes the VT at the next boot, never mid-session.
 configure_greeter() {
     sudo install -d -o greeter -g greeter -m 0755 /var/lib/monogreet
     local wall="$HOME/Pictures/wallpaper.jpg" bg=/usr/share/backgrounds/greeter.jpg

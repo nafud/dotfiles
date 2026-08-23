@@ -13,8 +13,10 @@ not there until the first keystroke, stays while something is typed
 or checked, and goes two seconds after the field empties again, as
 hyprlock's fade_on_empty has it; the hour stays throughout. While the
 password is checked the ring is lit e8e8e8 and a "λ" blinks where the
-hour was; a wrong one is said in a line under the name. No other
-colour: caps lock and failure are not painted on the ring.
+hour was. Caps lock and a wrong password are said in words, on a line
+under the name — "caps lock" while it is on, "wrong password" until the
+next try — as the lock says them (bin/lock-line); neither is painted on
+the ring, which has no colour but its rest grey and the check's lit.
 
 Keys: type and Enter to log in; Up/Down cycle users, Tab cycles
 sessions, Alt+Shift cycles layouts (the compositor's bind); F10 powers
@@ -272,6 +274,24 @@ class Page(Gtk.Widget):
             self.hit_boxes[name] = (x0 - 8, y0 - 8, x0 + box.width + 8, y0 + box.height + 8)
         return box.width
 
+    def marks(self, snapshot, parts, size, y):
+        """A line of marks centred on cx — (name, string) each, the muted
+        dot between them — at a size; a named mark lights under the
+        pointer and records its hit box."""
+        if not parts:
+            return
+        widths = [self.measure_text(string, size) for _, string in parts]
+        dot = self.measure_text("·", size)
+        gap = 18 * size / 16
+        x = self.get_width() * self.scale / 2 - (sum(widths) + (dot + 2 * gap) * (len(parts) - 1)) / 2
+        for i, ((name, string), w) in enumerate(zip(parts, widths)):
+            if i:
+                self.text(snapshot, "·", size, MUTED, x, y, anchor="left")
+                x += dot + gap
+            self.text(snapshot, string, size, LIT if name and self.hover == name else REST,
+                      x, y, anchor="left", name=name)
+            x += w + gap
+
     def ring(self, snapshot, rounded, color, alpha, clip=None):
         """The ring's edge — the border of a rounded rect whose radius is
         half its side — in one color at an opacity, optionally only inside
@@ -392,29 +412,23 @@ class Page(Gtk.Widget):
         # cycling on click — only when there is something to cycle to.
         parts = [("user" if len(g.users) > 1 else None, g.user)]
         if len(g.sessions) != 1:
-            parts += [None, ("session" if len(g.sessions) > 1 else None, g.session_name())]
+            parts.append(("session" if len(g.sessions) > 1 else None, g.session_name()))
         if g.layout:
-            parts += [None, ("layout", g.layout)]
-        widths = [self.measure_text("·" if part is None else part[1], 16) for part in parts]
-        gap = 18
-        x = cx - (sum(widths) + gap * (len(parts) - 1)) / 2
+            parts.append(("layout", g.layout))
         y = cy + LINE_Y
-        for part, w in zip(parts, widths):
-            if part is None:
-                self.text(snapshot, "·", 16, MUTED, x, y, anchor="left")
-            else:
-                name, string = part
-                self.text(snapshot, string, 16, LIT if name and self.hover == name else REST,
-                          x, y, anchor="left", name=name)
-            x += w + gap
+        self.marks(snapshot, parts, 16, y)
 
-        # a prompt or feedback line below that; a visible prompt (an OTP,
-        # a question) shows the answer as it is typed
+        # the feedback line under that, as the lock has it (bin/lock-line):
+        # "caps lock" while caps lock is on, then the message — a prompt,
+        # or what went wrong — and a visible prompt (an OTP, a question)
+        # shows the answer as it is typed
+        words = [(None, "caps lock")] if g.caps_lock else []
         line = g.message
         if not g.secret and g.typed:
             line = f"{g.message}  {g.typed}" if g.message else g.typed
         if line:
-            self.text(snapshot, line, 13, REST, cx, y + 30)
+            words.append((None, line))
+        self.marks(snapshot, words, 13, y + 30)
 
         # the two glyphs that end the greeter, their ink centred the
         # date's distance from the bottom edge, 32px apart
@@ -452,6 +466,7 @@ class Greeter(Gtk.Application):
         self.mark_on = False          # the "λ" is in its on half
         self.blinking = False         # its timer runs
         self.message = ""             # the line under the name: a prompt, or what went wrong
+        self.caps_lock = False        # the keyboard's caps lock, as GDK reports it
         self.answers = queue.Queue()  # the auth thread waits here for further answers
         self.in_conversation = False
         self.page = None
@@ -499,10 +514,26 @@ class Greeter(Gtk.Application):
         window.present()
         GLib.timeout_add_seconds(1, self.tick)
         self.watch_layouts()
+        self.watch_caps_lock()
 
     def tick(self):
         self.page.queue_draw()
         return True
+
+    # -- caps lock -------------------------------------------------------------
+    def watch_caps_lock(self):
+        """The seat's keyboard carries the lock state GDK reads from the
+        compositor's modifier events; its property changes as caps lock
+        is pressed, here or on the lock before."""
+        keyboard = Gdk.Display.get_default().get_default_seat().get_keyboard()
+        if keyboard is None:
+            return
+
+        def on_change(device, _param):
+            self.caps_lock = device.get_caps_lock_state()
+            self.page.queue_draw()
+        keyboard.connect("notify::caps-lock-state", on_change)
+        on_change(keyboard, None)
 
     # -- layouts over niri's IPC ---------------------------------------------
     def watch_layouts(self):
