@@ -1,4 +1,2 @@
 # per-machine enablement state — enable_units in setup.sh recreates it
 config/systemd/user/*.wants/
-# python bytecode (py_compile on the repo copy of monogreet)
-__pycache__/

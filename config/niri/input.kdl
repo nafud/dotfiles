@@ -4,9 +4,12 @@ input {
             // list layouts comma-separated ("us,de") and Alt+Shift
             // cycles them; grp: is the xkb group switch, deliberately
             // not a compositor bind so it also works on the lock
-            // screen. The bar's layout mark appears with the second
-            // layout (config/waybar/layout.sh); the lock's marks under
-            // its ring are listed in this order (config/hypr/hyprlock.conf).
+            // screen. The bar shows the current one as its two-letter
+            // mark (waybar's niri/language, config/waybar/config.jsonc);
+            // the lock's marks under its ring are listed in this order
+            // (config/hypr/hyprlock.conf), and the login page's greeter
+            // niri carries the same list (system/etc/greetd/niri.kdl) —
+            // tools/check holds the three together.
             layout "us,ru,az"
             options "grp:alt_shift_toggle"
         }

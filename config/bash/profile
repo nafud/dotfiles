@@ -1,0 +1,26 @@
+# shellcheck shell=bash
+# The login shell's environment, sourced by ~/.bash_profile through the
+# one-line hook setup.sh writes there; linked with the rest of config/.
+# This is the session's environment too: niri-session re-executes itself
+# under a login shell precisely so this file is read, then imports that
+# environment into the systemd user manager — niri, its binds and the
+# session units all see the PATH and EDITOR set here. (Variables a login
+# shell does not set are config/environment.d.)
+
+# ~/.local/bin, where bin/ links: binds and units name those scripts bare
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+
+# the editor for everything that asks: yazi's `e`, git, the shell
+export EDITOR=micro VISUAL=micro
+
+# gcr's ssh agent (gcr-4; the socket unit setup enables). Its socket
+# unit exports SSH_AUTH_SOCK into the user manager, which a session
+# started afterwards inherits; a tty login, or the first shell after a
+# boot, finds the socket here — never clobbering an agent already set
+# (one forwarded over ssh)
+if [ -z "${SSH_AUTH_SOCK:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$UID}/gcr/ssh" ]; then
+    export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR:-/run/user/$UID}/gcr/ssh"
+fi

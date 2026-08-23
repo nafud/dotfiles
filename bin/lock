@@ -1,56 +1,35 @@
 #!/bin/bash
-# lock — the one lock entrypoint (keybind, powermenu, swayidle).
+# lock — the one lock entrypoint (Mod+Shift+L, the power menu, swayidle).
 # hyprlock draws the whole scene from config/hypr/hyprlock.conf: the
 # wallpaper blurred and sunk toward the theme ground on the GPU, the
-# clock, the layout mark, the state-colored ring. setup.sh installs it
-# from the official repositories; until that has run, the swaylock
-# fallback
-# below locks over a pre-rendered blur, so a lock always exists.
+# hour, the layout mark, the ring.
+#
+# hyprlock holds the foreground until unlock, but swayidle -w needs this
+# command to return once the session is LOCKED — waiting for the unlock
+# would stall before-sleep, and returning before the lock is up would
+# let suspend race it. So hyprlock runs in the background and this
+# returns on logind's locked hint (niri raises it when the lock is
+# accepted), with a bounded wait should the hint never come.
+
+# a missing locker must not pass for a lock: swayidle -w would carry
+# on into suspend, the keybind would do nothing — say so and fail
+command -v hyprlock >/dev/null || {
+    notify-send -u critical "lock" "hyprlock is not installed — the session is not locked"
+    echo "lock: hyprlock not installed" >&2
+    exit 1
+}
 
 # the session lock is single-holder: locked already means done
-pgrep -x hyprlock >/dev/null && exit 0
+pgrep -x -u "$(id -u)" hyprlock >/dev/null && exit 0
 
-if command -v hyprlock >/dev/null; then
-    # hyprlock holds the foreground until unlock, but swayidle -w needs
-    # this command to return once the session is LOCKED — waiting for
-    # the unlock would stall before-sleep, and returning before the
-    # lock is up would let suspend race it. Background it and return on
-    # logind's locked hint (niri raises it when the lock is accepted).
-    hyprlock >/dev/null 2>&1 &
-    if [ -n "${XDG_SESSION_ID:-}" ]; then
-        for _ in $(seq 1 30); do
-            [ "$(loginctl show-session "$XDG_SESSION_ID" -p LockedHint --value 2>/dev/null)" = "yes" ] \
-                && exit 0
-            sleep 0.1
-        done
-    else
-        sleep 1
-    fi
-    exit 0
+hyprlock >/dev/null 2>&1 &
+if [ -n "${XDG_SESSION_ID:-}" ]; then
+    for _ in $(seq 1 30); do
+        [ "$(loginctl show-session "$XDG_SESSION_ID" -p LockedHint --value 2>/dev/null)" = "yes" ] \
+            && exit 0
+        sleep 0.1
+    done
+else
+    sleep 1
 fi
-
-# ---- swaylock fallback ------------------------------------------------
-# Locks over a blurred, darkened copy of the current wallpaper, rebuilt
-# whenever it is missing or older than the wallpaper or this recipe.
-# Falls back to the flat theme ground with no wallpaper or imagemagick.
-wall="$HOME/Pictures/wallpaper.jpg"
-img="$HOME/.cache/lock-wallpaper.png"
-
-# time inside the ring only when the binary is the effects fork; stock
-# swaylock rejects unknown options, and a lock that fails to start is
-# an unlocked session, so the flags ride on capability detection
-clock_args=()
-if swaylock --help 2>&1 | grep -q -- --clock; then
-    clock_args=(--clock --timestr "%H:%M" --datestr "%a %d %b")
-fi
-
-if [ -f "$wall" ] && command -v magick >/dev/null; then
-    if [ ! -f "$img" ] || [ "$wall" -nt "$img" ] || [ "$0" -nt "$img" ]; then
-        # the desktop's glass recipe (bin/glass), shared with the login
-        # page's background
-        "$HOME/.local/bin/glass" "$wall" "$img" \
-            || exec swaylock -f -c 0d0d0d "${clock_args[@]}"
-    fi
-    exec swaylock -f -c 0d0d0d "${clock_args[@]}" -i "$img" -s fill
-fi
-exec swaylock -f -c 0d0d0d "${clock_args[@]}"
+exit 0

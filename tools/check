@@ -1,0 +1,85 @@
+#!/bin/bash
+# check — the repo's pre-flight, one script for the desk and for CI
+# (.github/workflows/check.yml runs exactly this), so the two cannot
+# drift: shell scripts parse and lint, python compiles, the structured
+# configs parse, every script is executable, and the keyboard-layout
+# list — kept in three files for three programs that cannot share one —
+# agrees with itself. Catches a stray comma or quote before it reaches
+# the next `setup.sh link`. The one check left out needs the niri
+# binary: `niri validate` on config/niri/config.kdl, which CI runs in an
+# Arch container and `setup.sh link` runs here.
+#
+# Needs: bash, shellcheck, python3 (3.11+, tomllib), jq.
+# shellcheck disable=SC2016  # the inline bash and python snippets are meant literally
+set -uo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+
+failed=0
+check() {   # check NAME COMMAND... — run (its stdout dropped, failures speak on stderr), report, remember
+    local name="$1"; shift
+    if "$@" >/dev/null; then
+        printf '  ok    %s\n' "$name"
+    else
+        printf '  FAIL  %s\n' "$name"
+        failed=1
+    fi
+}
+
+# scripts sorted by interpreter from their shebang: tools/ and
+# system/usr/local/bin mix bash and python
+shell_scripts=() python_scripts=() unclassified=0
+for f in setup.sh bootstrap.sh bin/* tools/* config/waybar/*.sh system/usr/local/bin/*; do
+    [ -f "$f" ] || { echo "  not a file: $f" >&2; unclassified=1; continue; }
+    case "$(head -n1 "$f")" in
+        '#!'*bash*|'#!'*/sh) shell_scripts+=("$f") ;;
+        '#!'*python*)        python_scripts+=("$f") ;;
+        *) echo "  no known shebang: $f" >&2; unclassified=1 ;;
+    esac
+done
+check "every script names its interpreter" [ "$unclassified" -eq 0 ]
+# sourced, no shebang (they declare their shell for shellcheck)
+shell_scripts+=(config/bash/*)
+
+check "shell scripts parse" bash -c 'for f; do bash -n "$f" || exit 1; done' _ "${shell_scripts[@]}"
+check "shellcheck" shellcheck -x "${shell_scripts[@]}"
+check "python compiles" python3 -c '
+import sys
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as fh:
+        compile(fh.read(), path, "exec")' "${python_scripts[@]}"
+check "scripts are executable" bash -c 'for f; do [ -x "$f" ] || { echo "    $f is not executable" >&2; exit 1; }; done' _ \
+    bootstrap.sh bin/* tools/* config/waybar/*.sh system/usr/local/bin/*
+check "waybar config is JSON" jq -e . config/waybar/config.jsonc
+check "TOML configs parse" python3 -c '
+import glob, tomllib
+for path in sorted(glob.glob("config/**/*.toml", recursive=True)
+                   + glob.glob("system/**/*.toml", recursive=True)):
+    with open(path, "rb") as fh:
+        tomllib.load(fh)'
+check "systemd user units are well-formed" python3 -c '
+# the unit files carry no Exec= that CI could resolve, so this is the
+# ini shape only: sections and key=value lines, Unit and Service present
+import configparser, glob
+for path in sorted(glob.glob("config/systemd/user/*.service") + glob.glob("config/systemd/user/*.path")):
+    unit = configparser.ConfigParser(interpolation=None, strict=False)
+    unit.optionxform = str
+    unit.read(path, encoding="utf-8")
+    assert "Unit" in unit, f"{path}: no [Unit]"
+    assert "Service" in unit or "Path" in unit, f"{path}: no [Service]/[Path]"'
+# The layout list lives in config/niri/input.kdl (the session),
+# system/etc/greetd/niri.kdl (the login page, which must type the
+# password in the same layouts) and config/hypr/hyprlock.conf (the
+# lock's $LAYOUT[...] marks, positional over that list).
+check "keyboard layout lists agree" python3 -c '
+import re, sys
+def layouts(path):
+    return re.search(r"^\s*layout\s+\"([^\"]*)\"", open(path).read(), re.M).group(1).split(",")
+session = layouts("config/niri/input.kdl")
+greeter = layouts("system/etc/greetd/niri.kdl")
+marks = re.search(r"^\s*text\s*=\s*\$LAYOUT\[([^\]]*)\]", open("config/hypr/hyprlock.conf").read(), re.M).group(1).split(",")
+if greeter != session:
+    sys.exit(f"    greeter niri.kdl has {greeter}, input.kdl has {session}")
+if len(marks) != len(session):
+    sys.exit(f"    hyprlock.conf lists {len(marks)} marks {marks} for {len(session)} layouts {session}")'
+
+exit "$failed"

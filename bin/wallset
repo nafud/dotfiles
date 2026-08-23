@@ -1,8 +1,8 @@
 #!/bin/bash
 # wallset IMAGE — change the wallpaper, once. Records the image as
-# ~/Pictures/wallpaper.jpg (the state that wallpaper-session draws at
-# every login, so the change persists) and re-applies live when a niri
-# session is up.
+# ~/Pictures/wallpaper.jpg (the state bin/wallpaper draws at every
+# login, so the change persists) and re-applies live when a session
+# is up, by restarting the unit that draws it.
 set -euo pipefail
 
 img="${1:?usage: wallset IMAGE}"
@@ -10,15 +10,10 @@ img="${1:?usage: wallset IMAGE}"
 mkdir -p "$HOME/Pictures"
 cp -- "$img" "$HOME/Pictures/wallpaper.jpg"
 
-# the lock-screen copy is not rendered here: bin/lock re-renders it on
-# the next lock, keyed off the wallpaper's mtime, so it owns that recipe
-
-sock="${NIRI_SOCKET:-$(find "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" -maxdepth 1 \
-    -name 'niri.wayland-*.sock' 2>/dev/null | head -n1)}"
-if [ -n "$sock" ]; then
-    pkill -x -u "$(id -u)" swaybg 2>/dev/null || true
-    NIRI_SOCKET="$sock" niri msg action spawn -- \
-        sh -c "$HOME/.local/bin/wallpaper-session" >/dev/null 2>&1 || true
+# the lock screen blurs the file itself on the next lock; the login
+# page's copy is rendered by setup.sh, which has the privilege to place it
+if systemctl --user -q is-active graphical-session.target; then
+    systemctl --user restart wallpaper.service
 fi
 
 echo "wallpaper recorded (persists across logins)"

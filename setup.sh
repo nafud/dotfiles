@@ -6,8 +6,16 @@
 #
 # The repository layout is the source of truth:
 #   config/   mirrors ~/.config and is symlinked there, entry by entry —
-#             edits in the repo are live (niri and starship reload on save)
-#   bin/      mirrors ~/.local/bin, symlinked the same way
+#             edits in the repo are live (niri and starship reload on
+#             save; the shell's config/bash/ on the next shell).
+#             config/systemd/user holds the session's units and
+#             config/environment.d the toolkits' environment, both read
+#             by the systemd user manager
+#   bin/      mirrors ~/.local/bin, symlinked the same way; the login
+#             shell's profile (config/bash/profile) puts ~/.local/bin on
+#             PATH and niri-session imports that environment, so binds
+#             name these bare (units spell the path: they depend on
+#             nothing a login shell did or did not set)
 #   system/   mirrors / and is installed there, file by file (root-owned
 #             copies, not links): the boot chain (GRUB and mkinitcpio
 #             drop-ins, plymouth and its theme, the plymouth-quit
@@ -24,7 +32,7 @@
 #   setup.sh  everything a config file cannot express: packages, system
 #             glue (units, the initramfs and grub.cfg rebuilds, the
 #             greeter's state dirs and background, MIME defaults,
-#             gsettings, the ~/.bashrc block, the btop setting), the
+#             gsettings, the ~/.bashrc hook, the btop setting), the
 #             linking itself, session reloads, and the final summary
 #
 # Everything installs from the official repositories — the workspace
@@ -34,6 +42,9 @@
 # upgrades through it, but this script installs nothing from the AUR.
 # No other third-party builds, and one release-binary download: herdr,
 # the agent workspace manager, through its official installer (2b).
+# Changes to the session environment (config/bash/profile,
+# config/environment.d) reach a running session on the next login; a
+# run says so.
 #
 # A real file or directory found where a link belongs is moved aside once
 # as <name>.pre-dotfiles. Version history lives in git log.
@@ -77,7 +88,7 @@ install_packages() {
     log "pacman packages"
     sudo pacman -Syu --needed --noconfirm \
         niri xwayland-satellite \
-        alacritty waybar mako swaybg swayidle swaylock hyprlock rofi \
+        alacritty waybar mako swaybg swayidle hyprlock rofi \
         yazi zellij cliphist starship chafa micro btop \
         zathura zathura-pdf-poppler imv mpv \
         tlp \
@@ -149,8 +160,8 @@ install_paru() {
 # package, and the AUR herdr-bin would land in /usr/bin where herdr's
 # own updater (`herdr update`) cannot write and refuses to run. The
 # official installer fetches the release manifest, verifies the asset's
-# SHA-256, and drops the static binary in ~/.local/bin (the PATH entry
-# write_shell adds). From then on `herdr update` keeps it current, so
+# SHA-256, and drops the static binary in ~/.local/bin (on PATH through
+# config/bash/profile). From then on `herdr update` keeps it current, so
 # an existing binary is left alone — this step is install-once.
 HERDR_INSTALLER="https://herdr.dev/install.sh"
 
@@ -209,7 +220,7 @@ install_system_files() {
         log "installing $dest"
         sudo install -D -m "$mode" "$src" "$dest"
         SYSTEM_CHANGED+=("$dest")
-    done < <(find "$REPO/system" -type f -not -path '*/__pycache__/*' -print0 | sort -z)
+    done < <(find "$REPO/system" -type f -print0 | sort -z)
     for dir in "${SYSTEM_MIRRORED_DIRS[@]}"; do
         [ -d "$dir" ] || continue
         while IFS= read -r -d '' file; do
@@ -286,12 +297,6 @@ configure_greeter() {
         || warn "could not enable greetd"
 }
 
-configure_git() {
-    git config --global core.pager delta
-    git config --global interactive.diffFilter 'delta --color-only'
-    git config --global delta.navigate true
-}
-
 # ---------------------------------------------------- 7. MIME associations ---
 # xdg-mime records an association even for a desktop file that does not
 # exist, silently breaking xdg-open; only associate what is actually shipped.
@@ -320,12 +325,32 @@ set_default_apps() {
     fi
 }
 
+# ------------------------------------------------------------- 7b. git ---
+# The workspace's git settings are config/git/config (linked with the
+# rest). Identity and anything machine-bound go in ~/.gitconfig, which
+# git reads alongside it — and `git config --global` writes to
+# ~/.gitconfig only if it exists; absent, the XDG file would be the
+# target, and a name, an email or a credential helper would land in a
+# tracked file. So the identity file exists before anything asks.
+configure_git() {
+    [ -f "$HOME/.gitconfig" ] || touch "$HOME/.gitconfig"
+}
+
 # ------------------------------------------------------------ 8. link tree ---
 # Symlink each top-level entry of config/ into ~/.config, each file in
 # bin/ into ~/.local/bin and each theme in icons/ into ~/.local/share/icons.
 # Directory-level links keep the mapping obvious: one entry in the repo,
-# one link on disk. A real file or directory already
-# in the way is moved aside once as <name>.pre-dotfiles.
+# one link on disk. A real file or directory already in the way is moved
+# aside once as <name>.pre-dotfiles.
+#
+# Two programs write live state beside their configuration, so their
+# dirs are not linked whole — a whole-dir link would point those writes
+# into the repo: btop rewrites btop.conf on every exit (configure_btop
+# links its read-only themes/ and enforces the intent lines in place),
+# micro keeps buffers/ (configure_micro links the configuration files
+# only).
+PARTIALLY_LINKED=(btop micro)
+
 link_one() {
     local src="$1" dest="$2"
     if [ -L "$dest" ] && [ "$(readlink -f "$dest")" = "$src" ]; then
@@ -342,18 +367,12 @@ link_one() {
 }
 
 link_configs() {
-    local src link
+    local src link name
     mkdir -p "$CFG" "$HOME/.local/bin"
     for src in "$REPO/config"/*; do
-        # btop rewrites btop.conf on every exit — linking its whole dir
-        # would point that rewrite into the repo. configure_btop links
-        # the read-only themes/ dir and enforces the intent lines.
-        [ "$(basename "$src")" = "btop" ] && continue
-        # micro keeps live state (buffers/) beside its config — a whole
-        # dir link would write that state into the repo. configure_micro
-        # links the actual configuration files only.
-        [ "$(basename "$src")" = "micro" ] && continue
-        link_one "$src" "$CFG/$(basename "$src")"
+        name="$(basename "$src")"
+        [[ " ${PARTIALLY_LINKED[*]} " == *" $name "* ]] && continue
+        link_one "$src" "$CFG/$name"
     done
     for src in "$REPO/bin"/*; do
         link_one "$src" "$HOME/.local/bin/$(basename "$src")"
@@ -399,77 +418,64 @@ install_templates() {
     done
 }
 
-# The repo ships user units (config/systemd/user — linked into place by
-# link_configs like any other entry); enabling them is the glue only
-# setup can do. waybar-updates.path pokes the bar's updates module
-# whenever the pacman database changes.
+# The session runs on systemd user units: the packages' waybar.service
+# and mako.service, and the repo's (config/systemd/user — linked into
+# place by link_configs like any other entry) for the wallpaper, idle
+# management, clipboard history and the battery watch. All are bound to
+# graphical-session.target, which niri.service reaches once the
+# compositor is up, so they start with the session, stop with it, and
+# restart, reload and log like any unit. Enabling them is the glue only
+# setup can do; `enable` writes the wants links whether or not a session
+# is up, and reload_session starts them in a live one.
+# Outside the session: waybar-updates.path pokes the bar's updates
+# module whenever the pacman database changes; gcr-4 ships the ssh
+# agent (gnome-keyring, which once carried it, is not part of this
+# desktop) — its socket unit exports SSH_AUTH_SOCK into the session.
+SESSION_UNITS=(waybar.service mako.service wallpaper.service swayidle.service
+               battwatch.service cliphist@text.service cliphist@image.service)
+
 enable_units() {
+    local out
     systemctl --user daemon-reload 2>/dev/null || true
-    systemctl --user enable --now waybar-updates.path 2>/dev/null \
-        || warn "could not enable waybar-updates.path (no user session?)"
-    # gcr-4 ships the ssh agent (gnome-keyring, which once carried it, is
-    # not part of this desktop); the bashrc block exports its socket path
-    systemctl --user enable --now gcr-ssh-agent.socket 2>/dev/null \
-        || warn "could not enable gcr-ssh-agent.socket (no user session?)"
+    out="$(systemctl --user enable "${SESSION_UNITS[@]}" waybar-updates.path gcr-ssh-agent.socket 2>&1)" \
+        || warn "could not enable the user units: $out"
+    systemctl --user start waybar-updates.path gcr-ssh-agent.socket 2>/dev/null || true
 }
 
 # ---------------------------------------------------------- 9. shell setup ---
-# ~/.bashrc is shared with the system's own content, so it is not linked;
-# only the marked block is owned, and it is replaced in place on every run
-# so edits here reach existing installs.
-write_shell() {
-    local rc="$HOME/.bashrc"
-    local body="$WORK/bashrc"
+# The shell's configuration is config/bash/ — profile for login shells
+# (PATH, EDITOR: the environment niri-session imports for the whole
+# session), bashrc for interactive ones — linked with the rest of
+# config/ and live on edit. ~/.bash_profile and ~/.bashrc stay the
+# system's own files and each carries one line of this repo's, sourcing
+# its file (bash reads no XDG path of its own). Earlier versions wrote
+# the configuration into ~/.bashrc as a marked block — that block is
+# removed once, its content is the linked file now.
+install_shell_hook() {   # install_shell_hook RCFILE NAME — hook config/bash/NAME into ~/RCFILE
+    local rc="$HOME/$1" name="$2"
+    local hook="[ -r ~/.config/bash/$name ] && . ~/.config/bash/$name"
     [ -f "$rc" ] || touch "$rc"
-
-    log "writing managed block into ~/.bashrc"
-    # the niri-setup marker is the block's pre-rename name — stripping
-    # it too migrates existing installs to the dotfiles marker
-    printf '%s\n\n' "$(awk '
-        /^# >>> dotfiles managed block >>>$/,/^# <<< dotfiles managed block <<<$/ { next }
-        /^# >>> niri-setup managed block >>>$/,/^# <<< niri-setup managed block <<<$/ { next }
-        /^# >>> terminal-readability block >>>$/,/^# <<< terminal-readability block <<<$/ { next }
-        { print }
-    ' "$rc")" > "$body"
-
-    cat >> "$body" <<'EOF'
-# >>> dotfiles managed block >>>
-# yazi wrapper: on quit the shell follows yazi's last directory
-function y() {
-    local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
-    yazi "$@" --cwd-file="$tmp"
-    IFS= read -r -d '' cwd < "$tmp"
-    [ -n "$cwd" ] && [ "$cwd" != "$PWD" ] && builtin cd -- "$cwd"
-    rm -f -- "$tmp"
+    if grep -q '^# >>> dotfiles managed block >>>$' "$rc"; then
+        log "removing the managed block from ~/$1 (config/bash/ carries it now)"
+        awk '/^# >>> dotfiles managed block >>>$/,/^# <<< dotfiles managed block <<<$/ { next }
+             { print }' "$rc" > "$WORK/rc"
+        cat "$WORK/rc" > "$rc"
+    fi
+    grep -qxF "$hook" "$rc" && return 0
+    log "hooking config/bash/$name into ~/$1"
+    printf '\n# the shell configuration of ~/dotfiles (config/bash/%s)\n%s\n' "$name" "$hook" >> "$rc"
 }
 
-alias ls='eza --group-directories-first'
-alias ll='eza -l --group-directories-first --git'
-alias la='eza -la --group-directories-first'
-alias tree='eza --tree'
-alias cat='bat --style=plain --paging=never'
-alias grep='grep --color=auto'
-alias diff='diff --color=auto'
-alias ip='ip -c'
-
-export EDITOR=micro
-export VISUAL=micro
-export MANPAGER="sh -c 'col -bx | bat -l man -p'"
-
-# gcr's ssh agent — gnome-keyring dropped its own, gcr-4 carries it
-# now, socket-activated by the user unit setup enables. The user-unit
-# environment doesn't reach a greetd-launched shell, hence the export;
-# never clobbers an agent already set (e.g. one forwarded over ssh)
-[ -z "${SSH_AUTH_SOCK:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$UID}/gcr/ssh" ] \
-    && export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR:-/run/user/$UID}/gcr/ssh"
-
-[ -f /usr/share/fzf/key-bindings.bash ] && source /usr/share/fzf/key-bindings.bash
-eval "$(zoxide init bash)"
-eval "$(starship init bash)"
-# <<< dotfiles managed block <<<
-EOF
-
-    cat "$body" > "$rc"
+install_shell_hooks() {
+    # bash reads the first of ~/.bash_profile and ~/.profile at login: a
+    # machine that has only ~/.profile keeps it (creating ~/.bash_profile
+    # beside it would silence it)
+    if [ ! -f "$HOME/.bash_profile" ] && [ -f "$HOME/.profile" ]; then
+        install_shell_hook .profile profile
+    else
+        install_shell_hook .bash_profile profile
+    fi
+    install_shell_hook .bashrc bashrc
 }
 
 # btop rewrites its whole config file on every clean exit, so linking it
@@ -479,17 +485,18 @@ EOF
 # show through instead of btop painting an opaque ground. The themes
 # dir is read-only to btop and links normally (excluded from
 # link_configs, owned here).
+btop_set() {
+    local conf="$CFG/btop/btop.conf" key="$1" value="$2"
+    if grep -qs "^$key\b" "$conf"; then
+        sed -i "s|^$key\b.*|$key = $value|" "$conf"
+    else
+        printf '%s = %s\n' "$key" "$value" >> "$conf"
+    fi
+}
+
 configure_btop() {
-    local conf="$CFG/btop/btop.conf"
     mkdir -p "$CFG/btop"
     link_one "$REPO/config/btop/themes" "$CFG/btop/themes"
-    btop_set() {
-        if grep -qs "^$1\b" "$conf"; then
-            sed -i "s|^$1\b.*|$1 = $2|" "$conf"
-        else
-            printf '%s = %s\n' "$1" "$2" >> "$conf"
-        fi
-    }
     btop_set theme_background False
     btop_set color_theme '"mono"'
     btop_set vim_keys True
@@ -511,7 +518,12 @@ configure_micro() {
 
 # ------------------------------------------------------------- 10. desktop ---
 apply_desktop_prefs() {
-    gsettings set org.gnome.desktop.interface color-scheme prefer-light 2>/dev/null || true
+    # the desktop is dark throughout (the 0d0d0d ground of every surface),
+    # and the settings portal hands this preference to every toolkit —
+    # libadwaita picks its dark stylesheet (config/gtk-4.0/gtk.css
+    # recolours it onto the palette either way), browsers, Qt and
+    # Electron apps follow suit
+    gsettings set org.gnome.desktop.interface color-scheme prefer-dark 2>/dev/null || true
     gsettings set org.gnome.desktop.interface gtk-theme Adwaita 2>/dev/null || true
     # GTK apps follow the one-typeface rule and the compositor's cursor
     # choice (cursor block in config/niri/input.kdl).
@@ -544,52 +556,60 @@ apply_desktop_prefs() {
 }
 
 # -------------------------------------------------------------- 11. reload ---
-# The live niri session's IPC socket: NIRI_SOCKET inside the session,
-# discovered under XDG_RUNTIME_DIR otherwise — so a run over ssh still
-# reaches the desktop. Empty output means no session is up.
-niri_socket() {
-    if [ -n "${NIRI_SOCKET:-}" ]; then
-        printf '%s' "$NIRI_SOCKET"
-        return
-    fi
-    find "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" -maxdepth 1 \
-         -name 'niri.wayland-*.sock' 2>/dev/null | head -n1
+# niri reloads its own config on save and starship re-reads per prompt;
+# the daemons are units. The ones that hold config in memory — a git
+# pull can change their files without any link changing — are reloaded
+# where the unit can (mako) and restarted where it cannot (a restart is
+# a fresh process; a reload signal sent to a bar that has only just
+# started would reach it before its handler is in place); then whatever
+# is not up yet is started — a no-op for the running ones. The user
+# manager carries the session's environment, so this works from an ssh
+# shell too; with no session up there is nothing to do.
+reload_session() {
+    systemctl --user -q is-active graphical-session.target 2>/dev/null || return 0
+    stop_legacy_daemons
+    log "restarting the session units"
+    systemctl --user restart waybar.service swayidle.service 2>/dev/null \
+        || warn "a session unit did not restart — journalctl --user -u waybar -u swayidle"
+    systemctl --user reload-or-restart mako.service 2>/dev/null \
+        || warn "mako did not reload — journalctl --user -u mako"
+    systemctl --user start "${SESSION_UNITS[@]}" 2>/dev/null \
+        || warn "a session unit did not start — systemctl --user status ${SESSION_UNITS[*]}"
+    session_env_current \
+        || warn "this session started before config/bash/profile reached it: the binds that name a bin/ script bare (launcher, lock, power and network menus, clipboard, annotate) find nothing until the next login — log out and in"
 }
 
-# niri reloads its own config on save and starship re-reads per prompt,
-# but waybar and mako hold config in memory, and a git pull can change
-# their files without any link changing — so reload deterministically on
-# every run. Waybar is respawned through niri's IPC, never exec'd
-# directly: only the compositor holds the session environment
-# (WAYLAND_DISPLAY) that a bar spawned from an ssh shell would lack.
-reload_session() {
-    local sock
-    sock="$(niri_socket)"
-    [ -n "$sock" ] || return 0
-    log "restarting waybar, reloading mako"
-    # stop the old bar and wait until it is gone, so the liveness check
-    # below can only ever see the new one
-    local _
-    pkill -x -u "$(id -u)" waybar 2>/dev/null || true
-    for _ in $(seq 1 20); do
-        pgrep -x -u "$(id -u)" waybar >/dev/null || break
-        sleep 0.1
+# A session that began under the previous design still runs the daemons
+# as niri's children: spawn-at-startup put each in an app-niri-<argv0>-
+# <pid>.scope — sh for the three wrapper scripts (the bar, the wallpaper,
+# the battery watch), mako, swayidle, wl-paste. A config reload does not
+# end them, and beside the units they would be a second bar, a second
+# wallpaper, and a mako holding the notification name the unit needs.
+# Each such scope is stopped once, before the units take over: the
+# daemon's name and a legacy scope name together pick them out, so a
+# terminal scope that merely contains a swaybg run by hand is left alone.
+stop_legacy_daemons() {
+    local pid cgroup scopes=()
+    for pid in $(pgrep -u "$(id -u)" -x 'waybar|mako|swaybg|swayidle|wl-paste|battwatch.sh'); do
+        cgroup="$(cut -d: -f3 "/proc/$pid/cgroup" 2>/dev/null)"
+        if [[ $cgroup =~ /(app-niri-(sh|mako|swayidle|wl\\x2dpaste)-[0-9]+\.scope)$ ]]; then
+            scopes+=("${BASH_REMATCH[1]}")
+        fi
     done
-    NIRI_SOCKET="$sock" niri msg action spawn -- \
-        sh -c "$HOME/.local/bin/bar-session" >/dev/null 2>&1 || true
-    # a respawn that silently fails looks like a broken setup; verify the
-    # bar is up and name the log that holds the reason when it is not
-    for _ in $(seq 1 15); do
-        pgrep -x -u "$(id -u)" waybar >/dev/null && break
-        sleep 0.2
-    done
-    if pgrep -x -u "$(id -u)" waybar >/dev/null; then
-        log "waybar is up"
-    else
-        warn "waybar did not come up — see ~/.cache/waybar.log"
-    fi
-    DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus}" \
-        makoctl reload >/dev/null 2>&1 || true
+    [ "${#scopes[@]}" -gt 0 ] || return 0
+    log "stopping the daemons the previous config spawned (the units take over)"
+    systemctl --user stop "${scopes[@]}" 2>/dev/null || true
+}
+
+# The session environment is imported at login; a running niri keeps the
+# one it started with, and its spawns inherit that. ~/.local/bin on the
+# compositor's own PATH (read from /proc) is the probe.
+session_env_current() {
+    local niri_pid
+    niri_pid="$(systemctl --user show -p MainPID --value niri.service 2>/dev/null)"
+    [ -n "$niri_pid" ] && [ "$niri_pid" != 0 ] || return 0
+    tr '\0' '\n' < "/proc/$niri_pid/environ" 2>/dev/null \
+        | grep -qE "^PATH=(.*:)?$HOME/\.local/bin(:.*)?$"
 }
 
 # ------------------------------------------------------------- 12. summary ---
@@ -600,6 +620,14 @@ portals_ok() {
 
 configs_linked() {
     [ -L "$CFG/niri" ] && [ "$(readlink -f "$CFG/niri")" = "$REPO/config/niri" ]
+}
+
+session_units_enabled() {
+    # is-enabled over a list is true when any one is; ask one at a time
+    local unit
+    for unit in "${SESSION_UNITS[@]}"; do
+        systemctl --user -q is-enabled "$unit" 2>/dev/null || return 1
+    done
 }
 
 summary_row() {
@@ -615,6 +643,7 @@ print_summary() {
     printf '\n\033[1m[setup] installed components\033[0m\n'
     summary_row "Niri"          "scrollable-tiling Wayland compositor"   have niri
     summary_row "Dotfiles"      "config/ linked into ~/.config"          configs_linked
+    summary_row "Session units" "waybar, mako, wallpaper, idle, cliphist" session_units_enabled
     summary_row "Xwayland-sat." "X11 bridge, auto-spawned by niri"       have xwayland-satellite
     summary_row "Plymouth"      "boot splash (mono theme)"               have plymouthd
     summary_row "Greetd"        "login page (monogreet on niri)"         have monogreet
@@ -626,7 +655,7 @@ print_summary() {
     summary_row "Waybar"        "status bar"                             have waybar
     summary_row "Mako"          "notification daemon"                    have mako
     summary_row "Swaybg"        "wallpaper daemon"                       have swaybg
-    summary_row "Hyprlock"      "screen locker (swaylock fallback)"      have hyprlock
+    summary_row "Hyprlock"      "screen locker"                          have hyprlock
     summary_row "Swayidle"      "idle manager"                           have swayidle
     summary_row "Yazi"          "terminal file manager (+ ya)"           have yazi
     summary_row "Zellij"        "terminal multiplexer"                   have zellij
@@ -660,58 +689,53 @@ print_summary() {
 }
 
 # ---------------------------------------------------------------- 13. main ---
+# The system half needs sudo and a reboot to show; the user half links,
+# enables and reloads and is live at once. `install` is both, in order.
+system_half() {
+    install_packages
+    enable_system_units
+    install_system_files
+    configure_boot
+    configure_greeter
+}
+
+user_half() {
+    # MIME defaults are re-applied on every run: any hand-installed app
+    # (a browser most of all) can rewrite mimeapps.list and silently take
+    # the PDF and image types with it
+    set_default_apps
+    configure_git
+    link_configs
+    install_templates
+    enable_units
+    install_shell_hooks
+    configure_btop
+    configure_micro
+    apply_desktop_prefs
+
+    niri validate
+    log "ALL OK — niri config valid"
+    reload_session
+}
+
 main() {
     case "${1:-install}" in
         install)
-            install_packages
+            system_half
             install_paru
             install_herdr
-            enable_system_units
-            install_system_files
-            configure_boot
-            configure_greeter
-            configure_git
-            set_default_apps
-            link_configs
-            install_templates
-            enable_units
-            write_shell
-            configure_btop
-            configure_micro
-            apply_desktop_prefs
-
-            niri validate
-            log "ALL OK — niri config valid"
-            reload_session
+            user_half
             print_summary
             log "wallpaper: put an image at ~/Pictures/wallpaper.jpg (optional)"
             log "reboot: plymouth asks the passphrase, monogreet the login"
             ;;
         system)
-            install_packages
-            enable_system_units
-            install_system_files
-            configure_boot
-            configure_greeter
+            system_half
             print_summary
             log "reboot: plymouth asks the passphrase, monogreet the login"
             ;;
         link|configure)
-            link_configs
-            install_templates
-            enable_units
-            # MIME defaults are re-applied here too: any hand-installed
-            # app (a browser most of all) can rewrite mimeapps.list and
-            # silently take the PDF and image types with it
-            set_default_apps
-            write_shell
-            configure_btop
-            configure_micro
-            apply_desktop_prefs
-
-            niri validate
-            log "ALL OK — niri config valid"
-            reload_session
+            user_half
             log "configs are live symlinks — edits apply on save; commit in the repo when happy"
             ;;
         summary)

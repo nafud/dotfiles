@@ -1,0 +1,23 @@
+# Idle management: lock after ten minutes, screens off half a minute
+# later and back on activity, lock before sleep, and the `lock` handler
+# answers loginctl lock-session (the system's own lock request over
+# D-Bus), which would otherwise be silently ignored. -w makes swayidle
+# wait for the lock command, so suspend never races the lock; bin/lock
+# returns once the session is locked. bin/lock is named by path: a unit
+# depends on nothing the login shell may or may not have put on PATH.
+[Unit]
+Description=idle manager (swayidle)
+PartOf=graphical-session.target
+After=graphical-session.target
+Requisite=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/swayidle -w \
+    timeout 600 %h/.local/bin/lock \
+    timeout 630 'niri msg action power-off-monitors' resume 'niri msg action power-on-monitors' \
+    before-sleep %h/.local/bin/lock \
+    lock %h/.local/bin/lock
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

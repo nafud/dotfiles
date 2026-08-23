@@ -1,0 +1,17 @@
+# Clipboard history, one watcher per content type (cliphist@text,
+# cliphist@image): wl-paste --type takes only selections offering that
+# type, so text and images are both kept — the package's untyped
+# cliphist.service would store one or the other. Mod+V picks from the
+# history (bin/clip-pick).
+[Unit]
+Description=clipboard history (%i)
+PartOf=graphical-session.target
+After=graphical-session.target
+Requisite=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/wl-paste --type %i --watch cliphist store
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

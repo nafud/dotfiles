@@ -11,7 +11,7 @@ command -v checkupdates >/dev/null || exit 0
 
 if [ "${1:-}" = "gui" ]; then
     # the click handler inherits the bar's fds — the terminal's own
-    # output must not land in waybar.log. paru -Syu covers repos and
+    # output must not land in the bar's journal. paru -Syu covers repos and
     # AUR alike; plain pacman is the fallback before paru exists.
     if command -v paru >/dev/null; then
         exec alacritty -e sh -c \

@@ -64,7 +64,7 @@ window#waybar {
 
 #temperature, #cpu, #memory, #pulseaudio, #battery,
 #custom-updates, #systemd-failed-units, #network, #custom-mullvad,
-#custom-layout, #clock {
+#language, #clock {
     color: #c0c0c0;
     padding: 0 8px;
     transition: color 150ms ease;
@@ -91,7 +91,7 @@ window#waybar {
 }
 
 #cpu:hover, #memory:hover, #pulseaudio:hover,
-#custom-updates:hover, #custom-mullvad:hover, #custom-layout:hover {
+#custom-updates:hover, #custom-mullvad:hover, #language:hover {
     color: #e8e8e8;
 }
 

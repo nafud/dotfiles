@@ -1,28 +1,15 @@
 prefer-no-csd
 
-environment {
-    _JAVA_AWT_WM_NONREPARENTING "1"
-    MOZ_ENABLE_WAYLAND "1"
-    // prefer-no-csd covers apps that negotiate xdg-decoration; this
-    // catches Qt apps that skip the negotiation and would draw their
-    // own titlebar buttons anyway
-    QT_WAYLAND_DISABLE_WINDOWDECORATION "1"
-    // for everything spawned by binds, not just interactive shells —
-    // yazi's `e` under Mod+Y would otherwise fall back to vi
-    EDITOR "micro"
-    VISUAL "micro"
-}
-
-// XDG autostart needs no spawns here: systemd's xdg-autostart-generator
-// runs /etc/xdg/autostart under this session too — and on this minimal
-// Arch install nothing arrives that way that niri needs hidden or
-// worked around.
-spawn-at-startup "sh" "-c" "$HOME/.local/bin/bar-session"
-spawn-at-startup "mako"
-spawn-at-startup "sh" "-c" "$HOME/.local/bin/wallpaper-session"
-// the `lock` handler answers loginctl lock-session (the system's own
-// lock request over D-Bus), which would otherwise be silently ignored
-spawn-at-startup "swayidle" "-w" "timeout" "600" "$HOME/.local/bin/lock" "timeout" "630" "niri msg action power-off-monitors" "resume" "niri msg action power-on-monitors" "before-sleep" "$HOME/.local/bin/lock" "lock" "$HOME/.local/bin/lock"
-spawn-at-startup "wl-paste" "--type" "text" "--watch" "cliphist" "store"
-spawn-at-startup "wl-paste" "--type" "image" "--watch" "cliphist" "store"
-spawn-at-startup "sh" "-c" "$HOME/.local/bin/battwatch.sh"
+// Nothing is spawned here. The session's daemons — the bar, notifications,
+// wallpaper, idle management, clipboard history, the battery watch — are
+// systemd user units (the packages' own waybar.service and mako.service,
+// the repo's under config/systemd/user), bound to graphical-session.target,
+// which niri.service reaches once the compositor is up; setup.sh enables
+// them, and they are restarted, reloaded and read in the journal like
+// any unit. The session environment is the login shell's — niri-session
+// imports it whole — so PATH with ~/.local/bin and EDITOR are
+// config/bash/profile, and binds and units name the bin/ scripts bare;
+// the toolkits' Wayland switches are config/environment.d, read by the
+// same user manager.
+// XDG autostart needs no spawns either: systemd's xdg-autostart-generator
+// runs /etc/xdg/autostart under this session.

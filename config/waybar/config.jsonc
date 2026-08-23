@@ -7,7 +7,7 @@
     "margin-right": 6,
     "modules-left": ["niri/workspaces"],
     "modules-center": ["group/stats"],
-    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "group/levels", "network", "custom/mullvad", "custom/layout", "clock"],
+    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "group/levels", "network", "custom/mullvad", "niri/language", "clock"],
 
     "custom/updates": {
         "exec": "~/.config/waybar/updates.sh",
@@ -27,10 +27,8 @@
         "on-click-right": "~/.config/waybar/mullvad.sh toggle"
     },
 
-    "custom/layout": {
-        "exec": "~/.config/waybar/layout.sh",
-        "restart-interval": 3,
-        "format": "{}",
+    "niri/language": {
+        "format": "{shortDescription}",
         "tooltip": false,
         "on-click": "niri msg action switch-layout next"
     },
@@ -54,8 +52,8 @@
 
     "group/stats": { "orientation": "inherit", "modules": ["temperature", "cpu", "memory"] },
     "group/levels": { "orientation": "inherit", "modules": ["pulseaudio", "battery"] },
-    "temperature": { "hwmon-path-abs": "/sys/devices/platform/coretemp.0/hwmon", "input-filename": "temp1_input",
-                     "critical-threshold": 80, "format": "<span size='79.3%' rise='951' letter_spacing='752'></span> {temperatureC}°C", "interval": 5 },
+    "temperature": { "hwmon-path-abs": ["/sys/devices/platform/coretemp.0/hwmon", "/sys/devices/pci0000:00/0000:00:18.3/hwmon"],
+                     "input-filename": "temp1_input", "critical-threshold": 80, "format": "<span size='79.3%' rise='951' letter_spacing='752'></span> {temperatureC}°C", "interval": 5 },
     "cpu": { "format": "<span letter_spacing='7721'>󰓅</span> {usage:>2}%", "interval": 3,
              "on-click": "alacritty --class btop-float -e btop" },
     "memory": { "format": "<span letter_spacing='13312'></span> {percentage:>2}%", "interval": 5,

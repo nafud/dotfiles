@@ -9,16 +9,16 @@
 # bar collapses it (the battery-module convention: absent hardware,
 # absent module).
 # Rendered once, then on each tunnel-state event from `mullvad status
-# listen` — the layout.sh recipe: the event only says "changed", the
-# state is re-read whole.
+# listen`: the event only says "changed", the state is re-read whole.
 command -v mullvad >/dev/null || exit 0
+set -o pipefail
 
 case "${1:-}" in
     gui)
         # through the desktop entry: the /usr/bin/mullvad-vpn wrapper
         # hands the app a literal "%U". The click handler inherits the
         # bar's fds — the app's (Electron) chatter must not land in
-        # waybar.log.
+        # the bar's journal.
         exec gio launch /usr/share/applications/mullvad-vpn.desktop >/dev/null 2>&1 ;;
     toggle)
         case "$(mullvad status -j 2>/dev/null | jq -r '.state // empty')" in
@@ -56,18 +56,17 @@ render() {
 }
 render
 
-# stream and bar-watchdog in the background, the group felled when the
-# bar goes — the layout.sh recipe: waybar orphans its scripts, so each
-# script owns its own lifetime
-bar=$PPID
-while [ "${bar:-1}" -gt 1 ] && [ "$(ps -o comm= -p "$bar" 2>/dev/null)" != "waybar" ]; do
-    bar=$(ps -o ppid= -p "$bar" 2>/dev/null | tr -d ' ')
-done
-trap 'trap - TERM; kill 0' TERM INT EXIT
-( while kill -0 "${bar:-1}" 2>/dev/null; do sleep 5; done; kill 0 ) &
+# The stream runs in the background and the script waits on it: bash
+# runs a trap only once a foreground command has finished, and the
+# stream never does on its own. waybar terminates this process on
+# reload and on exit (each module runs in its own process group), and
+# the trap takes the pipeline down with it; should the bar vanish
+# without a word, the first render into the dead pipe ends the loop
+# and, through the trap, the stream.
+trap 'trap - TERM; kill 0' TERM EXIT
 # each event is a state line plus indented detail lines; only the state
 # line triggers a render
 mullvad status listen 2>/dev/null | while IFS= read -r line; do
-    case "$line" in [A-Z]*) render ;; esac
+    case "$line" in [A-Z]*) render || exit ;; esac
 done &
-wait -n
+wait

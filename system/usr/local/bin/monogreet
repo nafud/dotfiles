@@ -185,8 +185,9 @@ def save_state(state):
 
 # --------------------------------------------------------------- layouts ---
 def layout_mark():
-    """The bar's mark (config/waybar/layout.sh): two letters of the
-    current layout's name; empty with one layout or without niri."""
+    """The bar's mark (waybar's niri/language, {shortDescription}): two
+    letters of the current layout's name; empty with one layout or
+    without niri."""
     if "NIRI_SOCKET" not in os.environ:
         return ""
     try:

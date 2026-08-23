@@ -1,27 +1,31 @@
+// Scripts (rofi-toggle, lock, powermenu, …) are bin/, named bare: the
+// session PATH carries ~/.local/bin (config/bash/profile, imported by
+// niri-session).
 binds {
     Mod+Shift+Slash { show-hotkey-overlay; }
 
     Mod+T { spawn "alacritty"; }
     Mod+Return { spawn "alacritty" "--class" "Alacritty-floating"; }
     // every rofi bind toggles: pressing it again dismisses (rofi-toggle)
-    Mod+D { spawn "sh" "-c" "$HOME/.local/bin/rofi-toggle -show drun"; }
+    Mod+D { spawn "rofi-toggle" "-show" "drun"; }
     // the default browser, whichever xdg-settings names (firefox here)
-    Mod+B { spawn "sh" "-c" "gtk-launch $(xdg-settings get default-web-browser)"; }
+    Mod+B { spawn-sh "gtk-launch \"$(xdg-settings get default-web-browser)\""; }
     Mod+M { spawn "flatpak" "run" "net.mullvad.MullvadBrowser"; }
     Mod+Shift+B { spawn "alacritty" "--class" "btop-float" "-e" "btop"; }
     // Dedicated yazi terminal. The cwd-following y() wrapper is for
     // interactive shells; here the shell would die with the window anyway.
     Mod+Y { spawn "alacritty" "-e" "yazi"; }
     Mod+Shift+T { spawn "Telegram"; }
-    Mod+W { spawn "alacritty" "-e" "sh" "-c" "zellij attach files 2>/dev/null || zellij -s files --layout files"; }
-    Mod+V { spawn "sh" "-c" "$HOME/.local/bin/clip-pick"; }
+    // the files session: attached if it exists, created on the files layout otherwise
+    Mod+W { spawn "alacritty" "-e" "zellij" "-l" "files" "attach" "-c" "files"; }
+    Mod+V { spawn "clip-pick"; }
     // window switcher: fuzzy-jump to any open window by app or title
-    Mod+Space { spawn "sh" "-c" "$HOME/.local/bin/rofi-toggle -show windows -modes windows:$HOME/.local/bin/rofi-windows"; }
-    Mod+Shift+L { spawn "sh" "-c" "$HOME/.local/bin/lock"; }
-    Mod+Escape { spawn "sh" "-c" "$HOME/.local/bin/powermenu"; }
+    Mod+Space { spawn "rofi-toggle" "-show" "windows" "-modes" "windows:rofi-windows"; }
+    Mod+Shift+L { spawn "lock"; }
+    Mod+Escape { spawn "powermenu"; }
     Mod+Shift+D { spawn "makoctl" "dismiss" "-a"; }
     // floating TUI popups, btop-style: network and audio
-    Mod+N { spawn "sh" "-c" "$HOME/.local/bin/netmenu"; }
+    Mod+N { spawn "netmenu"; }
     Mod+A { spawn "alacritty" "--class" "mixer-float" "-e" "pulsemixer"; }
 
     Mod+O { toggle-overview; }
@@ -81,5 +85,5 @@ binds {
     Mod+S { screenshot; }
     Mod+Ctrl+S { screenshot-screen; }
     Mod+Alt+S { screenshot-window; }
-    Mod+Shift+S { spawn "sh" "-c" "$HOME/.local/bin/shot-annotate"; }
+    Mod+Shift+S { spawn "shot-annotate"; }
 }

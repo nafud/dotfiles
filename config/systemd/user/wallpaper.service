@@ -1,0 +1,16 @@
+# The wallpaper: swaybg drawing the image wallset recorded (bin/wallpaper
+# decides — the image, or the flat ground while there is none). Bound to
+# the session like the package's own waybar.service; `systemctl --user
+# restart wallpaper` is how wallset applies a new image live.
+[Unit]
+Description=wallpaper (swaybg)
+PartOf=graphical-session.target
+After=graphical-session.target
+Requisite=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/wallpaper
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

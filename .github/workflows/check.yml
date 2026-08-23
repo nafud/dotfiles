@@ -1,6 +1,7 @@
-# CI for the dotfiles: the same pre-flight run before every push in
-# development — shell scripts lint and parse, structured configs parse.
-# Catches a stray comma or quote before it reaches the next `setup.sh link`.
+# CI for the dotfiles: tools/check, the same pre-flight run before every
+# push in development — shell scripts lint and parse, python compiles,
+# structured configs parse, the layout lists agree. Catches a stray
+# comma or quote before it reaches the next `setup.sh link`.
 name: check
 
 on:
@@ -14,36 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: shellcheck
-        run: shellcheck -x setup.sh bootstrap.sh bin/* tools/* config/waybar/*.sh
-
-      - name: bash syntax
-        run: |
-          bash -n setup.sh bootstrap.sh
-          for f in bin/* tools/* config/waybar/*.sh; do bash -n "$f"; done
-
-      - name: scripts are executable
-        run: |
-          for f in bootstrap.sh bin/* tools/* config/waybar/*.sh; do
-              [ -x "$f" ] || { echo "$f is not executable"; exit 1; }
-          done
-
-      - name: python compiles
-        run: python3 -m py_compile system/usr/local/bin/monogreet
-
-      - name: waybar config is valid JSON
-        run: jq . config/waybar/config.jsonc > /dev/null
-
-      - name: TOML configs parse
-        run: |
-          python3 - <<'PYEOF'
-          import glob, tomllib
-          for f in sorted(glob.glob("config/**/*.toml", recursive=True)
-                          + glob.glob("system/**/*.toml", recursive=True)):
-              with open(f, "rb") as fh:
-                  tomllib.load(fh)
-              print("ok", f)
-          PYEOF
+      - name: tools/check
+        run: tools/check
 
   # The niri config is the one file that can lock you out of a session,
   # so it gets a real parse by the real binary on the platform these

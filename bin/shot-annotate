@@ -1,6 +1,6 @@
 #!/bin/bash
 # shot-annotate — select a region, save it under ~/Pictures/Screenshots,
-# open it in the ksnip editor for arrows and redaction (Mod+Print).
+# open it in the ksnip editor for arrows and redaction (Mod+Shift+S).
 # grim and slurp speak the wlr screencopy protocols directly; no portal
 # round-trip is involved. An escaped slurp selection aborts cleanly.
 set -euo pipefail

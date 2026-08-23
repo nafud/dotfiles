@@ -1,0 +1,37 @@
+# shellcheck shell=bash
+# The interactive shell's configuration, linked with the rest of config/
+# and live on edit. bash reads no XDG path of its own, so ~/.bashrc —
+# the system's file, left as it is — carries one line that sources this
+# one (setup.sh writes it; ~/.bash_profile gets the same for profile).
+# Interactive shells only.
+[[ $- == *i* ]] || return
+
+# the man pager, a shell concern; PATH and EDITOR are the login shell's
+# (config/bash/profile) and reach every shell inside the session
+export MANPAGER="sh -c 'col -bx | bat -l man -p'"
+
+# yazi wrapper: on quit the shell follows yazi's last directory
+y() {
+    local tmp cwd
+    tmp="$(mktemp -t "yazi-cwd.XXXXXX")"
+    yazi "$@" --cwd-file="$tmp"
+    IFS= read -r -d '' cwd < "$tmp"
+    rm -f -- "$tmp"
+    if [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+        builtin cd -- "$cwd" || return
+    fi
+}
+
+alias ls='eza --group-directories-first'
+alias ll='eza -l --group-directories-first --git'
+alias la='eza -la --group-directories-first'
+alias tree='eza --tree'
+alias cat='bat --style=plain --paging=never'
+alias grep='grep --color=auto'
+alias diff='diff --color=auto'
+alias ip='ip -c'
+
+# shellcheck source=/dev/null
+[ -f /usr/share/fzf/key-bindings.bash ] && source /usr/share/fzf/key-bindings.bash
+eval "$(zoxide init bash)"
+eval "$(starship init bash)"

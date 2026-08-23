@@ -1,0 +1,13 @@
+# Low-battery notices (bin/battwatch) for as long as the session runs.
+[Unit]
+Description=low-battery notices
+PartOf=graphical-session.target
+After=graphical-session.target
+Requisite=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/battwatch
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target
