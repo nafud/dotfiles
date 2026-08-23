@@ -48,7 +48,11 @@ remembering in `$XDG_RUNTIME_DIR` when it grew; login page: GDK's
 `caps-lock-state` and greetd's auth_error, cleared by the next
 keystroke too). The only colour
 event is the ring lit `e8e8e8` while a password is checked — the
-check's only sign on both screens; the hour stays. hyprlock has
+check's only sign on both screens; the hour stays. The edge moves to
+the lit and back over 800ms, linear, lerped in OkLab (hyprlock's
+`inputFieldColors` default, written out in hyprlock.conf; monogreet's
+`oklab_lerp`/`update_edge`), so a refused password is the ring lit and
+fading back, then the field going 2s on. hyprlock has
 no off-switch for its fail colour, so `fail_color` equals the outline
 colour — that is the configuration meaning "no change", not a leftover.
 

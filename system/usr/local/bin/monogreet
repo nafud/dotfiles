@@ -13,7 +13,11 @@ not there until the first keystroke, stays while something is typed
 or checked, and goes two seconds after the field empties again, as
 hyprlock's fade_on_empty has it; the hour stays throughout, the check
 included — while the password is checked the ring is lit e8e8e8, and
-that is all that says so, as on the lock. Caps lock and a wrong
+that is all that says so, as on the lock: the edge moves from its rest
+grey to the lit over 800 ms as the check begins and back over 800 ms
+when the verdict lands, hyprlock's inputFieldColors animation, so a
+refused password is the ring lit and fading back, then the field going
+two seconds on. Caps lock and a wrong
 password are said in words, on a line under the name, in the name's
 size — "caps lock" while it is on, "wrong password" for two
 seconds or until the next keystroke, hyprlock's own fail convention
@@ -36,6 +40,7 @@ program only relays its prompts and the answers.
 """
 
 import json
+import math
 import os
 import pwd
 import random
@@ -94,6 +99,12 @@ FADE_MS = 800
 # cleared sooner by the next keystroke, as hyprlock clears its own fail
 FAIL_TIMEOUT_MS = 2000
 FADE_CURVE = ((0.0, 0.75), (0.15, 1.0))
+# the edge's move between rest grey and the check's lit: hyprlock's
+# inputFieldColors animation — speed 8 (× 100 ms) on the linear curve,
+# hyprlock's own default, written out in hyprlock.conf because this
+# page copies it — with the colour lerped in OkLab, as hyprlock's
+# animation manager lerps the field's colours (updateGradientVariable)
+COLOR_MS = 800
 
 
 def ease(x, curve=FADE_CURVE):
@@ -114,6 +125,42 @@ def ease(x, curve=FADE_CURVE):
         else:
             high = mid
     return at((low + high) / 2, y1, y2)
+
+
+def oklab_lerp(one, two, progress):
+    """The colour progress of the way from one to two with the lerp taken
+    in OkLab, as hyprlock's animation manager moves the field's colours
+    (hyprgraphics' sRGB ↔ OkLab, Ottosson's matrices) — between two
+    greys, as here, that is a move in L alone, the cube root of the
+    linear luminance — and back to sRGB, clamped."""
+    def to_linear(v):
+        return v / 12.92 if v < 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+
+    def to_srgb(v):
+        v = min(1.0, max(0.0, v))
+        return 12.92 * v if v < 0.0031308 else 1.055 * v ** (1 / 2.4) - 0.055
+
+    def to_oklab(color):
+        r, g, b = (to_linear(v) for v in color)
+        l = math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+        m = math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+        s = math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+        return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+                1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+                0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
+
+    def from_oklab(lab):
+        big_l, a, b = lab
+        l = (big_l + 0.3963377774 * a + 0.2158037573 * b) ** 3
+        m = (big_l - 0.1055613458 * a - 0.0638541728 * b) ** 3
+        s = (big_l - 0.0894841775 * a - 1.2914855480 * b) ** 3
+        return tuple(to_srgb(v) for v in (
+            4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+            -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+            -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s))
+
+    begun, goal = to_oklab(one), to_oklab(two)
+    return from_oklab(tuple(x + (y - x) * progress for x, y in zip(begun, goal)))
 
 
 # ---------------------------------------------------------------- greetd ---
@@ -246,6 +293,14 @@ class Page(Gtk.Widget):
         self.fade_tick = None
         self.fade_timer = None
         self.fade_allowed = False
+        # the edge's colour and its move between rest grey and the check's
+        # lit: value, goal, where the current move began and when, and the
+        # tick callback moving it
+        self.edge = EDGE
+        self.edge_goal = EDGE
+        self.edge_begun = EDGE
+        self.edge_started = 0
+        self.edge_tick = None
 
     # -- primitives ------------------------------------------------------------
     def layout(self, string, size):
@@ -355,6 +410,31 @@ class Page(Gtk.Widget):
         self.queue_draw()
         return GLib.SOURCE_CONTINUE
 
+    # -- the edge's colour -----------------------------------------------------
+    def update_edge(self, goal):
+        """hyprlock's outer colour, decided at each draw as hyprlock decides
+        it (CPasswordInputField::updateColors): the check colour while a
+        check is under way, the edge grey otherwise — a new goal starts a
+        move from wherever the colour is, as hyprutils restarts an
+        animated variable; a goal already set changes nothing."""
+        if goal == self.edge_goal:
+            return
+        self.edge_begun, self.edge_goal = self.edge, goal
+        self.edge_started = self.get_frame_clock().get_frame_time()
+        if self.edge_tick is None:
+            self.edge_tick = self.add_tick_callback(self.on_edge_tick)
+
+    def on_edge_tick(self, _widget, clock):
+        progress = (clock.get_frame_time() - self.edge_started) / (COLOR_MS * 1000)
+        if progress >= 1.0:
+            self.edge = self.edge_goal
+            self.edge_tick = None
+            self.queue_draw()
+            return GLib.SOURCE_REMOVE
+        self.edge = oklab_lerp(self.edge_begun, self.edge_goal, progress)
+        self.queue_draw()
+        return GLib.SOURCE_CONTINUE
+
     # -- the frame ---------------------------------------------------------
     def do_snapshot(self, snapshot):
         g = self.greeter
@@ -383,10 +463,11 @@ class Page(Gtk.Widget):
         cx, cy = width / 2, height / 2
 
         # the field, at the opacity its fade has reached: the glass disc
-        # (the lock's 40% ground), the edge — lit while the password is
-        # checked, at rest otherwise — and, with something typed, the one
-        # quadrant the last keystroke lit
+        # (the lock's 40% ground), the edge — moving to the lit while the
+        # password is checked, back to rest on the verdict — and, with
+        # something typed, the one quadrant the last keystroke lit
         self.update_fade(bool(g.typed) or g.checking)
+        self.update_edge(LIT if g.checking else EDGE)
         r = RING_RADIUS
         rect = Graphene.Rect().init(cx - r, cy - r, 2 * r, 2 * r)
         rounded = Gsk.RoundedRect()
@@ -395,7 +476,7 @@ class Page(Gtk.Widget):
             snapshot.push_rounded_clip(rounded)
             snapshot.append_color(rgba(GROUND, 0.4 * self.fade), rect)
             snapshot.pop()
-            self.ring(snapshot, rounded, LIT if g.checking else EDGE, self.fade)
+            self.ring(snapshot, rounded, self.edge, self.fade)
             if g.typed and g.quadrant is not None:
                 quadrants = [(cx, cy - r), (cx, cy), (cx - r, cy), (cx - r, cy - r)]   # clockwise from top-right
                 qx, qy = quadrants[g.quadrant]

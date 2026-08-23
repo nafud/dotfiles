@@ -7,7 +7,8 @@ reference; system/usr/local/bin/monogreet and system/usr/share/plymouth/
 themes/mono follow it) and one unit, the panel's own pixel. This tool
 checks the claim with numbers rather than eyes: ring diameter, edge,
 centre, the hour's and the line's ink, the field's opacity through its
-fade, and the words the lock and the login page say for caps lock and
+fade, the edge on its way to the check colour and back, and the words
+the lock and the login page say for caps lock and
 a wrong password, on each screen, at the scale the panel runs; on the
 splash, which has no ring, the prompt's and the dots' place. Every run
 writes its frames and a report into a fresh directory and leaves them
@@ -96,6 +97,7 @@ SPLASH_LINE = 30              # the splash: the dots' line half of this above th
 REST, LIT, EDGE_GREY, GROUND = (0xC0,) * 3, (0xE8,) * 3, (0x33,) * 3, (0x0D,) * 3
 FADE_TIMEOUT = 2.0            # the field goes this long after it empties …
 FADE = 0.8                    # … over this long
+COLOUR = 0.8                  # the edge's move between rest grey and the check colour, either way (hyprlock's inputFieldColors)
 FAIL_TIMEOUT = 2.0            # "wrong password" stands this long after the verdict (hyprlock's fail_timeout), or until a keystroke
 
 
@@ -717,24 +719,40 @@ def test_login(out, scale, pixel_size, report):
             # caps lock goes on while the password is checked (after the
             # keystrokes: each wtype run is a virtual keyboard of its own,
             # and a keystroke's keyboard reports no Lock — caps set before
-            # it would be undone): the verdict's line reads both words
+            # it would be undone): the verdict's line reads both words.
+            # The edge moves to the check colour over COLOUR (the lock's
+            # inputFieldColors: 800 ms, linear): the first frame, 0.25 s
+            # on, catches it on its way — neither at rest nor lit (the
+            # measure is against the idle frame, the field's own fade-in
+            # from the first keystroke all but done by then: 0.97 of the
+            # way at 0.45 s on its curve) — and the two later ones read it
+            # lit, to the frame's own tolerance
             nested.keys("a", "b", "c", "Return"); clock.act(); nested.caps_lock(True)
-            clock.at(0.25); on1 = nested.shot("check-on")
-            clock.at(0.75); off = nested.shot("check-off")
-            clock.at(1.25); on2 = nested.shot("check-on2")
-            # at the first shot the field may still be fading in from the
-            # first of the four keystrokes; the widened tolerance reads
-            # lit through the last of the fade — nothing else comes near
-            for name, frame, tol in (("check-on", on1, 24), ("check-off", off, 6), ("check-on2", on2, 6)):
+            clock.at(0.25); rising = nested.shot("check-rising")
+            clock.at(1.0); lit1 = nested.shot("check-lit")
+            clock.at(2.0); lit2 = nested.shot("check-lit2")
+            report.measure("login 0.25s after Return: ring toward the check colour e8e8e8 (1 = fully lit)",
+                           rising.opacity(idle, cx, cy, LIT))
+            report.check(f"login: the edge is on its way to the check colour 0.25s after Return — the {COLOUR:g}s move, not a snap",
+                         0.15 < rising.opacity(idle, cx, cy, LIT) < 0.85, rising.opacity(idle, cx, cy, LIT))
+            for name, frame in (("check-lit", lit1), ("check-lit2", lit2)):
                 report.check(f"login {name}: ring lit e8e8e8 all round",
-                             all(frame.edge_run(cx, cy, s, LIT, tolerance=tol) for s in ("left", "right", "top", "bottom")))
-            marks = [f.hour_box(cx, cy) for f in (on1, off, on2)]
-            report.measure("login checking: the hour's ink box at 0.25 / 0.75 / 1.25 s", marks)
+                             all(frame.edge_run(cx, cy, s, LIT) for s in ("left", "right", "top", "bottom")))
+            marks = [f.hour_box(cx, cy) for f in (rising, lit1, lit2)]
+            report.measure("login checking: the hour's ink box at 0.25 / 1 / 2 s", marks)
             report.check("login checking: the hour stays, unmoved, through the check (the lit ring is the only sign)",
                          all(m is not None and abs(m[2] - HOUR_INK[0]) <= 2 and abs(m[3] - HOUR_INK[1]) <= 1 for m in marks), marks)
+            # the verdict, 3 s after the answer: the edge on its way back
+            # from the check colour to rest grey over COLOUR — the lit
+            # fading, as on the lock, not snapping — the rest grey itself
+            # read on the fade's held frames below (the move is done well
+            # inside the fade timeout, and their grey-opacity check is
+            # that colour check, as the lock's is)
             clock.at(3.0 + 0.4); failed = nested.shot("failed")
-            report.check("login after a wrong password: ring back at rest grey",
-                         failed.edge_run(cx, cy, "left", EDGE_GREY) is not None)
+            report.measure("login 0.4s after the verdict: ring still toward the check colour e8e8e8 (1 = fully lit)",
+                           failed.opacity(idle, cx, cy, LIT))
+            report.check(f"login after a wrong password: the edge is on its way back to rest grey 0.4s after the verdict — the {COLOUR:g}s move, not a snap",
+                         0.15 < failed.opacity(idle, cx, cy, LIT) < 0.85, failed.opacity(idle, cx, cy, LIT))
             report.check("login after a wrong password: the hour is back", failed.hour_box(cx, cy) is not None)
             message_report(report, failed, cx, cy, "login after a wrong password, caps lock on", BOTH_WIDTH)
             # the field empties when the answer is sent; the fade clock
