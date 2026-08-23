@@ -1,40 +1,30 @@
 #!/bin/bash
 # render-plymouth-mono — draws the images of the mono plymouth theme
 # into system/usr/share/plymouth/themes/mono (committed alongside
-# mono.plymouth; re-run after a design change). The geometry is the lock
-# screen's (config/hypr/hyprlock.conf): a 300px ring with a 3px #333333
-# edge on the 0d0d0d ground, text 20px under it. two-step's parts map
-# onto it as
-#   watermark.png     the ring itself, drawn beneath everything
-#   box.png           the passphrase dialog's area, clear: the ring's
-#                     square plus 20px — two-step centres the dialog on
-#                     it and sets the prompt text 10px under it, so the
-#                     text starts 20px under the ring, as on the lock
-#   entry.png         the passphrase field, 200x34, clear: the typed
-#                     bullets are the only mark, inside the ring
-#   bullet.png        one typed character: a 6px c0c0c0 dot
-#   lock.png          required by the plugin, drawn left of the field —
-#                     a clear pixel: the ring is the lock
-# No throbber frames and no capslock.png: the ring holds still while
-# the system comes up and while the passphrase is checked, and caps lock
-# is not indicated (both are optional to two-step and simply absent).
+# mono.plymouth and mono.script; re-run after a design change). The
+# geometry is the lock screen's (config/hypr/hyprlock.conf) and the
+# login page's (system/usr/local/bin/monogreet): a 300px ring whose
+# 3px #333333 edge is part of the 300, on the 0d0d0d ground.
+#   ring.png      the ring, still, from the first frame to the greeter
+#   bullet.png    one typed character: a 6px c0c0c0 dot in a 12px cell,
+#                 the script sets the row of them centred in the ring
+# The theme draws nothing else: no field, no throbber, no lock glyph.
 set -euo pipefail
 
-# PNG32: keeps every image RGBA — ImageMagick would otherwise store the
-# grey-only ones as grayscale without alpha, and plymouth composites
-# with alpha
 out="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/system/usr/share/plymouth/themes/mono"
 mkdir -p "$out"
 
-size=306 r=150 c=153           # canvas, ring radius, centre: 3px edge fits
-gap=20                         # ring edge to the prompt text, the lock's
+size=300 edge=3                 # outer diameter; the edge lies inside it
+# ImageMagick addresses pixel centres: a ring whose outer edge is the
+# canvas edge has its centre at 149.5, and its 3px stroke centred on
+# radius 148.5 covers 147..150
+c=149.5 r=148.5
 
-magick -size "${size}x${size}" xc:none -stroke '#333333' -strokewidth 3 -fill none \
-    -draw "circle $c,$c $((c + r)),$c" "PNG32:$out/watermark.png"
-
-magick -size "${size}x$((size + gap))" xc:none "PNG32:$out/box.png"
-magick -size 200x34 xc:none "PNG32:$out/entry.png"
-magick -size 12x12 xc:none -fill '#c0c0c0' -draw "circle 6,6 6,9" "PNG32:$out/bullet.png"
-magick -size 1x1 xc:none "PNG32:$out/lock.png"
+# PNG32 keeps every image RGBA — ImageMagick would otherwise store the
+# grey-only ones as grayscale without alpha, and plymouth composites
+# with alpha
+magick -size "${size}x${size}" xc:none -stroke '#333333' -strokewidth "$edge" -fill none \
+    -draw "circle $c,$c $(awk "BEGIN{print $c + $r}"),$c" "PNG32:$out/ring.png"
+magick -size 12x12 xc:none -fill '#c0c0c0' -draw "circle 5.5,5.5 5.5,8.5" "PNG32:$out/bullet.png"
 
 echo "rendered $(find "$out" -name '*.png' | wc -l) images into $out"

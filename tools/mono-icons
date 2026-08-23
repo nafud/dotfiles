@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""Draw the mono icon theme's full-colour icons into icons/mono.
+
+Files (and any GTK app) takes its folder and file icons from the icon
+theme's full-colour set — Adwaita's blue folders and cream pages. This
+theme replaces exactly that set, on the mono palette, and inherits
+everything else (the symbolic icons of toolbars and sidebars, app
+icons) from Adwaita, so nothing else changes.
+
+Every icon is drawn on Adwaita's own 128 px canvas with Adwaita's
+footprint — folder 12..116 × 12..118, page 28..108 × 8..120 — so Files'
+grid spacing and label positions are the same as before. Two shapes:
+
+  folder   back #666666, front flap #909090 — the palette's muted and
+           secondary greys; a special folder carries its glyph in ink
+           (#1a1a1a) on the flap, the way the bar keeps its icons flat
+  page     #c0c0c0 with the folded corner in #909090; a typed file
+           carries its glyph in ink, a text file its lines
+
+The glyphs are Adwaita's symbolic icons, scaled 16 → 40 px and centred
+on the flap or page, so emblems match the sidebar's glyphs stroke for
+stroke. Icons that are not a folder or a page (trash, server,
+workgroup, bookmarks) are the symbolic glyph alone, at full size in
+#909090. Re-run after a design change; the output is committed.
+"""
+
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+OUT = ROOT / "icons" / "mono" / "scalable"
+ADWAITA = Path("/usr/share/icons/Adwaita/symbolic")
+
+BACK, FRONT, PAGE, FOLD, INK, GLYPH = (
+    "#666666", "#909090", "#c0c0c0", "#909090", "#1a1a1a", "#909090")
+
+HEADER = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+          '<svg height="128px" viewBox="0 0 128 128" width="128px" '
+          'xmlns="http://www.w3.org/2000/svg">\n')
+FOOTER = "</svg>\n"
+
+# Adwaita's folder: the back plate with its tab, and the front flap.
+FOLDER_BACK = (
+    "m 21.976562 12 c -5.527343 0 -9.976562 4.460938 -9.976562 10 v 86.03125 "
+    "c 0 5.542969 4.449219 10 9.976562 10 h 84.042969 c 5.53125 0 9.980469 "
+    "-4.457031 9.980469 -10 v -72.085938 c 0 -6.628906 -5.359375 -12 -11.972656 "
+    "-12 h -46.027344 c -2.453125 0 -4.695312 -1.386718 -5.796875 -3.582031 "
+    "l -1.503906 -2.992187 c -1.65625 -3.292969 -5.019531 -5.371094 -8.699219 "
+    "-5.371094 z")
+FOLDER_FRONT = (
+    "m 65.976562 36 c -2.746093 0 -5.226562 1.101562 -7.027343 2.890625 "
+    "c -2.273438 2.253906 -5.382813 5.109375 -8.632813 5.109375 h -28.339844 "
+    "c -5.527343 0 -9.976562 4.460938 -9.976562 10 v 54.03125 c 0 5.542969 "
+    "4.449219 10 9.976562 10 h 84.042969 c 5.53125 0 9.980469 -4.457031 "
+    "9.980469 -10 v -62.03125 c 0 -5.539062 -4.449219 -10 -9.980469 -10 z")
+# Adwaita's page: the sheet with a folded top-right corner, and the fold.
+PAGE_SHEET = (
+    "m 28 8 h 50 l 30.042969 29.917969 v 74.058593 c 0 4.433594 -3.609375 "
+    "8.023438 -8.042969 8.023438 h -72 c -4.433594 0 -8 -3.566406 -8 -8 v -96 "
+    "c 0 -4.433594 3.566406 -8 8 -8 z")
+PAGE_FOLD = (
+    "m 78 8 v 22 c 0 4.433594 3.609375 7.921875 8.042969 7.921875 "
+    "l 22 -0.003906 z")
+
+# A symbolic glyph is 16 px; 40 px on the 128 canvas reads like the
+# emblems Adwaita draws, centred on the flap (64, 77) or the sheet
+# (68, 70).
+GLYPH_SCALE = 2.5
+FLAP_CENTRE = (64, 77)
+SHEET_CENTRE = (68, 70)
+
+# name -> (shape, glyph source under Adwaita/symbolic, or None)
+PLACES = {
+    "folder": ("folder", None),
+    "folder-documents": ("folder", "mimetypes/x-office-document-symbolic"),
+    "folder-download": ("folder", "actions/go-down-symbolic"),
+    "folder-music": ("folder", "mimetypes/audio-x-generic-symbolic"),
+    "folder-pictures": ("folder", "mimetypes/image-x-generic-symbolic"),
+    "folder-videos": ("folder", "mimetypes/video-x-generic-symbolic"),
+    "folder-templates": ("folder", "actions/document-new-symbolic"),
+    "folder-publicshare": ("folder", "actions/send-to-symbolic"),
+    "folder-remote": ("folder", "places/network-server-symbolic"),
+    "folder-drag-accept": ("folder-open", None),
+    "user-desktop": ("folder", "places/user-desktop-symbolic"),
+    "user-home": ("folder", "actions/go-home-symbolic"),
+    "user-trash": ("glyph", "places/user-trash-symbolic"),
+    "user-bookmarks": ("glyph", "places/user-bookmarks-symbolic"),
+    "network-server": ("glyph", "places/network-server-symbolic"),
+    "network-workgroup": ("glyph", "places/network-workgroup-symbolic"),
+}
+MIMETYPES = {
+    "inode-directory": ("folder", None),
+    "inode-symlink": ("page", "actions/insert-link-symbolic"),
+    "application-x-generic": ("page", None),
+    "text-x-generic": ("text", None),
+    "text-x-preview": ("text", None),
+    "text-x-script": ("page", "legacy/utilities-terminal-symbolic"),
+    "text-html": ("page", "legacy/web-browser-symbolic"),
+    "image-x-generic": ("page", "mimetypes/image-x-generic-symbolic"),
+    "audio-x-generic": ("page", "mimetypes/audio-x-generic-symbolic"),
+    "video-x-generic": ("page", "mimetypes/video-x-generic-symbolic"),
+    "font-x-generic": ("page", "mimetypes/font-x-generic-symbolic"),
+    "model": ("page", "mimetypes/x-office-drawing-symbolic"),
+    "package-x-generic": ("page", "mimetypes/package-x-generic-symbolic"),
+    "x-package-repository": ("page", "mimetypes/package-x-generic-symbolic"),
+    "application-x-executable": ("page", "mimetypes/application-x-executable-symbolic"),
+    "application-x-sharedlib": ("page", "mimetypes/application-x-sharedlib-symbolic"),
+    "application-x-firmware": ("page", "mimetypes/application-x-firmware-symbolic"),
+    "application-x-addon": ("page", "mimetypes/application-x-addon-symbolic"),
+    "application-certificate": ("page", "mimetypes/application-certificate-symbolic"),
+    "x-office-document": ("page", "actions/insert-text-symbolic"),
+    "x-office-document-template": ("page", "actions/insert-text-symbolic"),
+    "x-office-spreadsheet": ("page", "actions/view-grid-symbolic"),
+    "x-office-spreadsheet-template": ("page", "actions/view-grid-symbolic"),
+    "x-office-presentation": ("page", "mimetypes/x-office-presentation-symbolic"),
+    "x-office-presentation-template": ("page", "mimetypes/x-office-presentation-symbolic"),
+    "x-office-drawing": ("page", "mimetypes/x-office-drawing-symbolic"),
+    "x-office-addressbook": ("page", "mimetypes/x-office-address-book-symbolic"),
+}
+
+PATH_RE = re.compile(r"<path\b([^>]*?)/?>", re.S)
+ATTR_RE = re.compile(r'([a-zA-Z-]+)="([^"]*)"')
+# Only the geometry and the opacity/winding a glyph relies on; its own
+# fill is replaced by ours.
+KEEP = ("d", "fill-opacity", "fill-rule")
+
+
+def glyph_paths(source):
+    """The <path> elements of an Adwaita symbolic icon, fill stripped."""
+    svg = (ADWAITA / f"{source}.svg").read_text()
+    paths = []
+    for attrs in PATH_RE.findall(svg):
+        kept = {k: v for k, v in ATTR_RE.findall(attrs) if k in KEEP}
+        if "d" not in kept:
+            continue
+        paths.append("".join(f' {k}="{v}"' for k, v in kept.items()))
+    if not paths:
+        sys.exit(f"{source}: no paths found")
+    return paths
+
+
+def glyph(source, centre, scale, fill):
+    """The symbolic glyph, scaled and centred; clipped to its own 16 px
+    canvas as in the source, where the viewBox hides what some icons
+    leave outside it (application-x-executable keeps a second shape
+    above the canvas)."""
+    cx, cy = centre
+    off = 8 * scale  # the 16 px glyph's centre, scaled
+    out = ['  <clipPath id="canvas"><rect height="16" width="16"/></clipPath>\n',
+           f'  <g clip-path="url(#canvas)" fill="{fill}" '
+           f'transform="translate({cx - off:g} {cy - off:g}) scale({scale:g})">\n']
+    out += [f"    <path{p}/>\n" for p in glyph_paths(source)]
+    out.append("  </g>\n")
+    return "".join(out)
+
+
+def text_lines():
+    """Four ruled lines on the sheet, like Adwaita's text file."""
+    return "".join(
+        f'  <rect fill="{INK}" height="4" rx="2" width="56" x="40" y="{y}"/>\n'
+        for y in (52, 64, 76, 88))
+
+
+def icon(shape, source):
+    body = ""
+    if shape in ("folder", "folder-open"):
+        front = PAGE if shape == "folder-open" else FRONT
+        body += f'  <path d="{FOLDER_BACK}" fill="{BACK}"/>\n'
+        body += f'  <path d="{FOLDER_FRONT}" fill="{front}"/>\n'
+        if source:
+            body += glyph(source, FLAP_CENTRE, GLYPH_SCALE, INK)
+    elif shape in ("page", "text"):
+        body += f'  <path d="{PAGE_SHEET}" fill="{PAGE}"/>\n'
+        body += f'  <path d="{PAGE_FOLD}" fill="{FOLD}"/>\n'
+        if shape == "text":
+            body += text_lines()
+        elif source:
+            body += glyph(source, SHEET_CENTRE, GLYPH_SCALE, INK)
+    elif shape == "glyph":
+        # the glyph alone, 16 → 104 px, centred on the canvas
+        body += glyph(source, (64, 64), 6.5, GLYPH)
+    else:
+        sys.exit(f"unknown shape {shape}")
+    return HEADER + body + FOOTER
+
+
+def main():
+    count = 0
+    for context, icons in (("places", PLACES), ("mimetypes", MIMETYPES)):
+        d = OUT / context
+        d.mkdir(parents=True, exist_ok=True)
+        for name, (shape, source) in icons.items():
+            (d / f"{name}.svg").write_text(icon(shape, source))
+            count += 1
+    print(f"drew {count} icons into {OUT}")
+
+
+if __name__ == "__main__":
+    main()

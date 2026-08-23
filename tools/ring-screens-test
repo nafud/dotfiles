@@ -1,0 +1,822 @@
+#!/usr/bin/env python3
+"""ring-screens-test — runs the lock screen, the login page and the boot
+splash live, drives them through their states, and measures the frames.
+
+The three screens share one design (config/hypr/hyprlock.conf is the
+reference; system/usr/local/bin/monogreet and system/usr/share/plymouth/
+themes/mono follow it) and one unit, the panel's own pixel. This tool
+checks the claim with numbers rather than eyes: ring diameter, edge,
+centre, the hour's and the line's ink, and the field's opacity through
+its fade, on each screen, at the scale the panel runs. Every run writes
+its frames and a report into a fresh directory and leaves them there.
+
+  ring-screens-test lock          the lock screen (hyprlock)
+  ring-screens-test login         the login page (monogreet)
+  ring-screens-test splash        the boot splash (plymouthd)
+  ring-screens-test all
+      --scale S     compositor scale for the nested run (default: the
+                    host's, so the numbers are the panel's)
+      --out DIR     where the run goes (default: /tmp/ring-screens-test/<stamp>)
+      --keep-going  run every check even after one fails
+
+How each screen runs:
+
+lock, login — a nested niri (its winit window, fullscreened on the host
+by window id so the nested output is the panel's size) at the chosen
+scale. hyprlock or monogreet runs inside it; keys go in through wtype
+(zwp_virtual_keyboard_v1 on the nested seat — no host focus is needed),
+frames come out through grim on the nested socket. The nested
+compositor only repaints while the host presents its window, so the
+host must be unlocked and the window visible: the tool refuses to run
+on a locked session and fails the run if the frames stop moving. The
+lock runs on a copy of the config that sends PAM to the `vlock`
+service (auth required pam_unix.so, nothing else): it asks for the
+password as the real service does, a wrong try reaches no faillock
+counter, and it is answered after pam_unix's fail delay (about two
+seconds) — so the lock's "checking" is visible here, and the frames
+after Return are read against that delay. (PAM's `other` service,
+pam_deny, fails before asking anything; hyprlock 0.9.6 then restarts
+the conversation at once, forever, and never paints a frame.)
+monogreet talks to a fake greetd served by this tool (a secret prompt,
+then auth_error after a pause).
+
+splash — plymouthd in a user namespace (it insists on uid 0 and on a
+tty: unshare -Urm and script(1) give it both), the repo's theme bound
+over the installed one, label-pango hidden and the fonts directory
+replaced by what the initramfs packs (Plymouth.ttf and friends), so
+label-freetype renders as it does at boot. plymouthd picks the x11
+renderer when DISPLAY is set: a 1920x1080 X window on the desktop, which
+reads X input only, so its keys go in through XTEST and its frames come
+from grim on the host — the one screen that needs the host's attention
+for its few seconds.
+
+Needs: niri, grim, wtype, imagemagick, plymouth, libxtst; the host
+unlocked; and for the splash, DISPLAY (xwayland-satellite).
+"""
+
+import argparse
+import ctypes
+import json
+import os
+import shutil
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+HYPRLOCK_CONF = REPO / "config/hypr/hyprlock.conf"
+MONOGREET = REPO / "system/usr/local/bin/monogreet"
+PLYMOUTH_THEME = REPO / "system/usr/share/plymouth/themes/mono"
+FONT = "JetBrainsMono Nerd Font"
+
+# the design, in the panel's pixels (the lock's numbers)
+RING = 300                    # outer diameter
+EDGE = 3                      # the edge, inside the 300
+LINE = 185                    # centre to the line under the ring
+HOUR_INK = (226, 60)          # "00:00" at 60pt: ink box, digits' cap height
+LINE_INK_TOP = 180.5          # centre to the line's x-height top row at 16pt (measured on the lock)
+REST, LIT, EDGE_GREY, GROUND = (0xC0,) * 3, (0xE8,) * 3, (0x33,) * 3, (0x0D,) * 3
+FAIL_RED, CAPS_YELLOW = (0xB5, 0x62, 0x6A), (0xB0, 0xA0, 0x6A)
+FADE_TIMEOUT = 2.0            # the field goes this long after it empties …
+FADE = 0.8                    # … over this long
+
+
+# ---------------------------------------------------------------- report ---
+class Report:
+    """Checks and measurements of one run, printed as they come and kept
+    for the summary; a failed check fails the run."""
+
+    def __init__(self, keep_going):
+        self.keep_going = keep_going
+        self.failed = 0
+
+    def measure(self, what, value):
+        print(f"  {what}: {value}")
+
+    def check(self, what, ok, value=""):
+        mark = "ok  " if ok else "FAIL"
+        print(f"  {mark} {what}" + (f" — {value}" if value != "" else ""))
+        if not ok:
+            self.failed += 1
+            if not self.keep_going:
+                raise SystemExit(f"check failed: {what}")
+        return ok
+
+
+# ----------------------------------------------------------------- frames ---
+class Frame:
+    """One captured frame, read once into memory (RGB, 8 bits per channel)."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+        size = subprocess.run(["magick", "identify", "-format", "%w %h", str(path)],
+                              capture_output=True, text=True, check=True).stdout.split()
+        self.width, self.height = int(size[0]), int(size[1])
+        self.data = subprocess.run(["magick", str(path), "-depth", "8", "rgb:-"],
+                                   capture_output=True, check=True).stdout
+
+    def px(self, x, y):
+        i = 3 * (y * self.width + x)
+        return tuple(self.data[i:i + 3])
+
+    def same_as(self, other):
+        return other is not None and self.data == other.data
+
+    @staticmethod
+    def near(a, b, tolerance):
+        return max(abs(p - q) for p, q in zip(a, b)) <= tolerance
+
+    @staticmethod
+    def delta(a, b):
+        return max(abs(p - q) for p, q in zip(a, b))
+
+    # -- the ring --
+    SIDES = {"left": (-1, 0), "right": (1, 0), "top": (0, -1), "bottom": (0, 1)}
+
+    @staticmethod
+    def along(cx, cy, side, span):
+        """The pixels on one half-axis from the centre, as (distance, x, y):
+        pixel centres lie at whole coordinates, so with the frame's centre
+        between two pixels (an even width: 959.5 on 1920) the distances
+        are half-integers and every coordinate comes out exact — no
+        rounding, which would land two distances on one pixel."""
+        dx, dy = Frame.SIDES[side]
+        offset = (cx - int(cx)) if dx else (cy - int(cy))
+        for k in range(span[0], span[1]):
+            d = k + offset
+            yield d, int(cx + dx * d), int(cy + dy * d)
+
+    def ring_edges(self, reference, cx, cy, threshold=8, span=(140, 170)):
+        """The ring's outer radius on each of the four half-axes: the
+        farthest pixel that differs from the reference frame (the same
+        scene without the field), plus the half pixel it extends; None on
+        a side where nothing differs."""
+        edges = {}
+        for side in self.SIDES:
+            found = None
+            for d, x, y in self.along(cx, cy, side, span):
+                if self.delta(self.px(x, y), reference.px(x, y)) > threshold:
+                    found = d + 0.5
+            edges[side] = found
+        return edges
+
+    def edge_run(self, cx, cy, side, colour, tolerance=6, span=(140, 160)):
+        """The run of pixels within the tolerance of a colour along one
+        half-axis — the ring's edge where it is that colour — as the
+        distances of its first and last pixel (3 pixels: 147.5 to 149.5)."""
+        run = [d for d, x, y in self.along(cx, cy, side, span)
+               if self.near(self.px(x, y), colour, tolerance)]
+        return (min(run), max(run)) if run else None
+
+    def opacity(self, reference, cx, cy, colour, radius=148.0):
+        """How far the ring's edge has come toward a colour over the
+        reference frame (the same scene without the field): the field's
+        opacity. Per quadrant, a least-squares fit of (frame - reference)
+        against (colour - reference) over 90 samples around the edge's
+        middle pixel (radius 148: the edge covers 147 to 150, its boundary
+        pixels anti-aliased) and all three channels — so a wallpaper that
+        happens to be near the colour under some of the ring still leaves
+        contrast to fit; the median of the four quadrants, so the one a
+        keystroke lit (another colour altogether) does not count."""
+        import math
+        estimates = []
+        for quadrant in range(4):
+            numerator = denominator = 0.0
+            for degree in range(quadrant * 90 - 90, quadrant * 90):
+                angle = math.radians(degree)
+                x, y = round(cx + radius * math.cos(angle)), round(cy + radius * math.sin(angle))
+                here, there = self.px(x, y), reference.px(x, y)
+                for c in range(3):
+                    numerator += (here[c] - there[c]) * (colour[c] - there[c])
+                    denominator += (colour[c] - there[c]) ** 2
+            estimates.append(numerator / denominator if denominator else 0.0)
+        estimates.sort()
+        return round((estimates[1] + estimates[2]) / 2, 2)
+
+    def quadrant_lit(self, cx, cy, radius=148.0, tolerance=24):
+        """Which ring quadrant (0..3 clockwise from top-right) is lit, read
+        at the diagonals; None if none, -1 if more than one."""
+        lit = [q for q, (sx, sy) in enumerate(((1, -1), (1, 1), (-1, 1), (-1, -1)))
+               if self.near(self.px(round(cx + sx * radius / 2 ** 0.5),
+                                    round(cy + sy * radius / 2 ** 0.5)), LIT, tolerance)]
+        return lit[0] if len(lit) == 1 else (None if not lit else -1)
+
+    def colour_on_ring(self, cx, cy, colour, tolerance=12, radius=148.0):
+        """Whether any pixel around the ring's edge is near a colour (the
+        reds and yellows that must not appear)."""
+        import math
+        for i in range(360):
+            a = math.radians(i)
+            if self.near(self.px(round(cx + radius * math.cos(a)), round(cy + radius * math.sin(a))),
+                         colour, tolerance):
+                return True
+        return False
+
+    # -- ink --
+    def ink_box(self, x0, y0, x1, y1, predicate, disc=None):
+        """Bounding box (x, y, w, h) of the pixels in a region for which the
+        predicate holds — within a disc (cx, cy, r) if one is given, so
+        the ring's own pixels stay out of the hour's box; None if none."""
+        xs, ys = [], []
+        for y in range(y0, y1):
+            row = 3 * y * self.width
+            for x in range(x0, x1):
+                if disc and (x - disc[0]) ** 2 + (y - disc[1]) ** 2 > disc[2] ** 2:
+                    continue
+                i = row + 3 * x
+                if predicate(self.data[i], self.data[i + 1], self.data[i + 2]):
+                    xs.append(x)
+                    ys.append(y)
+        if not xs:
+            return None
+        return (min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1)
+
+    def hour_box(self, cx, cy):
+        """The lit ink inside the ring: the hour, or the λ."""
+        return self.ink_box(round(cx - 140), round(cy - 140), round(cx + 140), round(cy + 140),
+                            lit_ink, disc=(cx, cy, 145))
+
+    def field_absent(self, cx, cy):
+        """No edge-grey and no lit run on any side where the ring would be."""
+        return all(self.edge_run(cx, cy, side, EDGE_GREY, tolerance=3) is None
+                   and self.edge_run(cx, cy, side, LIT, tolerance=3) is None
+                   for side in ("left", "right", "top", "bottom"))
+
+
+def lit_ink(r, g, b):
+    return min(r, g, b) >= 0xB0
+
+
+def rest_ink(r, g, b):
+    return min(r, g, b) >= 0x98       # c0c0c0 text, but not the 666666 dot nor the 333333 edge
+
+
+# ----------------------------------------------------------------- host -----
+def host_output():
+    """The focused output's pixel size and scale, from niri."""
+    outputs = json.loads(subprocess.run(["niri", "msg", "--json", "outputs"],
+                                        capture_output=True, text=True, check=True).stdout)
+    name = subprocess.run(["niri", "msg", "--json", "focused-output"],
+                          capture_output=True, text=True, check=True).stdout
+    output = outputs[json.loads(name)["name"]] if name.strip() not in ("", "null") else next(iter(outputs.values()))
+    mode = output["modes"][output["current_mode"]]
+    return (mode["width"], mode["height"]), output["logical"]["scale"]
+
+
+def host_locked():
+    session = subprocess.run(["loginctl"], capture_output=True, text=True).stdout
+    for line in session.splitlines():
+        fields = line.split()
+        if len(fields) > 2 and fields[2] == os.environ.get("USER", "") and "seat0" in line:
+            hint = subprocess.run(["loginctl", "show-session", fields[0], "-p", "LockedHint", "--value"],
+                                  capture_output=True, text=True).stdout.strip()
+            return hint == "yes"
+    return False
+
+
+# -------------------------------------------------------------- nested niri ---
+class Nested:
+    """A nested niri on the host, fullscreened to the panel's size, at a
+    scale of our choosing: the compositor the lock and the login page run
+    in. Keys through wtype, frames through grim, both on its socket."""
+
+    def __init__(self, out, scale, pixel_size, startup):
+        self.out, self.scale, self.pixel_size = out, scale, pixel_size
+        self.config = out / "niri.kdl"
+        self.config.write_text(
+            "hotkey-overlay {\n    skip-at-startup\n}\n"
+            "prefer-no-csd\n"
+            "input {\n    keyboard {\n        xkb {\n            layout \"us,ru,az\"\n"
+            "            options \"grp:alt_shift_toggle\"\n        }\n    }\n}\n"
+            "layout {\n    focus-ring {\n        off\n    }\n    border {\n        off\n    }\n}\n"
+            "window-rule {\n    open-fullscreen true\n}\n"
+            "animations {\n    off\n}\n"
+            f"output \"winit\" {{\n    scale {scale}\n}}\n"
+            f"spawn-sh-at-startup \"{startup}\"\n")
+        self.log = out / "niri.log"
+        self.process = None
+        self.socket = None
+        self.ipc = None
+        self.previous = None
+
+    def __enter__(self):
+        before = {w["id"] for w in host_windows() if w["app_id"] == "niri"}
+        self.process = subprocess.Popen(["niri", "--config", str(self.config)],
+                                        stdout=self.log.open("w"), stderr=subprocess.STDOUT)
+        for _ in range(100):
+            text = self.log.read_text() if self.log.exists() else ""
+            if "listening on Wayland socket:" in text and "IPC listening on:" in text:
+                self.socket = text.split("listening on Wayland socket: ")[1].split()[0]
+                self.ipc = text.split("IPC listening on: ")[1].split()[0]
+                break
+            time.sleep(0.1)
+        else:
+            raise SystemExit(f"nested niri did not come up — see {self.log}")
+        for _ in range(50):
+            new = [w["id"] for w in host_windows() if w["app_id"] == "niri" and w["id"] not in before]
+            if new:
+                break
+            time.sleep(0.1)
+        else:
+            raise SystemExit("the nested niri's window did not appear on the host")
+        subprocess.run(["niri", "msg", "action", "fullscreen-window", "--id", str(new[-1])], check=True)
+        want = (round(self.pixel_size[0] / self.scale), round(self.pixel_size[1] / self.scale))
+        for _ in range(50):
+            if self.output_size() == want:
+                break
+            time.sleep(0.1)
+        else:
+            raise SystemExit(f"nested output is {self.output_size()}, wanted {want}: "
+                             "the host did not fullscreen the window (locked? hidden?)")
+        return self
+
+    def __exit__(self, *_):
+        if self.process and self.process.poll() is None:
+            subprocess.run(["niri", "msg", "action", "quit", "--skip-confirmation"],
+                           env={**os.environ, "NIRI_SOCKET": self.ipc}, capture_output=True)
+            try:
+                self.process.wait(5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+        # the program spawned at startup is niri's child, not ours, and
+        # can outlive it: a hyprlock spinning in PAM once ran on for ten
+        # minutes after its compositor was gone, at 17 GB and two cores.
+        # Its command line carries this run's directory — kill by that,
+        # sparing this tool and its shell (--out puts the directory on
+        # their command lines too).
+        found = subprocess.run(["pgrep", "-f", "--", str(self.out)], capture_output=True, text=True).stdout.split()
+        for pid in map(int, found):
+            if pid not in (os.getpid(), os.getppid()):
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+
+    def env(self):
+        return {**os.environ, "WAYLAND_DISPLAY": self.socket, "NIRI_SOCKET": self.ipc}
+
+    def output_size(self):
+        result = subprocess.run(["niri", "msg", "--json", "outputs"], env=self.env(),
+                                capture_output=True, text=True)
+        if result.returncode:
+            return None
+        logical = next(iter(json.loads(result.stdout).values()))["logical"]
+        return (logical["width"], logical["height"]) if logical else None
+
+    def keys(self, *names):
+        """Named keys (xkb keysyms: Return, Escape, Caps_Lock, a, b …), each
+        pressed and released, through the nested seat's virtual keyboard."""
+        for name in names:
+            subprocess.run(["wtype", "-k", name], env=self.env(), check=True)
+
+    def shot(self, name):
+        """Capture the nested output into the run directory."""
+        path = self.out / f"{name}.png"
+        subprocess.run(["grim", str(path)], env=self.env(), check=True)
+        return Frame(path)
+
+
+def host_windows():
+    return json.loads(subprocess.run(["niri", "msg", "--json", "windows"],
+                                     capture_output=True, text=True, check=True).stdout)
+
+
+# ------------------------------------------------------------- fake greetd ---
+class FakeGreetd:
+    """greetd-ipc(7) on a socket of ours: a secret prompt on create_session,
+    and after the answer a pause, then auth_error — a wrong password, as
+    greetd reports it. Served on a thread for the run's duration."""
+
+    def __init__(self, path, delay):
+        self.path, self.delay = str(path), delay
+        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.server.bind(self.path)
+        self.server.listen(2)
+        threading.Thread(target=self.accept, daemon=True).start()
+
+    def accept(self):
+        while True:
+            try:
+                connection, _ = self.server.accept()
+            except OSError:
+                return
+            threading.Thread(target=self.serve, args=(connection,), daemon=True).start()
+
+    def serve(self, connection):
+        def read(n):
+            data = b""
+            while len(data) < n:
+                chunk = connection.recv(n - len(data))
+                if not chunk:
+                    raise ConnectionError
+                data += chunk
+            return data
+        try:
+            while True:
+                (length,) = struct.unpack("=I", read(4))
+                request = json.loads(read(length))
+                if request["type"] == "create_session":
+                    reply = {"type": "auth_message", "auth_message_type": "secret", "auth_message": "Password:"}
+                elif request["type"] == "post_auth_message_response":
+                    time.sleep(self.delay)
+                    reply = {"type": "error", "error_type": "auth_error", "description": "Authentication failure"}
+                else:
+                    reply = {"type": "success"}
+                payload = json.dumps(reply).encode()
+                connection.sendall(struct.pack("=I", len(payload)) + payload)
+        except (ConnectionError, OSError):
+            pass
+        finally:
+            connection.close()
+
+    def close(self):
+        self.server.close()
+        os.unlink(self.path)
+
+
+# -------------------------------------------------------------- the checks ---
+def ring_report(report, frame, reference, cx, cy, label):
+    """Measure a frame with the field fully shown against one without it:
+    outer diameter, centre, edge, and the ring's rest colour."""
+    edges = frame.ring_edges(reference, cx, cy)
+    ok = all(edges.values())
+    report.check(f"{label}: ring present on all four sides", ok, edges)
+    if not ok:
+        return
+    width = edges["left"] + edges["right"]
+    height = edges["top"] + edges["bottom"]
+    centre = (cx + (edges["right"] - edges["left"]) / 2, cy + (edges["bottom"] - edges["top"]) / 2)
+    report.measure(f"{label}: ring outer diameter", f"{width} x {height} px (outer radius {width / 2:g}), "
+                   f"centre ({centre[0]:g}, {centre[1]:g})")
+    report.check(f"{label}: ring outer diameter is {RING}", (width, height) == (RING, RING))
+    runs = {side: frame.edge_run(cx, cy, side, EDGE_GREY) or frame.edge_run(cx, cy, side, LIT)
+            for side in ("left", "right", "top", "bottom")}
+    widths = {side: (run[1] - run[0] + 1) if run else None for side, run in runs.items()}
+    report.measure(f"{label}: edge runs (distance from ({cx:g}, {cy:g}))", runs)
+    report.check(f"{label}: edge is {EDGE} px on every side", all(w == EDGE for w in widths.values()), widths)
+
+
+def hour_report(report, frame, cx, cy, label):
+    box = frame.hour_box(cx, cy)
+    report.measure(f"{label}: hour ink box (x, y, w, h)", box)
+    report.check(f"{label}: hour ink is {HOUR_INK[0]} x {HOUR_INK[1]} (60pt digits)",
+                 box is not None and abs(box[2] - HOUR_INK[0]) <= 2 and abs(box[3] - HOUR_INK[1]) <= 1)
+    if box:
+        report.measure(f"{label}: hour ink centre", (box[0] + box[2] / 2, box[1] + box[3] / 2))
+
+
+def line_report(report, frame, cx, cy, label, expect_height):
+    box = frame.ink_box(round(cx - 300), round(cy + LINE - 20), round(cx + 300), round(cy + LINE + 20), rest_ink)
+    report.measure(f"{label}: line ink box (x, y, w, h)", box)
+    report.check(f"{label}: line x-height top on the lock's row (cy + {LINE_INK_TOP})",
+                 box is not None and abs((box[1] - cy) - LINE_INK_TOP) <= 1 and box[3] >= expect_height, box)
+
+
+def no_colour_report(report, frame, cx, cy, label):
+    report.check(f"{label}: no fail red on the ring", not frame.colour_on_ring(cx, cy, FAIL_RED))
+    report.check(f"{label}: no caps yellow on the ring", not frame.colour_on_ring(cx, cy, CAPS_YELLOW))
+
+
+class Clock:
+    """Shots at set times after an action, without drift."""
+
+    def __init__(self):
+        self.mark = time.monotonic()
+
+    def act(self):
+        self.mark = time.monotonic()
+
+    def at(self, seconds):
+        delay = self.mark + seconds - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+
+
+def fade_checks(report, nested, clock, reference, cx, cy, label, colour=EDGE_GREY):
+    """After the field has just emptied: still there through FADE_TIMEOUT,
+    gone after the fade."""
+    held = nested.shot(f"{label}-held")
+    clock.at(FADE_TIMEOUT - 0.3)
+    held_late = nested.shot(f"{label}-held-late")
+    clock.at(FADE_TIMEOUT + FADE + 0.3)
+    gone = nested.shot(f"{label}-gone")
+    report.check(f"{label}: field still there after emptying", held.opacity(reference, cx, cy, colour) >= 0.9,
+                 held.opacity(reference, cx, cy, colour))
+    report.check(f"{label}: field still there {FADE_TIMEOUT - 0.3:g}s after emptying",
+                 held_late.opacity(reference, cx, cy, colour) >= 0.9, held_late.opacity(reference, cx, cy, colour))
+    report.check(f"{label}: field gone {FADE_TIMEOUT + FADE + 0.3:g}s after emptying",
+                 gone.ring_edges(reference, cx, cy) == {"left": None, "right": None, "top": None, "bottom": None},
+                 gone.ring_edges(reference, cx, cy))
+
+
+# ------------------------------------------------------------------- lock ---
+def test_lock(out, scale, pixel_size, report):
+    print(f"\nlock screen — hyprlock, nested at scale {scale}")
+    config = out / "hyprlock.conf"
+    config.write_text(HYPRLOCK_CONF.read_text()
+                      + "\n# this run only: PAM's `vlock` service (pam_unix alone) — it asks for the\n"
+                        "# password, a wrong try costs nothing in faillock, and is answered after\n"
+                        "# pam_unix's fail delay\nauth {\n    pam {\n        module = vlock\n    }\n}\n")
+    log = out / "hyprlock.log"
+    with Nested(out, scale, pixel_size, f"hyprlock -c {config} > {log} 2>&1") as nested:
+        clock = Clock()
+        cx, cy = (pixel_size[0] - 1) / 2, (pixel_size[1] - 1) / 2
+        time.sleep(2.5)
+        report.check("lock: hyprlock is running",
+                     subprocess.run(["pgrep", "-f", str(config)], capture_output=True).returncode == 0)
+        errors = [l for l in log.read_text().splitlines() if "config" in l.lower() and "err" in l.lower()]
+        report.check("lock: config parses without errors", not errors, errors[:3])
+
+        idle = nested.shot("idle")
+        hour_report(report, idle, cx, cy, "lock idle")
+        line_report(report, idle, cx, cy, "lock idle", 12)
+        report.check("lock idle: the field is not there before the first keystroke", idle.field_absent(cx, cy))
+
+        nested.keys("a"); clock.act()
+        clock.at(0.3); early = nested.shot("typed1-early")
+        clock.at(FADE + 0.2); typed1 = nested.shot("typed1")
+        report.check("lock: a different frame after the first keystroke (the nested output is live)",
+                     not typed1.same_as(idle))
+        report.measure("lock: field opacity 0.3s after the first keystroke", early.opacity(idle, cx, cy, EDGE_GREY))
+        report.check("lock: field fully shown after the fade-in", typed1.opacity(idle, cx, cy, EDGE_GREY) >= 0.97,
+                     typed1.opacity(idle, cx, cy, EDGE_GREY))
+        ring_report(report, typed1, idle, cx, cy, "lock typed")
+        quadrants = [typed1.quadrant_lit(cx, cy)]
+        report.check("lock typed: exactly one quadrant lit", quadrants[0] not in (None, -1), quadrants[0])
+        for n, key in ((2, "b"), (3, "c")):
+            nested.keys(key); clock.act(); clock.at(0.3)
+            frame = nested.shot(f"typed{n}")
+            quadrants.append(frame.quadrant_lit(cx, cy))
+        report.measure("lock: quadrants lit per keystroke (0..3 clockwise from top-right)", quadrants)
+        report.check("lock: never the same quadrant twice running",
+                     all(q not in (None, -1) for q in quadrants) and all(a != b for a, b in zip(quadrants, quadrants[1:])))
+
+        nested.keys("Caps_Lock"); clock.act(); clock.at(0.4)
+        caps = nested.shot("caps-on")
+        no_colour_report(report, caps, cx, cy, "lock caps lock on")
+        report.check("lock caps lock on: ring rest colour unchanged",
+                     caps.edge_run(cx, cy, "left", EDGE_GREY) is not None or caps.edge_run(cx, cy, "left", LIT) is not None)
+        nested.keys("d"); clock.act(); clock.at(0.3)
+        no_colour_report(report, nested.shot("caps-typed"), cx, cy, "lock caps lock typed")
+        nested.keys("Caps_Lock"); clock.at(0.4)
+
+        nested.keys("Return"); clock.act(); clock.at(0.1)
+        checked = nested.shot("checked")
+        report.measure("lock 0.1s after Return: ring toward the check colour e8e8e8 (1 = fully lit)",
+                       checked.opacity(idle, cx, cy, LIT))
+        report.check("lock: the check colour shows after Return", checked.opacity(idle, cx, cy, LIT) > 0.4)
+        clock.at(1.2)
+        failed = nested.shot("failed")
+        no_colour_report(report, checked, cx, cy, "lock right after a wrong password")
+        no_colour_report(report, failed, cx, cy, "lock after a wrong password")
+        report.check("lock after a wrong password: ring back at rest grey (no red)",
+                     failed.edge_run(cx, cy, "left", EDGE_GREY) is not None, failed.edge_run(cx, cy, "left", EDGE_GREY))
+        fade_checks(report, nested, clock, idle, cx, cy, "lock after a wrong password")
+
+        nested.keys("x"); clock.act(); clock.at(FADE + 0.2)
+        retyped = nested.shot("retyped")
+        report.check("lock: field back on the next keystroke", retyped.opacity(idle, cx, cy, EDGE_GREY) >= 0.97,
+                     retyped.opacity(idle, cx, cy, EDGE_GREY))
+        nested.keys("Escape"); clock.act(); clock.at(0.3)
+        fade_checks(report, nested, clock, idle, cx, cy, "lock after Escape")
+
+
+# ------------------------------------------------------------------ login ---
+def test_login(out, scale, pixel_size, report):
+    print(f"\nlogin page — monogreet, nested at scale {scale}")
+    greetd = FakeGreetd(out / "greetd.sock", delay=3.0)
+    log = out / "monogreet.log"
+    try:
+        with Nested(out, scale, pixel_size,
+                    f"GREETD_SOCK={out}/greetd.sock {MONOGREET} > {log} 2>&1") as nested:
+            clock = Clock()
+            cx, cy = (pixel_size[0] - 1) / 2, (pixel_size[1] - 1) / 2
+            time.sleep(2.5)
+            idle = nested.shot("idle")
+            hour_report(report, idle, cx, cy, "login idle")
+            line_report(report, idle, cx, cy, "login idle", 16)
+            report.check("login idle: the field is not there before the first keystroke", idle.field_absent(cx, cy))
+
+            nested.keys("a"); clock.act()
+            clock.at(0.3); early = nested.shot("typed1-early")
+            clock.at(FADE + 0.2); typed1 = nested.shot("typed1")
+            report.check("login: a different frame after the first keystroke (the nested output is live)",
+                         not typed1.same_as(idle))
+            report.measure("login: field opacity 0.3s after the first keystroke", early.opacity(idle, cx, cy, EDGE_GREY))
+            report.check("login: field fully shown after the fade-in", typed1.opacity(idle, cx, cy, EDGE_GREY) >= 0.97,
+                         typed1.opacity(idle, cx, cy, EDGE_GREY))
+            ring_report(report, typed1, idle, cx, cy, "login typed")
+            quadrants = [typed1.quadrant_lit(cx, cy)]
+            for n, key in ((2, "b"), (3, "c")):
+                nested.keys(key); clock.act(); clock.at(0.3)
+                quadrants.append(nested.shot(f"typed{n}").quadrant_lit(cx, cy))
+            report.measure("login: quadrants lit per keystroke (0..3 clockwise from top-right)", quadrants)
+            report.check("login: never the same quadrant twice running",
+                         all(q not in (None, -1) for q in quadrants) and all(a != b for a, b in zip(quadrants, quadrants[1:])))
+            nested.keys("BackSpace"); clock.act(); clock.at(0.3)
+            after = nested.shot("backspace").quadrant_lit(cx, cy)
+            report.check("login: backspace lights a new quadrant", after not in (None, -1) and after != quadrants[-1], after)
+            nested.keys("Escape"); clock.act(); clock.at(0.3)
+            escaped = nested.shot("escaped")
+            report.check("login: Escape empties the field — no quadrant lit", escaped.quadrant_lit(cx, cy) is None)
+            fade_checks(report, nested, clock, idle, cx, cy, "login after Escape")
+
+            nested.keys("a", "b", "c", "Return"); clock.act()
+            clock.at(0.25); on1 = nested.shot("check-on")
+            clock.at(0.75); off = nested.shot("check-off")
+            clock.at(1.25); on2 = nested.shot("check-on2")
+            for name, frame in (("check-on", on1), ("check-off", off), ("check-on2", on2)):
+                report.check(f"login {name}: ring lit e8e8e8 all round",
+                             all(frame.edge_run(cx, cy, s, LIT) for s in ("left", "right", "top", "bottom")))
+            marks = [f.hour_box(cx, cy) for f in (on1, off, on2)]
+            report.measure("login checking: ink in the hour's place at 0.25 / 0.75 / 1.25 s (λ on, off, on)", marks)
+            report.check("login checking: the λ blinks (ink, none, ink)",
+                         marks[0] is not None and marks[1] is None and marks[2] is not None)
+            clock.at(3.0 + 0.4); failed = nested.shot("failed")
+            report.check("login after a wrong password: ring back at rest grey",
+                         failed.edge_run(cx, cy, "left", EDGE_GREY) is not None)
+            report.check("login after a wrong password: the hour is back", failed.hour_box(cx, cy) is not None)
+            message = failed.ink_box(round(cx - 300), round(cy + LINE + 10), round(cx + 300), round(cy + LINE + 50), rest_ink)
+            report.check("login after a wrong password: a line under the name", message is not None, message)
+            no_colour_report(report, failed, cx, cy, "login after a wrong password")
+            # the field empties when the answer is sent; the fade clock starts at the verdict
+            clock.mark += 3.0
+            fade_checks(report, nested, clock, idle, cx, cy, "login after a wrong password")
+            nested.keys("x"); clock.act(); clock.at(FADE + 0.2)
+            retyped = nested.shot("retyped")
+            report.check("login: field back on the next keystroke", retyped.opacity(idle, cx, cy, EDGE_GREY) >= 0.97,
+                         retyped.opacity(idle, cx, cy, EDGE_GREY))
+            errors = log.read_text().strip() if log.exists() else ""
+            report.check("login: monogreet wrote nothing to stderr", not errors, errors[-300:])
+    finally:
+        greetd.close()
+
+
+# ----------------------------------------------------------------- splash ---
+XTEST = None
+
+
+def xtest_keys(*names):
+    """Keys into the X display's focused window through XTEST — the x11
+    renderer's only input path."""
+    global XTEST
+    if XTEST is None:
+        x11, xtst = ctypes.CDLL("libX11.so.6"), ctypes.CDLL("libXtst.so.6")
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XStringToKeysym.restype = ctypes.c_ulong
+        x11.XKeysymToKeycode.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        x11.XFlush.argtypes = [ctypes.c_void_p]
+        xtst.XTestFakeKeyEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
+        display = x11.XOpenDisplay(None)
+        if not display:
+            raise SystemExit("no X display (DISPLAY unset? xwayland-satellite not running?)")
+        XTEST = (x11, xtst, display)
+    x11, xtst, display = XTEST
+    for name in names:
+        code = x11.XKeysymToKeycode(display, x11.XStringToKeysym(name.encode()))
+        xtst.XTestFakeKeyEvent(display, code, 1, 0); x11.XFlush(display); time.sleep(0.03)
+        xtst.XTestFakeKeyEvent(display, code, 0, 0); x11.XFlush(display); time.sleep(0.05)
+
+
+def test_splash(out, pixel_size, report):
+    print("\nboot splash — plymouthd (x11 renderer, in a user namespace)")
+    regular = subprocess.run(["fc-match", "-f", "%{file}", FONT], capture_output=True, text=True, check=True).stdout
+    bold = subprocess.run(["fc-match", "-f", "%{file}", f"{FONT}:bold"], capture_output=True, text=True, check=True).stdout
+    fonts = out / "fonts"
+    fonts.mkdir()
+    shutil.copy(regular, fonts / "Plymouth.ttf")
+    shutil.copy(regular, fonts / "Plymouth-monospace.ttf")
+    shutil.copy(bold, fonts / "Plymouth-monospace-bold.ttf")
+    log = out / "plymouthd.log"
+    pid = out / "plymouthd.pid"
+    # the namespace: uid 0 for plymouthd, the repo theme over the installed
+    # one, no pango label plugin (the initramfs packs freetype only), and
+    # the fonts as the initramfs has them; script(1) lends the tty
+    inner = (f"mount --bind {PLYMOUTH_THEME} /usr/share/plymouth/themes/mono && "
+             f"mount --bind /dev/null /usr/lib/plymouth/label-pango.so && "
+             f"mount --bind {fonts} /usr/share/fonts && "
+             f"exec script -qfec 'plymouthd --no-daemon --debug --mode=boot --pid-file={pid} --tty=$(tty)' {out}/typescript")
+    # fontconfig inside the namespace (plymouthd's x11 renderer pulls in
+    # GTK) sees the three-file /usr/share/fonts above and, with
+    # /var/cache/fontconfig not writable as the mapped root, caches that
+    # view under $XDG_CACHE_HOME/fontconfig — i.e. into the real
+    # ~/.cache/fontconfig, where it stands in for the host's
+    # /usr/share/fonts and apps with an older bundled fontconfig (Chrome)
+    # then start with no fonts at all. Keep the cache with the run.
+    cache = out / "cache"
+    cache.mkdir()
+    process = subprocess.Popen(["unshare", "-Urm", "bash", "-c", inner],
+                               stdout=log.open("w"), stderr=subprocess.STDOUT,
+                               env={**os.environ, "XDG_CACHE_HOME": str(cache)})
+    try:
+        for _ in range(50):
+            if pid.exists():
+                break
+            time.sleep(0.1)
+        else:
+            raise SystemExit(f"plymouthd did not start — see {log}")
+        ply = ["plymouth", f"--pid-file={pid}"]
+        subprocess.run(ply + ["show-splash"], check=True)
+        for _ in range(50):
+            windows = [w for w in host_windows() if (w.get("title") or "").lower().startswith("plymouth")
+                       or (w.get("app_id") or "").lower().startswith("plymouth")]
+            if windows:
+                break
+            time.sleep(0.1)
+        else:
+            raise SystemExit("plymouthd's x11 window did not appear on the host")
+        window = windows[-1]
+        subprocess.run(["niri", "msg", "action", "fullscreen-window", "--id", str(window["id"])], check=True)
+        subprocess.run(["niri", "msg", "action", "focus-window", "--id", str(window["id"])], check=True)
+        time.sleep(1.0)
+        clock = Clock()
+        cx, cy = (pixel_size[0] - 1) / 2, (pixel_size[1] - 1) / 2
+
+        def shot(name):
+            path = out / f"{name}.png"
+            subprocess.run(["grim", str(path)], check=True)
+            return Frame(path)
+
+        idle = shot("idle")
+        report.check("splash: ring edge at rest grey on all sides",
+                     all(idle.edge_run(cx, cy, s, EDGE_GREY) for s in ("left", "right", "top", "bottom")),
+                     {s: idle.edge_run(cx, cy, s, EDGE_GREY) for s in ("left", "right", "top", "bottom")})
+        runs = {s: idle.edge_run(cx, cy, s, EDGE_GREY) for s in ("left", "right", "top", "bottom")}
+        if all(runs.values()):
+            width = runs["left"][1] + runs["right"][1] + 1
+            height = runs["top"][1] + runs["bottom"][1] + 1
+            report.measure("splash: ring outer diameter", f"{width} x {height} px")
+            report.check(f"splash: ring outer diameter is {RING}", (width, height) == (RING, RING))
+            report.check(f"splash: edge is {EDGE} px", all(r[1] - r[0] + 1 == EDGE for r in runs.values()))
+        asker = subprocess.Popen(ply + ["ask-for-password", "--command=/bin/false", "--number-of-tries=2"],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(1.0)
+        prompt = shot("prompt")
+        line_report(report, prompt, cx, cy, "splash prompt", 12)
+        box = prompt.ink_box(round(cx - 300), round(cy + LINE - 20), round(cx + 300), round(cy + LINE + 20), rest_ink)
+        report.measure("splash prompt: line ink box", box)
+        xtest_keys("a", "b", "c"); clock.act(); clock.at(0.4)
+        typed = shot("typed3")
+        dots = typed.ink_box(round(cx - 140), round(cy - 10), round(cx + 140), round(cy + 10), rest_ink)
+        report.measure("splash typed 3: dots' ink box", dots)
+        report.check("splash typed 3: three dots centred on the ring's centre (3 x 12px cells)",
+                     dots is not None and abs((dots[0] + dots[2] / 2) - (cx + 0.5)) <= 1.5 and 26 <= dots[2] <= 30, dots)
+        xtest_keys("Return"); clock.act(); clock.at(0.6)
+        retry = shot("after-enter")
+        report.check("splash after a wrong passphrase: asked again, dots cleared, no colour",
+                     retry.ink_box(round(cx - 140), round(cy - 10), round(cx + 140), round(cy + 10), rest_ink) is None
+                     and not retry.colour_on_ring(cx, cy, FAIL_RED))
+        xtest_keys("Return"); time.sleep(0.5)
+        asker.wait(5)
+    finally:
+        subprocess.run(["plymouth", f"--pid-file={pid}", "quit"], capture_output=True)
+        try:
+            process.wait(5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
+# ------------------------------------------------------------------- main ---
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("screen", choices=["lock", "login", "splash", "all"])
+    parser.add_argument("--scale", type=float)
+    parser.add_argument("--out", type=Path)
+    parser.add_argument("--keep-going", action="store_true")
+    args = parser.parse_args()
+
+    for tool in ("niri", "grim", "magick"):
+        if not shutil.which(tool):
+            raise SystemExit(f"{tool} not found")
+    if args.screen in ("lock", "login", "all") and not shutil.which("wtype"):
+        raise SystemExit("wtype not found — the keys go in through it (pacman -S wtype)")
+    if host_locked():
+        raise SystemExit("the session is locked: nested compositors are not presented while it is — unlock first")
+
+    pixel_size, host_scale = host_output()
+    scale = args.scale or host_scale
+    out = args.out or Path(tempfile.gettempdir()) / "ring-screens-test" / datetime.now().strftime("%Y%m%d-%H%M%S")
+    out.mkdir(parents=True, exist_ok=False)
+    print(f"panel {pixel_size[0]}x{pixel_size[1]}, host scale {host_scale}, testing at scale {scale}; run directory {out}")
+
+    report = Report(args.keep_going)
+    signal.signal(signal.SIGINT, lambda *_: sys.exit("interrupted"))
+    if args.screen in ("lock", "all"):
+        test_lock(out, scale, pixel_size, report)
+    if args.screen in ("login", "all"):
+        test_login(out, scale, pixel_size, report)
+    if args.screen in ("splash", "all"):
+        test_splash(out, pixel_size, report)
+    print(f"\n{'all checks passed' if not report.failed else f'{report.failed} check(s) FAILED'}; frames in {out}")
+    return 1 if report.failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

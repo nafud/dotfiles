@@ -1,0 +1,34 @@
+# newt (nmtui, whiptail) on the mono palette. Names are the terminal's
+# 16 slots, so alacritty's mono.toml supplies the actual values:
+# lightgray #c0c0c0 text, gray #666 muted, white #e8e8e8 bright,
+# black #1a1a1a wells, brightgreen #98b898 the accent. "default" is the
+# terminal background — alacritty's 0.9 glass shows through, no newt
+# blue. Focus is an accent state, not a filled block: a focused list
+# gets a thin green frame and a black-on-green cursor row (newt draws
+# the frame in the same colour as the cursor row, so an inverse-video
+# cursor would fill the frame too), focused buttons and checkboxes
+# invert onto green, entries are white on a dark well. No shadow.
+# Pointed at by config/environment.d/newt.conf.
+root=lightgray,default
+roottext=lightgray,default
+window=lightgray,default
+border=gray,default
+shadow=default,default
+title=white,default
+label=lightgray,default
+textbox=lightgray,default
+acttextbox=black,brightgreen
+listbox=lightgray,default
+actlistbox=brightgreen,default
+sellistbox=white,default
+actsellistbox=black,brightgreen
+button=lightgray,black
+actbutton=black,brightgreen
+compactbutton=lightgray,default
+checkbox=lightgray,default
+actcheckbox=black,brightgreen
+entry=white,black
+disentry=gray,black
+helpline=gray,default
+emptyscale=,black
+fullscale=,gray

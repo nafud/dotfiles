@@ -3,16 +3,24 @@
 
 A greetd greeter (greetd-ipc(7)) drawn like config/hypr/hyprlock.conf:
 the 300px ring on the glass wallpaper, the hour inside, the password
-typed into the ring — hidden, each keystroke lighting one segment — and
-one line under it: the user, then the session and the layout, each only
-when there is a choice to make (one session, one layout: nothing to
-say). The ring alone carries state: checking e8e8e8, wrong b5626a, caps
-lock b0a06a.
+typed into the ring — hidden, as the lock hides it: each keystroke
+lights one quadrant of the ring, a random one, never the same twice
+running, held until the next keystroke, none while nothing is typed —
+and one line under it: the user, then the session and the layout, the
+session only when there is a choice to make (one session: nothing to
+say; one layout: no mark). The field — ring, glass disc, quadrant — is
+not there until the first keystroke, stays while something is typed
+or checked, and goes two seconds after the field empties again, as
+hyprlock's fade_on_empty has it; the hour stays throughout. While the
+password is checked the ring is lit e8e8e8 and a "λ" blinks where the
+hour was; a wrong one is said in a line under the name. No other
+colour: caps lock and failure are not painted on the ring.
 
 Keys: type and Enter to log in; Up/Down cycle users, Tab cycles
 sessions, Alt+Shift cycles layouts (the compositor's bind); F10 powers
 off, F11 reboots; Esc clears what was typed. The mouse reaches the same:
-the user and session words cycle on click, the two glyphs at the bottom
+a word on the line cycles its choice on click — and only a word with a
+choice behind it lights under the pointer — the two glyphs at the bottom
 power off and reboot.
 
 Runs fullscreen under the greeter niri (system/etc/greetd/niri.kdl),
@@ -25,6 +33,7 @@ program only relays its prompts and the answers.
 import json
 import os
 import pwd
+import random
 import shlex
 import socket
 import struct
@@ -54,13 +63,49 @@ REST = (0xC0 / 255, 0xC0 / 255, 0xC0 / 255)
 LIT = (0xE8 / 255, 0xE8 / 255, 0xE8 / 255)
 EDGE = (0x33 / 255, 0x33 / 255, 0x33 / 255)
 MUTED = (0x66 / 255, 0x66 / 255, 0x66 / 255)
-WARN = (0xB0 / 255, 0xA0 / 255, 0x6A / 255)
-FAIL = (0xB5 / 255, 0x62 / 255, 0x6A / 255)
 
-RING_RADIUS = 150
+# The lock's units. Every length here is in the output's own pixels, as
+# on the lock and the boot splash: hyprlock draws its widgets in the lock
+# surface's buffer pixels whatever the compositor's scale (a 294 + 3 ring
+# is 300 physical px on a 1920x1080 panel at scale 1.25, not 375), and
+# plymouth paints the framebuffer. The page undoes the scale GTK would
+# apply (do_snapshot) so the three rings are one size on the same panel.
+# Text sizes are hyprlock's font_size numbers, which pango reads as
+# points at 96 dpi: 60 is an 80px hour, 16 a 21.3px line.
+POINT = 96 / 72               # output pixels per point
+RING_RADIUS = 150             # the 3px edge lies within it
 RING_WIDTH = 3
+LINE_Y = RING_RADIUS + 35     # centre to the line under the ring, as on the lock
+MARGIN = 36                   # screen edge to the date's and the glyphs' centre
 POWER_GLYPH = "\U000F0425"    # nf-md-power
 REBOOT_GLYPH = "\U000F0709"   # nf-md-restart
+
+# the field's coming and going, hyprlock's fade_on_empty by its numbers:
+# fade_timeout, and the inputFieldFade animation — speed 8 (× 100 ms) on
+# hyprutils' "default" curve, cubic-bezier(0, 0.75, 0.15, 1)
+FADE_TIMEOUT_MS = 2000
+FADE_MS = 800
+FADE_CURVE = ((0.0, 0.75), (0.15, 1.0))
+
+
+def ease(x, curve=FADE_CURVE):
+    """y of the cubic bezier from (0, 0) through the curve's two control
+    points to (1, 1) at x in 0..1 — solved for t by bisection (x(t) is
+    monotone with both control x's in 0..1), rather than read off a
+    lookup table as hyprutils does."""
+    (x1, y1), (x2, y2) = curve
+
+    def at(t, p1, p2):
+        return 3 * (1 - t) ** 2 * t * p1 + 3 * (1 - t) * t ** 2 * p2 + t ** 3
+
+    low, high = 0.0, 1.0
+    for _ in range(40):
+        mid = (low + high) / 2
+        if at(mid, x1, x2) < x:
+            low = mid
+        else:
+            high = mid
+    return at((low + high) / 2, y1, y2)
 
 
 # ---------------------------------------------------------------- greetd ---
@@ -178,14 +223,29 @@ class Page(Gtk.Widget):
                 self.background = Gdk.Texture.new_from_filename(str(BACKGROUND))
             except GLib.Error as error:
                 print(f"monogreet: background not loaded: {error}", file=sys.stderr)
-        self.hit_boxes = {}          # name → (x0, y0, x1, y1)
+        self.hit_boxes = {}          # name → (x0, y0, x1, y1), in output pixels
         self.hover = None
+        self.scale = 1.0             # output pixels per logical unit, read at each draw
+        # the field's opacity and its animation: value, where it is going,
+        # where the current move began and when (frame-clock µs), the
+        # tick callback moving it, the timer that allows the fade-out
+        # once the field has been empty for FADE_TIMEOUT_MS, and its verdict
+        self.fade = 0.0
+        self.fade_goal = 0.0
+        self.fade_begun = 0.0
+        self.fade_started = 0
+        self.fade_tick = None
+        self.fade_timer = None
+        self.fade_allowed = False
 
     # -- primitives ------------------------------------------------------------
     def layout(self, string, size):
+        """A pango layout of the string at a size in points (the lock's
+        font_size), pinned to 96 dpi rather than the context's resolution
+        so the number means the same here as in hyprlock.conf."""
         layout = self.create_pango_layout(string)
         description = Pango.FontDescription(FONT)
-        description.set_absolute_size(size * Pango.SCALE)
+        description.set_absolute_size(size * POINT * Pango.SCALE)
         layout.set_font_description(description)
         return layout
 
@@ -193,37 +253,92 @@ class Page(Gtk.Widget):
         return self.layout(string, size).get_pixel_extents()[1].width
 
     def text(self, snapshot, string, size, color, x, y, anchor="center", name=None):
-        """Draw text with its anchor at (x, y) — the centre, or the left edge
-        at mid-height — and record a hit box under name."""
+        """Draw text with its anchor at (x, y): the centre of its logical box
+        ("center" — where pango puts this face's digits' and capitals' ink
+        to half a pixel), its left edge at mid-height ("left"), or the
+        centre of its ink ("ink", for a glyph, which has no baseline to
+        respect). A name records a hit box for the pointer."""
         layout = self.layout(string, size)
-        _, logical = layout.get_pixel_extents()
-        x0 = x - logical.width / 2 if anchor == "center" else x
-        y0 = y - logical.height / 2
+        ink, logical = layout.get_pixel_extents()
+        box = ink if anchor == "ink" else logical
+        x0 = x if anchor == "left" else x - box.width / 2
+        y0 = y - box.height / 2
         snapshot.save()
-        snapshot.translate(Graphene.Point().init(x0 - logical.x, y0 - logical.y))
+        snapshot.translate(Graphene.Point().init(x0 - box.x, y0 - box.y))
         snapshot.append_layout(layout, rgba(color))
         snapshot.restore()
         if name:
-            self.hit_boxes[name] = (x0 - 8, y0 - 8, x0 + logical.width + 8, y0 + logical.height + 8)
-        return logical.width
+            self.hit_boxes[name] = (x0 - 8, y0 - 8, x0 + box.width + 8, y0 + box.height + 8)
+        return box.width
 
-    def ring(self, snapshot, cx, cy, color, alpha=1.0, clip=None):
-        """The ring's edge — a rounded rect whose radius is half its side — in
-        one color, optionally only inside a clip rect (a keystroke's quadrant)."""
-        rect = Graphene.Rect().init(cx - RING_RADIUS, cy - RING_RADIUS, 2 * RING_RADIUS, 2 * RING_RADIUS)
-        rounded = Gsk.RoundedRect()
-        rounded.init_from_rect(rect, RING_RADIUS)
+    def ring(self, snapshot, rounded, color, alpha, clip=None):
+        """The ring's edge — the border of a rounded rect whose radius is
+        half its side — in one color at an opacity, optionally only inside
+        a clip rect (a keystroke's quadrant)."""
         if clip is not None:
             snapshot.push_clip(clip)
         snapshot.append_border(rounded, [RING_WIDTH] * 4, [rgba(color, alpha)] * 4)
         if clip is not None:
             snapshot.pop()
-        return rect, rounded
+
+    # -- the field's fade ----------------------------------------------------
+    def update_fade(self, used):
+        """hyprlock's fade_on_empty, decided at each draw as hyprlock decides
+        it: a used field (something typed, or a check under way) comes to
+        full opacity at once and cancels any pending fade-out; an unused
+        one that is showing starts the timer, and fades once it has run
+        out. Before the first keystroke the field is simply not there."""
+        if used:
+            self.fade_allowed = False
+            if self.fade_timer is not None:
+                GLib.source_remove(self.fade_timer)
+                self.fade_timer = None
+            if self.fade_goal != 1.0:
+                self.fade_to(1.0)
+        elif self.fade_goal != 0.0:
+            if self.fade_allowed:
+                self.fade_allowed = False
+                self.fade_to(0.0)
+            elif self.fade_timer is None:
+                self.fade_timer = GLib.timeout_add(FADE_TIMEOUT_MS, self.on_fade_timeout)
+
+    def on_fade_timeout(self):
+        self.fade_timer = None
+        self.fade_allowed = True
+        self.queue_draw()
+        return GLib.SOURCE_REMOVE
+
+    def fade_to(self, goal):
+        """Start moving the opacity from where it is to the goal, over
+        FADE_MS on the curve; a move already under way is taken over from
+        its current value, as hyprutils restarts an animated variable."""
+        self.fade_begun, self.fade_goal = self.fade, goal
+        self.fade_started = self.get_frame_clock().get_frame_time()
+        if self.fade_tick is None:
+            self.fade_tick = self.add_tick_callback(self.on_fade_tick)
+
+    def on_fade_tick(self, _widget, clock):
+        progress = (clock.get_frame_time() - self.fade_started) / (FADE_MS * 1000)
+        if progress >= 1.0:
+            self.fade = self.fade_goal
+            self.fade_tick = None
+            self.queue_draw()
+            return GLib.SOURCE_REMOVE
+        self.fade = self.fade_begun + (self.fade_goal - self.fade_begun) * ease(progress)
+        self.queue_draw()
+        return GLib.SOURCE_CONTINUE
 
     # -- the frame ---------------------------------------------------------
     def do_snapshot(self, snapshot):
         g = self.greeter
-        width, height = self.get_width(), self.get_height()
+        # draw in the output's pixels: GTK lays the page out in logical
+        # units and would scale the drawing up by the output's scale;
+        # scaling it back down by the same factor makes one unit here one
+        # pixel on the panel — the lock's and the splash's unit
+        surface = self.get_native().get_surface() if self.get_native() else None
+        self.scale = surface.get_scale() if surface else 1.0
+        snapshot.scale(1 / self.scale, 1 / self.scale)
+        width, height = self.get_width() * self.scale, self.get_height() * self.scale
         self.hit_boxes = {}
         full = Graphene.Rect().init(0, 0, width, height)
 
@@ -240,43 +355,55 @@ class Page(Gtk.Widget):
 
         cx, cy = width / 2, height / 2
 
-        # the ring: the disc, then the edge in the state's color, then the
-        # keystroke quadrants fading out over their lifetime
-        rect, rounded = self.ring(snapshot, cx, cy, g.ring_color())
-        snapshot.push_rounded_clip(rounded)
-        snapshot.append_color(rgba(GROUND, 0.9), rect)
-        snapshot.pop()
-        self.ring(snapshot, cx, cy, g.ring_color())
-        now = GLib.get_monotonic_time()
+        # the field, at the opacity its fade has reached: the glass disc
+        # (the lock's 40% ground), the edge — lit while the password is
+        # checked, at rest otherwise — and, with something typed, the one
+        # quadrant the last keystroke lit
+        self.update_fade(bool(g.typed) or g.checking)
         r = RING_RADIUS
-        quadrants = [(cx, cy - r), (cx, cy), (cx - r, cy), (cx - r, cy - r)]   # clockwise from top-right
-        for quadrant, born in g.flashes:
-            alpha = max(0.0, 1 - (now - born) / g.FLASH_US)
-            qx, qy = quadrants[quadrant % 4]
-            self.ring(snapshot, cx, cy, LIT, alpha, Graphene.Rect().init(qx, qy, r, r))
+        rect = Graphene.Rect().init(cx - r, cy - r, 2 * r, 2 * r)
+        rounded = Gsk.RoundedRect()
+        rounded.init_from_rect(rect, r)
+        if self.fade > 0.0:
+            snapshot.push_rounded_clip(rounded)
+            snapshot.append_color(rgba(GROUND, 0.4 * self.fade), rect)
+            snapshot.pop()
+            self.ring(snapshot, rounded, LIT if g.checking else EDGE, self.fade)
+            if g.typed and g.quadrant is not None:
+                quadrants = [(cx, cy - r), (cx, cy), (cx - r, cy), (cx - r, cy - r)]   # clockwise from top-right
+                qx, qy = quadrants[g.quadrant]
+                self.ring(snapshot, rounded, LIT, self.fade, Graphene.Rect().init(qx, qy, r, r))
 
-        # the hour inside; the date at the top
-        self.text(snapshot, datetime.now().strftime("%H:%M"), 60, LIT, cx, cy)
-        self.text(snapshot, datetime.now().strftime("%a %d %b"), 16, REST, cx, 28)
+        # inside: the hour — or, while the password is checked, the "λ"
+        # blinking in its place (pango centres both glyphs' ink on the
+        # same point of the box, so the mark lands where the hour is);
+        # the date at the top
+        if not g.checking:
+            self.text(snapshot, datetime.now().strftime("%H:%M"), 60, LIT, cx, cy)
+        elif g.mark_on:
+            self.text(snapshot, "λ", 60, LIT, cx, cy)
+        self.text(snapshot, datetime.now().strftime("%a %d %b"), 16, REST, cx, MARGIN)
 
-        # user · session · layout, one line under the ring; the session
+        # user · session · layout, one line under the ring: the session
         # only when there is more than one to choose from (or none to
-        # start), the layout the same way (layout_mark is empty with one)
-        parts = [("user", g.user)]
+        # start), the layout only with more than one (layout_mark is
+        # empty otherwise). A word is named — lit under the pointer,
+        # cycling on click — only when there is something to cycle to.
+        parts = [("user" if len(g.users) > 1 else None, g.user)]
         if len(g.sessions) != 1:
-            parts += [None, ("session", g.session_name())]
+            parts += [None, ("session" if len(g.sessions) > 1 else None, g.session_name())]
         if g.layout:
-            parts += [None, (None, g.layout)]
+            parts += [None, ("layout", g.layout)]
         widths = [self.measure_text("·" if part is None else part[1], 16) for part in parts]
         gap = 18
         x = cx - (sum(widths) + gap * (len(parts) - 1)) / 2
-        y = cy + RING_RADIUS + 36
+        y = cy + LINE_Y
         for part, w in zip(parts, widths):
             if part is None:
                 self.text(snapshot, "·", 16, MUTED, x, y, anchor="left")
             else:
                 name, string = part
-                self.text(snapshot, string, 16, LIT if self.hover == name else REST,
+                self.text(snapshot, string, 16, LIT if name and self.hover == name else REST,
                           x, y, anchor="left", name=name)
             x += w + gap
 
@@ -286,14 +413,18 @@ class Page(Gtk.Widget):
         if not g.secret and g.typed:
             line = f"{g.message}  {g.typed}" if g.message else g.typed
         if line:
-            self.text(snapshot, line, 13, FAIL if g.message_is_error else REST, cx, y + 30)
+            self.text(snapshot, line, 13, REST, cx, y + 30)
 
-        # the two glyphs that end the greeter
+        # the two glyphs that end the greeter, their ink centred the
+        # date's distance from the bottom edge, 32px apart
         for name, glyph, dx in (("poweroff", POWER_GLYPH, -16), ("reboot", REBOOT_GLYPH, 16)):
             self.text(snapshot, glyph, 22, LIT if self.hover == name else MUTED,
-                      cx + dx, height - 40, name=name)
+                      cx + dx, height - MARGIN, anchor="ink", name=name)
 
     def hit(self, x, y):
+        """The named thing under a pointer position (logical units, as GTK
+        reports it) — the hit boxes are in output pixels."""
+        x, y = x * self.scale, y * self.scale
         for name, (x0, y0, x1, y1) in self.hit_boxes.items():
             if x0 <= x <= x1 and y0 <= y <= y1:
                 return name
@@ -302,8 +433,7 @@ class Page(Gtk.Widget):
 
 # --------------------------------------------------------------- greeter ---
 class Greeter(Gtk.Application):
-    FLASH_US = 400_000            # a keystroke's segment fades over 0.4s
-    FAIL_US = 1_200_000           # the red edge after a wrong password
+    BLINK_MS = 500                # the "λ" is on 0.5 s, off 0.5 s
 
     def __init__(self):
         super().__init__(application_id="dev.nafud.monogreet")
@@ -316,33 +446,35 @@ class Greeter(Gtk.Application):
         self.layout = layout_mark()
         self.typed = ""
         self.secret = True            # the current prompt hides its input
-        self.flashes = []             # (quadrant, born)
+        self.quadrant = None          # the quadrant the last keystroke lit, 0..3 clockwise from top-right
         self.checking = False
-        self.failed_at = 0
-        self.caps = False
-        self.message = ""
-        self.message_is_error = False
+        self.mark_on = False          # the "λ" is in its on half
+        self.blinking = False         # its timer runs
+        self.message = ""             # the line under the name: a prompt, or what went wrong
         self.answers = queue.Queue()  # the auth thread waits here for further answers
         self.in_conversation = False
         self.page = None
 
     # -- state ---------------------------------------------------------------
-    def ring_color(self):
-        now = GLib.get_monotonic_time()
-        if self.checking:
-            return LIT
-        if now - self.failed_at < self.FAIL_US:
-            return FAIL
-        if self.caps:
-            return WARN
-        return EDGE
+    def light(self):
+        """What was typed changed: light one quadrant for it — a random one,
+        never the one already lit (hyprlock's hidden input: last + 1..3) —
+        or none, when nothing is typed."""
+        if not self.typed:
+            self.quadrant = None
+        else:
+            self.quadrant = random.choice([q for q in range(4) if q != self.quadrant])
+
+    def clear(self):
+        self.typed = ""
+        self.quadrant = None
 
     def session_name(self):
         """The session's id (niri, sway…): the line is lowercase marks."""
         return self.sessions[self.session_index][0] if self.sessions else "no session"
 
-    def say(self, message, error=False):
-        self.message, self.message_is_error = message, error
+    def say(self, message):
+        self.message = message
         self.page.queue_draw()
 
     # -- window --------------------------------------------------------------
@@ -365,19 +497,10 @@ class Greeter(Gtk.Application):
         window.fullscreen()
         window.present()
         GLib.timeout_add_seconds(1, self.tick)
-        GLib.timeout_add(40, self.animate)
         self.watch_layouts()
 
     def tick(self):
         self.page.queue_draw()
-        return True
-
-    def animate(self):
-        now = GLib.get_monotonic_time()
-        live = [f for f in self.flashes if now - f[1] < self.FLASH_US]
-        if live or self.flashes or (0 < now - self.failed_at < self.FAIL_US + 100_000):
-            self.flashes = live
-            self.page.queue_draw()
         return True
 
     # -- layouts over niri's IPC ---------------------------------------------
@@ -401,23 +524,16 @@ class Greeter(Gtk.Application):
         GLib.io_add_watch(stream.stdout, GLib.IO_IN | GLib.IO_HUP, on_event)
 
     # -- input ---------------------------------------------------------------
-    def refresh_caps(self):
-        seat = Gdk.Display.get_default().get_default_seat()
-        keyboard = seat.get_keyboard() if seat else None
-        self.caps = bool(keyboard and keyboard.get_caps_lock_state())
-        self.page.queue_draw()
-        return False
-
     def on_key(self, _controller, keyval, _keycode, _state):
-        GLib.timeout_add(50, self.refresh_caps)
         if self.checking:
             return True
         if keyval == Gdk.KEY_Escape:
-            self.typed = ""
+            self.clear()
             self.secret = True
             self.say("")
         elif keyval == Gdk.KEY_BackSpace:
             self.typed = self.typed[:-1]
+            self.light()
         elif keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             self.submit()
         elif keyval == Gdk.KEY_Tab:
@@ -434,7 +550,7 @@ class Greeter(Gtk.Application):
             char = Gdk.keyval_to_unicode(keyval)
             if char >= 32:
                 self.typed += chr(char)
-                self.flashes.append((len(self.typed) % 4, GLib.get_monotonic_time()))
+                self.light()
         self.page.queue_draw()
         return True
 
@@ -444,6 +560,8 @@ class Greeter(Gtk.Application):
             self.cycle_user(1)
         elif target == "session":
             self.cycle_session(1)
+        elif target == "layout":
+            self.cycle_layout()
         elif target in ("poweroff", "reboot"):
             self.power(target)
 
@@ -456,13 +574,17 @@ class Greeter(Gtk.Application):
 
     def cycle_user(self, step):
         self.user = self.users[(self.users.index(self.user) + step) % len(self.users)]
-        self.typed = ""
+        self.clear()
         self.page.queue_draw()
 
     def cycle_session(self, step):
         if self.sessions:
             self.session_index = (self.session_index + step) % len(self.sessions)
         self.page.queue_draw()
+
+    def cycle_layout(self):
+        """The compositor switches; its event stream brings the new mark."""
+        subprocess.Popen(["niri", "msg", "action", "switch-layout", "next"])
 
     def power(self, action):
         subprocess.Popen(["systemctl", action])
@@ -471,13 +593,14 @@ class Greeter(Gtk.Application):
     def submit(self):
         if self.checking or not self.typed:      # hyprlock's ignore_empty_input
             return
-        answer, self.typed = self.typed, ""
+        answer = self.typed
+        self.clear()
         if self.in_conversation:
             self.answers.put(answer)             # answers a further prompt
             self.busy()
             return
         if not self.sessions:
-            self.say("no session to start", error=True)
+            self.say("no session to start")
             return
         self.busy()
         self.say("")
@@ -518,7 +641,7 @@ class Greeter(Gtk.Application):
                         answer = None
                         GLib.idle_add(self.busy)
                     else:
-                        GLib.idle_add(self.say, prompt, prompt_type == "error")
+                        GLib.idle_add(self.say, prompt)
                         reply = greetd.send(type="post_auth_message_response")
                     continue
                 # error: auth_error is a wrong answer, anything else is news
@@ -541,15 +664,30 @@ class Greeter(Gtk.Application):
         self.say(prompt or ("password" if secret else ""))
 
     def busy(self):
+        """The ring lights and the "λ" blinks until the answer comes: one
+        timer, started here, running for as long as the check does (it
+        outlives a short pause for a further prompt, so it is not started
+        twice)."""
         self.checking = True
+        self.mark_on = True
+        if not self.blinking:
+            self.blinking = True
+            GLib.timeout_add(self.BLINK_MS, self.blink)
         self.page.queue_draw()
+
+    def blink(self):
+        if not self.checking:
+            self.blinking = False
+            return False
+        self.mark_on = not self.mark_on
+        self.page.queue_draw()
+        return True
 
     def finish(self, ok, message):
         self.checking = False
         self.secret = True
         if not ok:
-            self.failed_at = GLib.get_monotonic_time()
-            self.say(message, error=True)
+            self.say(message)
 
 
 if __name__ == "__main__":

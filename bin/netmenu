@@ -1,0 +1,88 @@
+#!/bin/bash
+# netmenu — Wi-Fi through the rofi menu (Mod+N, the bar's network
+# icon). One row per network in reach, strongest first: a signal glyph,
+# the name, a lock mark for secured networks, the connected one in the
+# accent. Picking a known network brings its profile up; a new secured
+# one asks for the password in a rofi entry; below the list: rescan,
+# Wi-Fi off/on, and the full editor (nmtui in its float). Results go
+# to a notification. Glyph spans: tools/waybar-icon-span --px 14.67
+# --advance 1.1 (rofi's 11 pt), one advance so names line up.
+set -euo pipefail
+
+ACCENT='#98b898'; MUTED='#666666'
+ROFI=("$HOME/.local/bin/rofi-toggle" -dmenu -markup-rows -no-custom -format i -theme menu)
+bars=("<span size='94.8%' rise='214' letter_spacing='15959'>󰤟</span>" "<span size='94.8%' rise='214' letter_spacing='15959'>󰤢</span>" "<span size='94.8%' rise='214' letter_spacing='15959'>󰤥</span>" "<span size='94.8%' rise='214' letter_spacing='15959'>󰤨</span>")
+G_OFF="<span size='97.3%' letter_spacing='15503'>󰖪</span>"; G_ON="<span size='97.3%' letter_spacing='15503'>󰖩</span>"; G_SCAN="<span size='97.3%' letter_spacing='15503'>󰑓</span>"; G_EDIT="<span size='88.0%' rise='595' letter_spacing='17194'>󰒓</span>"; G_WIRED="<span size='97.3%' letter_spacing='15503'>󰈆</span>"
+G_LOCK="<span size='83.0%' rise='872'>󰌾</span>"
+
+glyph() {
+    local sig=$1
+    if   [ "$sig" -ge 75 ]; then echo "${bars[3]}"
+    elif [ "$sig" -ge 50 ]; then echo "${bars[2]}"
+    elif [ "$sig" -ge 25 ]; then echo "${bars[1]}"
+    else echo "${bars[0]}"; fi
+}
+esc() { local s=$1; s=${s//&/&amp;}; s=${s//</&lt;}; s=${s//>/&gt;}; printf '%s' "$s"; }
+notify() { notify-send -a netmenu "Wi-Fi" "$1"; }
+
+connect() {
+    local sec=$1 ssid=$2 out pw
+    if nmcli -g NAME connection show | grep -Fxq "$ssid"; then
+        out=$(nmcli -w 20 connection up id "$ssid" 2>&1) && { notify "connected to $ssid"; return; }
+        # a stale or wrong-key profile: fall through to a fresh connect
+        nmcli connection delete id "$ssid" >/dev/null 2>&1 || true
+    fi
+    if [ -n "$sec" ] && [ "$sec" != "--" ]; then
+        pw="$(rofi -dmenu -password -theme menu -p "$ssid" \
+                -theme-str 'listview { enabled: false; }' </dev/null)" || exit 0
+        [ -n "$pw" ] || exit 0
+        out=$(nmcli -w 30 device wifi connect "$ssid" password "$pw" 2>&1) \
+            && { notify "connected to $ssid"; return; }
+    else
+        out=$(nmcli -w 30 device wifi connect "$ssid" 2>&1) \
+            && { notify "connected to $ssid"; return; }
+    fi
+    notify "$ssid: ${out##*: }"
+}
+
+main() {
+    local rows=() act=() seen=() line sig sec inuse ssid s radio wired
+    radio=$(nmcli -g WIFI general)
+    wired=$(nmcli -t -f TYPE,STATE device status \
+        | awk -F: '$1=="ethernet" && $2=="connected"{print "yes"; exit}')
+    [ -n "$wired" ] && { rows+=("$G_WIRED <span foreground='$ACCENT'>wired</span>"); act+=("noop"); }
+    if [ "$radio" = enabled ]; then
+        # SIGNAL first, SSID last: read's final variable takes the rest of
+        # the line, so names containing ':' (nmcli escapes them as '\:')
+        # survive the split; strongest first, one row per name
+        while IFS=: read -r sig sec inuse ssid; do
+            ssid=${ssid//\\:/:}
+            [ -n "$ssid" ] || continue
+            for s in "${seen[@]}"; do [ "$s" = "$ssid" ] && continue 2; done
+            seen+=("$ssid")
+            line="$(glyph "$sig") $(esc "$ssid")"
+            [ -n "$sec" ] && [ "$sec" != "--" ] && line+=" <span foreground='$MUTED'>$G_LOCK</span>"
+            [ "$inuse" = "*" ] && line="<span foreground='$ACCENT'>$line</span>"
+            rows+=("$line"); act+=("connect:$sec:$ssid")
+        done < <(nmcli -t -f SIGNAL,SECURITY,IN-USE,SSID device wifi list | sort -t: -k1,1nr)
+        rows+=("$G_SCAN rescan");    act+=("rescan")
+        rows+=("$G_OFF wi-fi off");  act+=("off")
+    else
+        rows+=("$G_ON wi-fi on");    act+=("on")
+    fi
+    rows+=("$G_EDIT edit connections"); act+=("edit")
+
+    local i
+    i="$(printf '%s\n' "${rows[@]}" | "${ROFI[@]}" -p wifi)" || exit 0
+    [ -n "$i" ] || exit 0
+    case "${act[$i]}" in
+        noop)    ;;
+        rescan)  nmcli device wifi rescan 2>/dev/null || true; sleep 1; exec "$0" ;;
+        off)     nmcli radio wifi off; notify "off" ;;
+        on)      nmcli radio wifi on; sleep 2; exec "$0" ;;
+        edit)    exec alacritty --class nmtui-float -e nmtui ;;
+        connect:*) s=${act[$i]#connect:}; connect "${s%%:*}" "${s#*:}" ;;
+    esac
+}
+
+main "$@"

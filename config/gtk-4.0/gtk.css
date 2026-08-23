@@ -1,0 +1,98 @@
+/* libadwaita apps (Files first) on the mono palette. Read by GTK 4 at
+   startup from ~/.config/gtk-4.0/gtk.css at user priority, above the
+   theme. libadwaita 1.6+ takes its colours as CSS variables, but still
+   derives each one from the legacy named colour
+   (--window-bg-color: @window_bg_color), so redefining the names here
+   re-colours the whole stylesheet; nothing else about Adwaita is
+   touched — its spacing, radii and widget shapes stay, only the palette
+   is ours. The values are alacritty's mono.toml, rofi's mono.rasi and
+   mako's: #0d0d0d ground, #c0c0c0 text, #e8e8e8 bright, #666 muted,
+   #98b898 accent, #1a1a1a wells, #2a2a2a rules.
+
+   The window is the shared 0.9 glass, like the terminal: the ground is
+   painted once, by the window, at 90 % alpha, and everything Adwaita
+   would paint on top of it — sidebar panes, views, flat header bars —
+   is transparent, so the glass is one layer, not 0.9 over 0.9 (= 0.99,
+   opaque to the eye). Text and icons stay fully opaque, exactly
+   alacritty's opacity = 0.9; niri blurs the wallpaper behind the
+   window (Files is matched with the terminals in
+   config/niri/decorations.kdl). Sidebar and view are told apart by a
+   1 px #2a2a2a rule, the two-surface look of the launcher. Raised
+   surfaces (popovers, dialogs, cards) are the well shade, #1a1a1a,
+   popovers on the same 0.9 glass with a #2a2a2a edge — rofi's and
+   mako's panel. Selection is the palette's highlight, not a filled
+   block: libadwaita's own 25 % accent tint for list rows and grid
+   cells, accent-coloured text for links and focus. Solid accent is
+   kept for buttons, switches and checks, black-on-green like newt.
+   Status colours follow the terminal's normal red/yellow/green. */
+
+@define-color accent_bg_color #98b898;
+@define-color accent_fg_color #0d0d0d;
+@define-color accent_color #98b898;
+
+@define-color destructive_bg_color #b5626a;
+@define-color destructive_fg_color #0d0d0d;
+@define-color destructive_color #c87e85;
+@define-color success_bg_color #7f9f7f;
+@define-color success_fg_color #0d0d0d;
+@define-color success_color #98b898;
+@define-color warning_bg_color #b0a06a;
+@define-color warning_fg_color #0d0d0d;
+@define-color warning_color #c8ba86;
+@define-color error_bg_color #b5626a;
+@define-color error_fg_color #0d0d0d;
+@define-color error_color #c87e85;
+
+@define-color window_bg_color rgba(13, 13, 13, 0.9);
+@define-color window_fg_color #c0c0c0;
+@define-color view_bg_color transparent;
+@define-color view_fg_color #c0c0c0;
+
+@define-color headerbar_bg_color transparent;
+@define-color headerbar_fg_color #c0c0c0;
+@define-color headerbar_border_color #c0c0c0;
+@define-color headerbar_backdrop_color transparent;
+@define-color headerbar_shade_color #2a2a2a;
+@define-color headerbar_darker_shade_color #2a2a2a;
+
+@define-color sidebar_bg_color transparent;
+@define-color sidebar_fg_color #c0c0c0;
+@define-color sidebar_backdrop_color transparent;
+@define-color sidebar_border_color #2a2a2a;
+@define-color sidebar_shade_color #2a2a2a;
+@define-color secondary_sidebar_bg_color transparent;
+@define-color secondary_sidebar_fg_color #c0c0c0;
+@define-color secondary_sidebar_backdrop_color transparent;
+@define-color secondary_sidebar_border_color #2a2a2a;
+@define-color secondary_sidebar_shade_color #2a2a2a;
+
+@define-color card_bg_color #1a1a1a;
+@define-color card_fg_color #c0c0c0;
+@define-color card_shade_color #2a2a2a;
+@define-color dialog_bg_color #1a1a1a;
+@define-color dialog_fg_color #c0c0c0;
+@define-color popover_bg_color rgba(26, 26, 26, 0.9);
+@define-color popover_fg_color #c0c0c0;
+@define-color popover_shade_color #2a2a2a;
+@define-color thumbnail_bg_color #1a1a1a;
+@define-color thumbnail_fg_color #c0c0c0;
+
+/* The window paints the ground even when an app also classes it
+   .view: Files' window template is <style><class name="view"/></style>
+   (its content pane is the view, so Nautilus skips a second window
+   fill), and Adwaita's later .view rule would otherwise replace the
+   window ground with the view colour — here transparent. One rule,
+   one ground, for every window. */
+window.view {
+    background-color: var(--window-bg-color);
+}
+
+/* Every raised surface shows its edge as a 1 px rule, as the launcher
+   and notification panels do; Adwaita's soft drop shadow is invisible
+   on a #0d0d0d ground and only the rule reads. (Dim text needs no
+   rule: Adwaita dims by opacity, and #c0c0c0 at 55 % over the ground
+   is the palette's muted grey already.) */
+popover > arrow,
+popover > contents {
+    border-color: #2a2a2a;
+}

@@ -32,7 +32,10 @@ emitted as integers; size is a percentage of the CSS font size.  The bar
 renders at GTK's integer scale 2 on a 1.25 display: digits' caps hint to
 20 device px, unhinted icons land on 19 - the 0.5 px is the quantum.
 
-Usage: waybar-icon-span [--px 13] GLYPH...    (GLYPH literal or U+XXXX)
+Usage: waybar-icon-span [--px 13] [--advance EM] GLYPH...   (GLYPH literal or U+XXXX)
+  --px       the CSS font size the span sits in (waybar 13, rofi 11 pt = 14.67)
+  --advance  menu mode: instead of one-space gaps, give every icon the same
+             effective advance of EM em so labels in a rofi column line up
 Needs pango-view (pango) and magick (imagemagick).
 """
 import re, subprocess, sys, tempfile, os
@@ -79,12 +82,17 @@ def measure(glyph):
 
 BEAR_L, BEAR_R = 0.09, 0.06     # em, JetBrainsMono digit side bearings
 
-def span(glyph, px):
+def span(glyph, px, advance=None):
     h, x0, x1, centre = measure(glyph)
     scale = min(1.0, CAP / h)
     spx = px * scale
     rise = (CAP / 2) * px - ((CAP / 2) - centre) * spx               # px, + = up
-    ls = 2 * (BEAR_R * px + (x1 - CELL) * spx)                        # px; trailing half lands after the ink
+    if advance is None:
+        ls = 2 * (BEAR_R * px + (x1 - CELL) * spx)                    # px; trailing half lands after the ink
+    else:
+        ls = 2 * (advance * px - CELL * spx)                          # px; cell + trailing half = advance
+        if x1 * spx > advance * px:
+            print(f"warning: ink of U+{ord(glyph):04X} ({x1*spx:.1f} px) exceeds the advance ({advance*px:.1f} px)", file=sys.stderr)
     pad = round(8 + BEAR_L * px - x0 * spx)
     attrs = []
     if abs(scale - 1) >= 0.005: attrs.append(f"size='{scale*100:.1f}%'")
@@ -96,9 +104,12 @@ def span(glyph, px):
     return f"<span {' '.join(attrs)}>{glyph}</span>  ({note})"
 
 if __name__ == "__main__":
-    args = sys.argv[1:]; px = 13.0
-    if args[:1] == ["--px"]: px = float(args[1]); args = args[2:]
+    args = sys.argv[1:]; px = 13.0; advance = None
+    while args[:1] in (["--px"], ["--advance"]):
+        if args[0] == "--px": px = float(args[1])
+        else: advance = float(args[1])
+        args = args[2:]
     if not args: sys.exit(__doc__)
     for a in args:
         g = chr(int(a[2:], 16)) if a.upper().startswith("U+") else a
-        print(f"U+{ord(g):04X}  {span(g, px)}")
+        print(f"U+{ord(g):04X}  {span(g, px, advance)}")

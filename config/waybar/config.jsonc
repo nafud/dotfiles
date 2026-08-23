@@ -79,7 +79,8 @@
         "format-wifi": "<span size='97.3%' letter_spacing='9242'>󰖩</span> {signalStrength}%",
         "format-ethernet": "<span size='92.4%' rise='308' letter_spacing='7256'>󰈀</span> up",
         "format-disconnected": "<span size='97.3%' letter_spacing='9501'>󰖪</span> down",
-        "on-click": "alacritty --class nmtui-float -e nmtui"
+        "on-click": "~/.local/bin/netmenu",
+        "on-click-right": "alacritty --class nmtui-float -e nmtui"
     },
     "clock": { "format": "{:%a %d %b  %H:%M:%S}", "interval": 1, "tooltip": false }
 }

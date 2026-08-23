@@ -1,67 +1,16 @@
 [Plymouth Theme]
 Name=Mono
-Description=The desktop's glass from the first frame: a ring on the flat ground, still; the passphrase typed into it, the prompt one line under it.
-ModuleName=two-step
+Description=The desktop's glass from the first frame: a ring on the flat ground, still; the passphrase typed into it as a row of dots on its centre, the prompt one line under it.
+ModuleName=script
 
-[two-step]
-# the same face as the bar and the lock; the mkinitcpio hook packs the
-# file fc-match resolves for this name
-Font=JetBrainsMono Nerd Font 12
-TitleFont=JetBrainsMono Nerd Font 30
+[script]
 ImageDir=/usr/share/plymouth/themes/mono
-# ring (watermark) and the passphrase dialog sit on the screen centre:
-# the dialog's area is a clear box the ring's size (box.png), so the
-# field ends up inside the ring and the prompt text under it. The
-# theme has no throbber and no capslock image — two-step treats both
-# as optional — so the ring holds still from the first frame to the
-# greeter, and caps lock is not indicated.
-HorizontalAlignment=.5
-VerticalAlignment=.5
-WatermarkHorizontalAlignment=.5
-WatermarkVerticalAlignment=.5
-DialogHorizontalAlignment=.5
-DialogVerticalAlignment=.5
-TitleHorizontalAlignment=.5
-TitleVerticalAlignment=.382
-Transition=none
-TransitionDuration=0.0
-BackgroundStartColor=0x0d0d0d
-BackgroundEndColor=0x0d0d0d
-ProgressBarBackgroundColor=0x333333
-ProgressBarForegroundColor=0xc0c0c0
-# with no animation a message (none of this machine's hooks sends one)
-# is set top-centre rather than in the top-left corner
-MessageBelowAnimation=true
-
-[boot-up]
-UseEndAnimation=false
-
-[shutdown]
-UseEndAnimation=false
-
-[reboot]
-UseEndAnimation=false
-
-# offline updates (packagekit-style) would show the bar and a title;
-# none of these modes is used by this desktop, they are listed so the
-# plugin has an answer for them
-[updates]
-SuppressMessages=true
-ProgressBarShowPercentComplete=true
-UseProgressBar=true
-Title=Installing updates
-SubTitle=Do not turn off the computer
-
-[system-upgrade]
-SuppressMessages=true
-ProgressBarShowPercentComplete=true
-UseProgressBar=true
-Title=Upgrading system
-SubTitle=Do not turn off the computer
-
-[firmware-upgrade]
-SuppressMessages=true
-ProgressBarShowPercentComplete=true
-UseProgressBar=true
-Title=Upgrading firmware
-SubTitle=Do not turn off the computer
+ScriptFile=/usr/share/plymouth/themes/mono/mono.script
+# The face of the bar, the lock and the login page, for the prompt under
+# the ring. The mkinitcpio hook packs the file fc-match resolves for
+# each of these two names into the initramfs; plymouth's label plugin
+# draws any font whose name contains "Mono" from the MonospaceFont file,
+# so both names are given and both are this face. (The size here is
+# only read by the hook's regex; the script names its own.)
+Font=JetBrainsMono Nerd Font 16
+MonospaceFont=JetBrainsMono Nerd Font 16

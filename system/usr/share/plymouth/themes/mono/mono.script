@@ -1,0 +1,111 @@
+# mono.script — the ring, the dots on its centre, the prompt under it.
+#
+# One ring on the flat ground, drawn as the lock (config/hypr/
+# hyprlock.conf) and the login page (system/usr/local/bin/monogreet)
+# draw theirs, still from the first frame to the greeter. When plymouth
+# asks for the passphrase, the characters typed so far stand as a row of
+# dots centred on the ring's centre — the row grows out from the middle,
+# not from a field's left edge — and the prompt's text sits one line
+# under the ring, where the other two screens write. A question (a
+# visible answer) shows the answer itself on the centre instead. A
+# message, should one come, goes under the prompt line.
+#
+# That is all the theme says. No throbber, no caps mark, no colour for
+# a wrong passphrase: plymouth asks again, the dots start over.
+# Images come from tools/render-plymouth-mono.
+
+# --- the design's measures and palette ----------------------------------
+RING = 300;                        # outer diameter, the 3px edge within
+LINE = 185;                        # centre to the prompt line's centre (the lock's -185)
+MESSAGE = 30;                      # prompt line to the message line
+PITCH = 12;                        # dot cell; the dot is 6px in its middle
+MAX_DOTS = 20;                     # a row of 20 is 240px, within the 294 inside
+# the lock's 16: a bare size is points at 96 dpi to label-freetype
+# (FT_Set_Char_Size at 96 dpi — "16px" would be pixels), 21.3px like
+# hyprlock's font_size 16 and the login page's line
+FONT = "JetBrainsMono Nerd Font 16";
+REST.r = 0.753; REST.g = 0.753; REST.b = 0.753;     # c0c0c0
+LIT.r = 0.910; LIT.g = 0.910; LIT.b = 0.910;        # e8e8e8
+
+Window.SetBackgroundTopColor(0.051, 0.051, 0.051);       # 0d0d0d
+Window.SetBackgroundBottomColor(0.051, 0.051, 0.051);
+
+# the screen centre (the first display's: the ring sits on every
+# display at these coordinates, and this machine has one)
+cx = Window.GetX() + Window.GetWidth() / 2;
+cy = Window.GetY() + Window.GetHeight() / 2;
+
+# --- sprites ------------------------------------------------------------
+ring.sprite = Sprite(Image("ring.png"));
+ring.sprite.SetPosition(cx - RING / 2, cy - RING / 2, 1);
+
+dot.image = Image("bullet.png");
+for (i = 0; i < MAX_DOTS; i++) {
+    dot.sprite[i] = Sprite(dot.image);
+    dot.sprite[i].SetOpacity(0);
+}
+dots.shown = 0;
+
+answer.sprite = Sprite();          # a visible answer, on the centre
+prompt.sprite = Sprite();          # the prompt, under the ring
+message.sprite = Sprite();         # a message, under the prompt
+
+fun centred(sprite, image, x, y, z) {
+    sprite.SetImage(image);
+    sprite.SetPosition(x - image.GetWidth() / 2, y - image.GetHeight() / 2, z);
+    sprite.SetOpacity(1);
+}
+
+# n dots, the row centred on the ring's centre: cell i of n starts at
+# cx - n * PITCH / 2 + i * PITCH, and the dot is symmetric in its cell
+fun show_dots(n) {
+    if (n > MAX_DOTS) n = MAX_DOTS;
+    for (i = 0; i < MAX_DOTS; i++) {
+        if (i < n) {
+            dot.sprite[i].SetPosition(cx - n * PITCH / 2 + i * PITCH, cy - PITCH / 2, 2);
+            dot.sprite[i].SetOpacity(1);
+        } else {
+            dot.sprite[i].SetOpacity(0);
+        }
+    }
+    dots.shown = n;
+}
+
+fun show_prompt(text) {
+    if (text == "") prompt.sprite.SetOpacity(0);
+    else centred(prompt.sprite, Image.Text(text, REST.r, REST.g, REST.b, 1, FONT), cx, cy + LINE, 3);
+}
+
+fun show_answer(text) {
+    if (text == "") answer.sprite.SetOpacity(0);
+    else centred(answer.sprite, Image.Text(text, LIT.r, LIT.g, LIT.b, 1, FONT), cx, cy, 3);
+}
+
+# --- what plymouth tells us ---------------------------------------------
+# nothing to ask: the ring alone (coming up, checking an answer, going on)
+Plymouth.SetDisplayNormalFunction(fun() {
+    show_dots(0);
+    show_answer("");
+    show_prompt("");
+});
+
+# a passphrase is asked, `bullets` characters typed so far
+Plymouth.SetDisplayPasswordFunction(fun(prompt, bullets) {
+    show_answer("");
+    show_dots(bullets);
+    show_prompt(prompt);
+});
+
+# a question is asked, `entry` typed so far, shown as it is
+Plymouth.SetDisplayQuestionFunction(fun(prompt, entry) {
+    show_dots(0);
+    show_answer(entry);
+    show_prompt(prompt);
+});
+
+Plymouth.SetDisplayMessageFunction(fun(text) {
+    centred(message.sprite, Image.Text(text, REST.r, REST.g, REST.b, 1, FONT), cx, cy + LINE + MESSAGE, 3);
+});
+Plymouth.SetHideMessageFunction(fun(text) {
+    message.sprite.SetOpacity(0);
+});

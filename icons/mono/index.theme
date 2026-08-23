@@ -1,0 +1,19 @@
+[Icon Theme]
+Name=mono
+Comment=Adwaita with its folders and files on the mono palette
+Inherits=Adwaita,hicolor
+Directories=scalable/places,scalable/mimetypes
+
+[scalable/places]
+Context=Places
+Size=128
+MinSize=8
+MaxSize=512
+Type=Scalable
+
+[scalable/mimetypes]
+Context=MimeTypes
+Size=128
+MinSize=8
+MaxSize=512
+Type=Scalable

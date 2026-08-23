@@ -1,0 +1,19 @@
+/* Compact menu on the mono launcher recipe: the power menu and the
+   Wi-Fi picker. Same panel, narrower, sized to its rows; each row is
+   a glyph column and a label (the scripts size the glyphs to the cap
+   height with tools/waybar-icon-span, one advance for all so labels
+   line up). */
+@import "mono"
+
+window {
+    width: 360px;
+}
+
+listview {
+    lines: 10;
+    dynamic: true;
+}
+
+element {
+    padding: 5px 8px;
+}

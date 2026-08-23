@@ -15,13 +15,17 @@ window-rule {
     open-maximized false
 }
 
-// Frosted ground behind the semitransparent terminals: xray blur (the
-// niri default when blur is on) blurs the wallpaper once and reuses it,
-// so it costs almost nothing. draw-border-with-background false keeps
-// the border from tinting through the glass (see the niri FAQ).
+// Frosted ground behind the semitransparent terminals and Files (its
+// 0.9 glass is config/gtk-4.0/gtk.css): xray blur (the niri default
+// when blur is on) blurs the wallpaper once and reuses it, so it costs
+// almost nothing. draw-border-with-background false keeps the border
+// from tinting through the glass (see the niri FAQ) — for a GTK window
+// niri would otherwise paint the #33333388 border colour behind the
+// whole window.
 window-rule {
     match app-id="^Alacritty"
     match app-id="-float$"
+    match app-id=r#"^org\.gnome\.Nautilus$"#
     draw-border-with-background false
     background-effect {
         blur true
@@ -47,11 +51,20 @@ window-rule {
 }
 
 // every terminal popup class ends in -float (btop, nmtui, pulsemixer);
-// one rule floats them all at the same size
+// one rule floats them all. A floating terminal takes its own size
+// (alacritty's default, ~100x38 cells here) unless the rule sets both
+// width and height — a width alone is ignored.
 window-rule {
     match app-id="-float$"
     open-floating true
-    default-column-width { proportion 0.7; }
+}
+
+// nmtui: its widest screen, the connection editor, is 78 columns; at
+// the terminal's default size its small dialogs sit adrift in glass
+window-rule {
+    match app-id="^nmtui-float$"
+    default-column-width { proportion 0.5; }
+    default-window-height { proportion 0.65; }
 }
 
 // The bar pills, launcher and notifications are layer-shell surfaces,

@@ -1,16 +1,26 @@
 #!/bin/bash
-# powermenu — session actions through the rofi dmenu (Mod+Escape).
+# powermenu — session actions through the rofi menu (Mod+Escape): a
+# glyph column and a word per row on themes/menu.rasi, no filter box.
 # Picking an entry is the confirmation step, so every action is direct.
+# Glyph spans: tools/waybar-icon-span --px 14.67 --advance 1.1 (rofi's
+# 11 pt), so the five glyphs share one height and the words line up.
 set -euo pipefail
 
-choice="$(printf 'lock\nsuspend\nlogout\nreboot\nshutdown\n' \
-    | "$HOME/.local/bin/rofi-toggle" -dmenu -p power)" || exit 0
-[ -n "$choice" ] || exit 0
+rows=(
+    "<span size='83.0%' rise='872' letter_spacing='18095'>󰌾</span> lock"
+    "<span letter_spacing='15022'>󰒲</span> suspend"
+    "<span size='88.0%' rise='595' letter_spacing='17194'>󰍃</span> logout"
+    "<span size='90.7%' rise='409' letter_spacing='16702'>󰜉</span> reboot"
+    "<span letter_spacing='15022'>󰐥</span> power off"
+)
 
-case "$choice" in
-    lock)     exec "$HOME/.local/bin/lock" ;;
-    suspend)  exec systemctl suspend ;;
-    logout)   exec niri msg action quit --skip-confirmation ;;
-    reboot)   exec systemctl reboot ;;
-    shutdown) exec systemctl poweroff ;;
+i="$(printf '%s\n' "${rows[@]}" \
+    | "$HOME/.local/bin/rofi-toggle" -dmenu -markup-rows -no-custom -format i \
+        -theme menu -p power -theme-str 'entry { enabled: false; }')" || exit 0
+case "$i" in
+    0) exec "$HOME/.local/bin/lock" ;;
+    1) exec systemctl suspend ;;
+    2) exec niri msg action quit --skip-confirmation ;;
+    3) exec systemctl reboot ;;
+    4) exec systemctl poweroff ;;
 esac
