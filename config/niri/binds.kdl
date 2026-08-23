@@ -12,7 +12,7 @@ binds {
     // Dedicated yazi terminal. The cwd-following y() wrapper is for
     // interactive shells; here the shell would die with the window anyway.
     Mod+Y { spawn "alacritty" "-e" "yazi"; }
-    Mod+Shift+T { spawn "alacritty" "-e" "zellij" "attach" "-c" "main"; }
+    Mod+Shift+T { spawn "Telegram"; }
     Mod+W { spawn "alacritty" "-e" "sh" "-c" "zellij attach files 2>/dev/null || zellij -s files --layout files"; }
     Mod+V { spawn "sh" "-c" "$HOME/.local/bin/clip-pick"; }
     // window switcher: fuzzy-jump to any open window by app or title
