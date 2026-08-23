@@ -26,7 +26,8 @@
 # apps are installed by hand afterwards). paru is bootstrapped as the
 # tool for those later AUR installs, and the bar's updates module
 # upgrades through it, but this script installs nothing from the AUR.
-# No other third-party builds, no release-binary downloads.
+# No other third-party builds, and one release-binary download: herdr,
+# the agent workspace manager, through its official installer (2b).
 #
 # A real file or directory found where a link belongs is moved aside once
 # as <name>.pre-dotfiles. Version history lives in git log.
@@ -134,6 +135,29 @@ install_paru() {
     fi
     aur_build paru
     paru_ok || die "paru bootstrap failed"
+}
+
+# --------------------------------------------------------------- 2b. herdr ---
+# herdr (herdr.dev) — terminal workspace manager for coding agents,
+# alongside zellij. It is the one release-binary download here: no repo
+# package, and the AUR herdr-bin would land in /usr/bin where herdr's
+# own updater (`herdr update`) cannot write and refuses to run. The
+# official installer fetches the release manifest, verifies the asset's
+# SHA-256, and drops the static binary in ~/.local/bin (the PATH entry
+# write_shell adds). From then on `herdr update` keeps it current, so
+# an existing binary is left alone — this step is install-once.
+HERDR_INSTALLER="https://herdr.dev/install.sh"
+
+install_herdr() {
+    have herdr && return 0
+    log "installing herdr (agent workspace manager) into ~/.local/bin"
+    mkdir -p "$HOME/.local/bin"
+    # fetched to a file first: a truncated download must not run half a script
+    curl -fsSL --retry 3 --connect-timeout 10 --max-time 30 \
+        "$HERDR_INSTALLER" -o "$WORK/herdr-install.sh" \
+        || die "can't fetch $HERDR_INSTALLER"
+    HERDR_INSTALL_DIR="$HOME/.local/bin" sh "$WORK/herdr-install.sh"
+    [ -x "$HOME/.local/bin/herdr" ] || die "herdr install failed"
 }
 
 # --------------------------------------------------------- 3. system units ---
@@ -519,6 +543,7 @@ print_summary() {
     summary_row "Swayidle"      "idle manager"                           have swayidle
     summary_row "Yazi"          "terminal file manager (+ ya)"           have yazi
     summary_row "Zellij"        "terminal multiplexer"                   have zellij
+    summary_row "Herdr"         "agent workspace manager (herdr.dev)"    have herdr
     summary_row "Cliphist"      "clipboard history"                      have cliphist
     summary_row "Starship"      "shell prompt"                           have starship
     summary_row "Btop"          "system monitor"                         have btop
@@ -553,6 +578,7 @@ main() {
         install)
             install_packages
             install_paru
+            install_herdr
             enable_system_units
             install_system_files
             configure_boot
