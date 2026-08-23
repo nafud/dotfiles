@@ -7,10 +7,11 @@ binds {
     Mod+D { spawn "sh" "-c" "$HOME/.local/bin/rofi-toggle -show drun"; }
     // the default browser, whichever xdg-settings names (firefox here)
     Mod+B { spawn "sh" "-c" "gtk-launch $(xdg-settings get default-web-browser)"; }
+    Mod+M { spawn "flatpak" "run" "net.mullvad.MullvadBrowser"; }
     Mod+Shift+B { spawn "alacritty" "--class" "btop-float" "-e" "btop"; }
     // Dedicated yazi terminal. The cwd-following y() wrapper is for
     // interactive shells; here the shell would die with the window anyway.
-    Mod+E { spawn "alacritty" "-e" "yazi"; }
+    Mod+Y { spawn "alacritty" "-e" "yazi"; }
     Mod+Shift+T { spawn "alacritty" "-e" "zellij" "attach" "-c" "main"; }
     Mod+W { spawn "alacritty" "-e" "sh" "-c" "zellij attach files 2>/dev/null || zellij -s files --layout files"; }
     Mod+V { spawn "sh" "-c" "$HOME/.local/bin/clip-pick"; }
@@ -20,7 +21,7 @@ binds {
     Mod+Escape { spawn "sh" "-c" "$HOME/.local/bin/powermenu"; }
     Mod+Shift+D { spawn "makoctl" "dismiss" "-a"; }
     // floating TUI popups, btop-style: network and audio
-    Mod+N { spawn "alacritty" "--class" "nmtui-float" "-e" "nmtui"; }
+    Mod+N { spawn "sh" "-c" "$HOME/.local/bin/netmenu"; }
     Mod+A { spawn "alacritty" "--class" "mixer-float" "-e" "pulsemixer"; }
 
     Mod+O { toggle-overview; }

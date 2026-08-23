@@ -8,7 +8,7 @@ environment {
     // own titlebar buttons anyway
     QT_WAYLAND_DISABLE_WINDOWDECORATION "1"
     // for everything spawned by binds, not just interactive shells —
-    // yazi's `e` under Mod+E would otherwise fall back to vi
+    // yazi's `e` under Mod+Y would otherwise fall back to vi
     EDITOR "micro"
     VISUAL "micro"
 }
