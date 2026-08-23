@@ -6,7 +6,7 @@
 # (config/hypr/hyprlock.conf; the login page, system/usr/local/bin/
 # monogreet, follows it) on the 0d0d0d ground.
 #   bullet.png    one typed character: a 6px c0c0c0 dot in a 12px cell,
-#                 the script sets the row of them under the prompt
+#                 the script sets the row of them on the line above the prompt
 # The theme draws nothing else: no ring, no field, no throbber, no lock
 # glyph — the text it is asked to show, and the dots.
 set -euo pipefail

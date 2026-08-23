@@ -2,21 +2,23 @@
 #
 # The boot splash says only what it is asked to say: the ground is the
 # desktop's 0d0d0d from the first frame to the greeter, and when
-# plymouth asks for the passphrase, the prompt's text stands on the
+# plymouth asks for the passphrase, two lines stand as one block on the
 # screen's centre — where the lock (config/hypr/hyprlock.conf) and the
 # login page (system/usr/local/bin/monogreet) put their hour — in the
-# face and size of their lines. The characters typed so far are a row
-# of dots one line under it, growing out from the middle rather than
-# from a field's left edge; a question (a visible answer) shows the
-# answer there instead. A message, should one come, takes the line
-# under that. Nothing is drawn while nothing is asked: no ring (the
-# prompt is the whole screen; a ring around nothing said nothing), no
+# face and size of their lines: the characters typed so far as a row of
+# dots on the line above the centre, growing out from the middle rather
+# than from a field's left edge, and the prompt's text on the line
+# below it, the centre line running between the two, each half a line
+# from it. A question (a visible answer) shows the answer where the
+# dots would be. A message, should one come, takes the line under the
+# prompt. Nothing is drawn while nothing is asked: no ring (the prompt
+# is the whole screen; a ring around nothing said nothing), no
 # throbber, no caps mark, no colour for a wrong passphrase — plymouth
 # asks again, the dots start over. Images come from
 # tools/render-plymouth-mono.
 
 # --- the design's measures and palette ----------------------------------
-LINE = 30;                         # line pitch: centre to the dots, dots to a message
+LINE = 30;                         # line pitch: the dots' line to the prompt's, the prompt's to a message
 PITCH = 12;                        # dot cell; the dot is 6px in its middle
 MAX_DOTS = 20;                     # a row of 20 is 240px
 # the lock's 16: a bare size is points at 96 dpi to label-freetype
@@ -29,10 +31,13 @@ LIT.r = 0.910; LIT.g = 0.910; LIT.b = 0.910;        # e8e8e8
 Window.SetBackgroundTopColor(0.051, 0.051, 0.051);       # 0d0d0d
 Window.SetBackgroundBottomColor(0.051, 0.051, 0.051);
 
-# the screen centre (the first display's: the prompt sits on every
-# display at these coordinates, and this machine has one)
+# the screen centre (the first display's: the block sits on every
+# display at these coordinates, and this machine has one), and the two
+# lines of the block half a line above and below it
 cx = Window.GetX() + Window.GetWidth() / 2;
 cy = Window.GetY() + Window.GetHeight() / 2;
+ABOVE = cy - LINE / 2;             # the dots' line (or a visible answer's)
+BELOW = cy + LINE / 2;             # the prompt's line
 
 # --- sprites ------------------------------------------------------------
 dot.image = Image("bullet.png");
@@ -41,9 +46,9 @@ for (i = 0; i < MAX_DOTS; i++) {
     dot.sprite[i].SetOpacity(0);
 }
 
-prompt.sprite = Sprite();          # the prompt, on the centre
-answer.sprite = Sprite();          # a visible answer, one line under
-message.sprite = Sprite();         # a message, one line under that
+prompt.sprite = Sprite();          # the prompt, on the line below the centre
+answer.sprite = Sprite();          # a visible answer, on the line above it
+message.sprite = Sprite();         # a message, one line under the prompt
 
 fun centred(sprite, image, x, y, z) {
     sprite.SetImage(image);
@@ -51,13 +56,14 @@ fun centred(sprite, image, x, y, z) {
     sprite.SetOpacity(1);
 }
 
-# n dots, the row centred under the prompt: cell i of n starts at
-# cx - n * PITCH / 2 + i * PITCH, and the dot is symmetric in its cell
+# n dots, the row centred on the line above the prompt: cell i of n
+# starts at cx - n * PITCH / 2 + i * PITCH, and the dot is symmetric in
+# its cell
 fun show_dots(n) {
     if (n > MAX_DOTS) n = MAX_DOTS;
     for (i = 0; i < MAX_DOTS; i++) {
         if (i < n) {
-            dot.sprite[i].SetPosition(cx - n * PITCH / 2 + i * PITCH, cy + LINE - PITCH / 2, 2);
+            dot.sprite[i].SetPosition(cx - n * PITCH / 2 + i * PITCH, ABOVE - PITCH / 2, 2);
             dot.sprite[i].SetOpacity(1);
         } else {
             dot.sprite[i].SetOpacity(0);
@@ -70,12 +76,12 @@ fun show_dots(n) {
 # "#NULL"
 fun show_prompt(text) {
     if (!text || text == "") prompt.sprite.SetOpacity(0);
-    else centred(prompt.sprite, Image.Text(text, REST.r, REST.g, REST.b, 1, FONT), cx, cy, 3);
+    else centred(prompt.sprite, Image.Text(text, REST.r, REST.g, REST.b, 1, FONT), cx, BELOW, 3);
 }
 
 fun show_answer(text) {
     if (!text || text == "") answer.sprite.SetOpacity(0);
-    else centred(answer.sprite, Image.Text(text, LIT.r, LIT.g, LIT.b, 1, FONT), cx, cy + LINE, 3);
+    else centred(answer.sprite, Image.Text(text, LIT.r, LIT.g, LIT.b, 1, FONT), cx, ABOVE, 3);
 }
 
 # --- what plymouth tells us ---------------------------------------------
@@ -101,7 +107,7 @@ Plymouth.SetDisplayQuestionFunction(fun(prompt, entry) {
 });
 
 Plymouth.SetDisplayMessageFunction(fun(text) {
-    centred(message.sprite, Image.Text(text, REST.r, REST.g, REST.b, 1, FONT), cx, cy + 2 * LINE, 3);
+    centred(message.sprite, Image.Text(text, REST.r, REST.g, REST.b, 1, FONT), cx, BELOW + LINE, 3);
 });
 Plymouth.SetHideMessageFunction(fun(text) {
     message.sprite.SetOpacity(0);

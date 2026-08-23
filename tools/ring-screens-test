@@ -86,16 +86,17 @@ LINE = 185                    # centre to the line under the ring
 HOUR_INK = (226, 60)          # "00:00" at 60pt: ink box, digits' cap height
 LINE_INK_TOP = 180.5          # centre to the line's x-height top row at 16pt (measured on the lock)
 MESSAGE = 30                  # the line to the feedback line under it ("caps lock", "wrong password")
-# the feedback line's ink widths at 13pt (17.3px, 10.4px per character),
-# as measured on the lock and the login page: the words tell each other
-# apart by length alone
-CAPS_WIDTH = (78, 100)        # "caps lock"
-WRONG_WIDTH = (128, 152)      # "wrong password"
-BOTH_WIDTH = (250, 290)       # "caps lock · wrong password"
-SPLASH_LINE = 30              # the splash: prompt on the centre, the dots one line under
+# the feedback line's ink widths at 16pt (21.3px, 12.8px per character,
+# the marks' size), as measured on the lock and the login page: the
+# words tell each other apart by length alone
+CAPS_WIDTH = (96, 124)        # "caps lock"
+WRONG_WIDTH = (158, 190)      # "wrong password"
+BOTH_WIDTH = (300, 360)       # "caps lock · wrong password"
+SPLASH_LINE = 30              # the splash: the dots' line half of this above the centre, the prompt's half below
 REST, LIT, EDGE_GREY, GROUND = (0xC0,) * 3, (0xE8,) * 3, (0x33,) * 3, (0x0D,) * 3
 FADE_TIMEOUT = 2.0            # the field goes this long after it empties …
 FADE = 0.8                    # … over this long
+FAIL_TIMEOUT = 2.0            # "wrong password" stands this long after the verdict (hyprlock's fail_timeout), or until a keystroke
 
 
 # ---------------------------------------------------------------- report ---
@@ -238,7 +239,7 @@ class Frame:
         return (min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1)
 
     def hour_box(self, cx, cy):
-        """The lit ink inside the ring: the hour, or the λ."""
+        """The lit ink inside the ring: the hour."""
         return self.ink_box(round(cx - 140), round(cy - 140), round(cx + 140), round(cy + 140),
                             lit_ink, disc=(cx, cy, 145))
 
@@ -548,6 +549,7 @@ def fade_checks(report, nested, clock, reference, cx, cy, label, colour=EDGE_GRE
     report.check(f"{label}: field gone {FADE_TIMEOUT + FADE + 0.3:g}s after emptying",
                  gone.ring_edges(reference, cx, cy) == {"left": None, "right": None, "top": None, "bottom": None},
                  gone.ring_edges(reference, cx, cy))
+    return held, held_late, gone
 
 
 # ------------------------------------------------------------------- lock ---
@@ -626,11 +628,18 @@ def test_lock(out, scale, pixel_size, report):
         # logs "Failed attempts" the instant the reply lands — poll the
         # log and start the fade clock there, as the login test starts
         # its at the fake greetd's pause. The fade runs first, while the
-        # clock is fresh: its held-late frame doubles as the ring's fall
-        # back to rest grey (the lit-to-grey move is done well inside
-        # the fade timeout, and the frame's grey-opacity check is that
-        # colour check); the message is read once the field is gone —
-        # it stays, that is the point.
+        # clock is fresh: its first frame, taken at once, is where
+        # "wrong password" is read (bin/lock-line says it for
+        # FAIL_TIMEOUT after the count grew, hyprlock's fail_timeout —
+        # the label re-runs it five times a second, so it is on the
+        # line within 0.2 s of the verdict), its held-late frame doubles
+        # as the ring's fall back to rest grey (the lit-to-grey move is
+        # done well inside the fade timeout, and the frame's
+        # grey-opacity check is that colour check), and its gone frame,
+        # 3.1 s after the verdict, is where the word must have gone
+        # again — with caps lock on (the LED file alone: the line reads
+        # the file, and a lock holding a password keeps no keystroke for
+        # it) the line says both while the word stands, caps alone after.
         for _ in range(100):
             if "Failed attempts: 1" in log.read_text():
                 break
@@ -638,19 +647,21 @@ def test_lock(out, scale, pixel_size, report):
         else:
             report.check("lock: the wrong password was answered (hyprlock log)", False)
         clock.act()
-        fade_checks(report, nested, clock, idle, cx, cy, "lock after a wrong password")
-        failed = nested.shot("failed")
+        capslock.write_text("1\n")
+        clock.at(0.4)
+        failed, _, gone = fade_checks(report, nested, clock, idle, cx, cy, "lock after a wrong password")
+        message_report(report, failed, cx, cy, "lock after a wrong password, caps lock on", BOTH_WIDTH)
         report.check("lock after a wrong password: field gone, the hour back",
-                     failed.field_absent(cx, cy) and failed.hour_box(cx, cy) is not None)
-        message_report(report, failed, cx, cy, "lock after a wrong password", WRONG_WIDTH)
-        capslock.write_text("1\n"); clock.act(); clock.at(0.6)
-        message_report(report, nested.shot("failed-caps"), cx, cy, "lock after a wrong password, caps lock on", BOTH_WIDTH)
+                     gone.field_absent(cx, cy) and gone.hour_box(cx, cy) is not None)
+        message_report(report, gone, cx, cy, f"lock {FADE_TIMEOUT + FADE + 0.3:g}s after a wrong password, caps lock on", CAPS_WIDTH)
         capslock.write_text("0\n"); clock.act(); clock.at(0.6)
+        message_report(report, nested.shot("failed-caps-off"), cx, cy, "lock after a wrong password, caps lock off", None)
 
         nested.keys("x"); clock.act(); clock.at(FADE + 0.2)
         retyped = nested.shot("retyped")
         report.check("lock: field back on the next keystroke", retyped.opacity(idle, cx, cy, EDGE_GREY) >= 0.97,
                      retyped.opacity(idle, cx, cy, EDGE_GREY))
+        message_report(report, retyped, cx, cy, "lock retyping after a wrong password", None)
         nested.keys("Escape"); clock.act(); clock.at(0.3)
         fade_checks(report, nested, clock, idle, cx, cy, "lock after Escape")
 
@@ -703,7 +714,11 @@ def test_login(out, scale, pixel_size, report):
             nested.caps_lock(False); clock.act(); clock.at(0.6)
             message_report(report, nested.shot("caps-off"), cx, cy, "login caps lock off", None)
 
-            nested.keys("a", "b", "c", "Return"); clock.act()
+            # caps lock goes on while the password is checked (after the
+            # keystrokes: each wtype run is a virtual keyboard of its own,
+            # and a keystroke's keyboard reports no Lock — caps set before
+            # it would be undone): the verdict's line reads both words
+            nested.keys("a", "b", "c", "Return"); clock.act(); nested.caps_lock(True)
             clock.at(0.25); on1 = nested.shot("check-on")
             clock.at(0.75); off = nested.shot("check-off")
             clock.at(1.25); on2 = nested.shot("check-on2")
@@ -714,25 +729,31 @@ def test_login(out, scale, pixel_size, report):
                 report.check(f"login {name}: ring lit e8e8e8 all round",
                              all(frame.edge_run(cx, cy, s, LIT, tolerance=tol) for s in ("left", "right", "top", "bottom")))
             marks = [f.hour_box(cx, cy) for f in (on1, off, on2)]
-            report.measure("login checking: ink in the hour's place at 0.25 / 0.75 / 1.25 s (λ on, off, on)", marks)
-            report.check("login checking: the λ blinks (ink, none, ink)",
-                         marks[0] is not None and marks[1] is None and marks[2] is not None)
+            report.measure("login checking: the hour's ink box at 0.25 / 0.75 / 1.25 s", marks)
+            report.check("login checking: the hour stays, unmoved, through the check (the lit ring is the only sign)",
+                         all(m is not None and abs(m[2] - HOUR_INK[0]) <= 2 and abs(m[3] - HOUR_INK[1]) <= 1 for m in marks), marks)
             clock.at(3.0 + 0.4); failed = nested.shot("failed")
             report.check("login after a wrong password: ring back at rest grey",
                          failed.edge_run(cx, cy, "left", EDGE_GREY) is not None)
             report.check("login after a wrong password: the hour is back", failed.hour_box(cx, cy) is not None)
-            message_report(report, failed, cx, cy, "login after a wrong password", WRONG_WIDTH)
-            # the field empties when the answer is sent; the fade clock starts at the verdict
+            message_report(report, failed, cx, cy, "login after a wrong password, caps lock on", BOTH_WIDTH)
+            # the field empties when the answer is sent; the fade clock
+            # starts at the verdict, and so does "wrong password"'s
+            # FAIL_TIMEOUT — the fade's gone frame, 3.1 s on, is past it:
+            # caps lock stands alone
             clock.mark += 3.0
-            fade_checks(report, nested, clock, idle, cx, cy, "login after a wrong password")
-            nested.keys("x"); clock.act(); clock.at(FADE + 0.2)
+            _, _, gone = fade_checks(report, nested, clock, idle, cx, cy, "login after a wrong password")
+            message_report(report, gone, cx, cy, f"login {FADE_TIMEOUT + FADE + 0.3:g}s after a wrong password, caps lock on", CAPS_WIDTH)
+            nested.caps_lock(False); clock.act(); clock.at(0.6)
+            message_report(report, nested.shot("failed-caps-off"), cx, cy, "login after a wrong password, caps lock off", None)
+            # a fresh refusal, cleared by the next keystroke 0.3 s after
+            # the verdict — well before the clock would clear it
+            nested.keys("a", "Return"); clock.act(); clock.at(3.0 + 0.3)
+            nested.keys("x"); clock.act(); clock.at(0.4)
             retyped = nested.shot("retyped")
             report.check("login: field back on the next keystroke", retyped.opacity(idle, cx, cy, EDGE_GREY) >= 0.97,
                          retyped.opacity(idle, cx, cy, EDGE_GREY))
-            message_report(report, retyped, cx, cy, "login retyping after a wrong password", WRONG_WIDTH)
-            nested.caps_lock(True); clock.act(); clock.at(0.6)
-            message_report(report, nested.shot("retyped-caps"), cx, cy, "login retyping, caps lock on", BOTH_WIDTH)
-            nested.caps_lock(False); clock.act(); clock.at(0.6)
+            message_report(report, retyped, cx, cy, "login retyping 0.7 s after a second wrong password (the keystroke clears the word)", None)
             errors = log.read_text().strip() if log.exists() else ""
             report.check("login: monogreet wrote nothing to stderr", not errors, errors[-300:])
     finally:
@@ -867,27 +888,34 @@ def test_splash(out, pixel_size, report):
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(1.0)
         prompt = shot("prompt")
-        # the prompt's logical box is centred on the screen's centre; its
+        # the two lines stand as one block on the screen's centre: the
+        # prompt's logical box is centred half a line below it, and its
         # ink (lowercase with descenders, a colon) sits within the 21px
-        # line around it
-        box = prompt.ink_box(round(cx - 400), round(cy - 20), round(cx + 400), round(cy + 20), rest_ink)
+        # line around that; the dots' line is the mirror, half a line
+        # above — nothing is drawn on the centre row itself
+        below, above = cy + SPLASH_LINE / 2, cy - SPLASH_LINE / 2
+        box = prompt.ink_box(round(cx - 400), round(below - 20), round(cx + 400), round(below + 20), rest_ink)
         report.measure("splash prompt: ink box (x, y, w, h)", box)
-        report.check("splash prompt: text centred on the screen's centre (x within 3px, ink within the 16pt line)",
+        report.check(f"splash prompt: text centred half a line ({SPLASH_LINE / 2:g}px) under the screen's centre "
+                     "(x within 3px, ink within the 16pt line)",
                      box is not None and abs((box[0] + box[2] / 2) - (cx + 0.5)) <= 3
-                     and box[1] >= cy - 12 and box[1] + box[3] <= cy + 12, box)
+                     and box[1] >= below - 12 and box[1] + box[3] <= below + 12, box)
+        report.check("splash prompt: nothing above the centre before a keystroke",
+                     prompt.ink_box(round(cx - 400), round(above - 20), round(cx + 400), round(cy), rest_ink) is None)
         xtest_keys("a", "b", "c"); clock.act(); clock.at(0.4)
         typed = shot("typed3")
-        dots = typed.ink_box(round(cx - 140), round(cy + SPLASH_LINE - 10), round(cx + 140), round(cy + SPLASH_LINE + 10), rest_ink)
+        dots = typed.ink_box(round(cx - 140), round(above - 10), round(cx + 140), round(above + 10), rest_ink)
         report.measure("splash typed 3: dots' ink box", dots)
-        report.check(f"splash typed 3: three dots centred one line ({SPLASH_LINE}px) under the prompt (3 x 12px cells)",
+        report.check(f"splash typed 3: three dots centred half a line ({SPLASH_LINE / 2:g}px) above the screen's centre "
+                     "(3 x 12px cells)",
                      dots is not None and abs((dots[0] + dots[2] / 2) - (cx + 0.5)) <= 1.5 and 26 <= dots[2] <= 30
-                     and abs((dots[1] + dots[3] / 2) - (cy + SPLASH_LINE + 0.5)) <= 1.5, dots)
+                     and abs((dots[1] + dots[3] / 2) - (above + 0.5)) <= 1.5, dots)
         report.check("splash typed 3: the prompt still reads the same",
-                     typed.ink_box(round(cx - 400), round(cy - 20), round(cx + 400), round(cy + 20), rest_ink) == box)
+                     typed.ink_box(round(cx - 400), round(below - 20), round(cx + 400), round(below + 20), rest_ink) == box)
         xtest_keys("Return"); clock.act(); clock.at(0.6)
         retry = shot("after-enter")
         report.check("splash after a wrong passphrase: asked again, dots cleared",
-                     retry.ink_box(round(cx - 140), round(cy + SPLASH_LINE - 10), round(cx + 140), round(cy + SPLASH_LINE + 10), rest_ink) is None)
+                     retry.ink_box(round(cx - 140), round(above - 10), round(cx + 140), round(above + 10), rest_ink) is None)
         xtest_keys("Return"); time.sleep(0.5)
         asker.wait(5)
     finally:

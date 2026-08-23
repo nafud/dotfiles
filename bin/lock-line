@@ -1,10 +1,11 @@
 #!/bin/bash
 # lock-line ATTEMPTS [LED...] — the lock screen's feedback line, in
-# words: "caps lock" while caps lock is on, "wrong password" once a
-# password has been refused, both joined by the line's muted dot, or
-# nothing. hyprlock runs it from a label (config/hypr/hyprlock.conf:
-# cmd[update:200]) with its $ATTEMPTS — the count of refused passwords
-# this lock — and prints what it returns under the ring.
+# words: "caps lock" while caps lock is on, "wrong password" for two
+# seconds after a password is refused, both joined by the line's muted
+# dot, or nothing. hyprlock runs it from a label
+# (config/hypr/hyprlock.conf: cmd[update:200]) with its $ATTEMPTS — the
+# count of refused passwords this lock — and prints what it returns
+# under the ring.
 #
 # Said in words because hyprlock paints these two states and says
 # neither: caps lock reaches a label only as the field's capslock_color,
@@ -12,13 +13,20 @@
 # left standing until the next failure) or as $ATTEMPTS. A label's
 # command is its one channel to state outside hyprlock, so the count
 # comes in as the argument and caps lock is read where the compositor
-# writes it:
-# the keyboards' caps-lock LEDs, which niri sets on every keyboard it
-# drives — /sys/class/leds/<input>::capslock/brightness, 1 while caps
-# lock is on (the lock holds the keys, the compositor still keeps the
-# modifier state and the LEDs). A machine whose keyboards expose no
-# such LED says nothing about caps. The files can be named after the
-# count, for a run off the real keyboards.
+# writes it: the keyboards' caps-lock LEDs, which niri sets on every
+# keyboard it drives — /sys/class/leds/<input>::capslock/brightness, 1
+# while caps lock is on (the lock holds the keys, the compositor still
+# keeps the modifier state and the LEDs). A machine whose keyboards
+# expose no such LED says nothing about caps. The files can be named
+# after the count, for a run off the real keyboards.
+#
+# The two seconds are hyprlock's own fail convention (its fail display
+# runs general:fail_timeout, 2000 ms, then clears; the login page keeps
+# the same clock): the count only ever grows, so the moment it grew is
+# remembered in $XDG_RUNTIME_DIR and the word shows while the two
+# seconds run. hyprlock also clears its fail display on the next
+# keystroke — a keystroke is one thing this command cannot see, so here
+# the two seconds alone decide.
 #
 # The line is Pango markup (hyprlock's labels are): the dot in the
 # palette's muted 666666, the words in the label's own colour.
@@ -29,6 +37,25 @@ if [ "$#" -eq 0 ]; then
     set -- /sys/class/leds/*::capslock/brightness
 fi
 
+FAIL_TIMEOUT_MS=2000
+state="${XDG_RUNTIME_DIR:-/tmp}/lock-line.state"   # "count stamp-ms" of the last refusal
+
+case "$attempts" in *[!0-9]*|"") attempts=0 ;; esac
+now=$(( ${EPOCHREALTIME/./} / 1000 ))
+
+stored=0 stamp=0
+if [ -r "$state" ]; then
+    read -r stored stamp < "$state" || stored=0 stamp=0
+fi
+case "$stored$stamp" in *[!0-9]*|"") stored=0 stamp=0 ;; esac
+if [ "$attempts" -ne "$stored" ]; then
+    # grown: a fresh refusal, its moment is now; shrunk: a new lock,
+    # whose count starts over — nothing to say yet
+    stamp=$(( attempts > stored ? now : 0 ))
+    printf '%s %s\n' "$attempts" "$stamp" > "$state"
+    stored=$attempts
+fi
+
 words=()
 for led; do
     [ -r "$led" ] || continue
@@ -37,7 +64,7 @@ for led; do
         break
     fi
 done
-[ "$attempts" -gt 0 ] 2>/dev/null && words+=("wrong password")
+[ "$stored" -gt 0 ] && [ $(( now - stamp )) -lt "$FAIL_TIMEOUT_MS" ] && words+=("wrong password")
 
 line=""
 for word in "${words[@]}"; do

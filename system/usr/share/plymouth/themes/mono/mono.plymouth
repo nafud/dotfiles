@@ -1,6 +1,6 @@
 [Plymouth Theme]
 Name=Mono
-Description=The desktop's ground from the first frame, and on it only what is asked: the passphrase prompt on the screen's centre, the characters typed as a row of dots one line under it.
+Description=The desktop's ground from the first frame, and on it only what is asked: the characters typed as a row of dots on the line above the screen's centre, the passphrase prompt on the line below it.
 ModuleName=script
 
 [script]

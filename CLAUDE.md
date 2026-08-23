@@ -35,13 +35,20 @@ page** (`system/usr/local/bin/monogreet`, a GTK4 greetd greeter) copies
 all of that, drawing in the output's physical pixels with text sizes in
 points at 96 dpi so the two match on the 1.25-scale panel; the **boot
 splash** (`system/usr/share/plymouth/themes/mono/`) has no ring — only
-the passphrase prompt on the screen's centre, the typed characters as a
-row of dots one line (30px) under it. Feedback is **words, not
-colours**: "caps lock" and "wrong password" on the line under the ring
+a two-line block on the screen's centre: the typed characters as a row
+of dots on the line 15px above it, the passphrase prompt on the line
+15px below (one 30px pitch apart, mirrored about the centre). Every
+line under the ring — the marks, the feedback, the splash's prompt — is
+one size, 16pt (21.3px); only the hour is 60. Feedback is **words, not
+colours**: "caps lock" and "wrong password" on the line under the ring,
+the failure standing for 2s — hyprlock's own `fail_timeout` convention
 (lock: a `cmd[update:200]` label running `bin/lock-line`, which reads
-the keyboards' caps-lock LEDs in sysfs and the `$ATTEMPTS` count; login
-page: GDK's `caps-lock-state` and greetd's auth_error). The only colour
-event is the ring lit `e8e8e8` while a password is checked. hyprlock has
+the keyboards' caps-lock LEDs in sysfs and the `$ATTEMPTS` count,
+remembering in `$XDG_RUNTIME_DIR` when it grew; login page: GDK's
+`caps-lock-state` and greetd's auth_error, cleared by the next
+keystroke too). The only colour
+event is the ring lit `e8e8e8` while a password is checked — the
+check's only sign on both screens; the hour stays. hyprlock has
 no off-switch for its fail colour, so `fail_color` equals the outline
 colour — that is the configuration meaning "no change", not a leftover.
 
@@ -52,7 +59,7 @@ colour — that is the configuration meaning "no change", not a leftover.
   `$LAYOUT[…]` marks in `config/hypr/hyprlock.conf`. `tools/check`
   fails if they disagree.
 - Geometry numbers (ring 300, edge 3, line at 185, feedback line +30,
-  fonts 60/16/13pt) are duplicated by design across hyprlock.conf,
+  fonts 60/16pt) are duplicated by design across hyprlock.conf,
   monogreet, mono.script and tools/ring-screens-test — change one,
   change all, and the harness will measure the truth.
 - Committed generated images (`system/…/mono/bullet.png`, `icons/mono/`)

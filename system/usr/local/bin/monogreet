@@ -11,12 +11,15 @@ session only when there is a choice to make (one session: nothing to
 say; one layout: no mark). The field — ring, glass disc, quadrant — is
 not there until the first keystroke, stays while something is typed
 or checked, and goes two seconds after the field empties again, as
-hyprlock's fade_on_empty has it; the hour stays throughout. While the
-password is checked the ring is lit e8e8e8 and a "λ" blinks where the
-hour was. Caps lock and a wrong password are said in words, on a line
-under the name — "caps lock" while it is on, "wrong password" until the
-next try — as the lock says them (bin/lock-line); neither is painted on
-the ring, which has no colour but its rest grey and the check's lit.
+hyprlock's fade_on_empty has it; the hour stays throughout, the check
+included — while the password is checked the ring is lit e8e8e8, and
+that is all that says so, as on the lock. Caps lock and a wrong
+password are said in words, on a line under the name, in the name's
+size — "caps lock" while it is on, "wrong password" for two
+seconds or until the next keystroke, hyprlock's own fail convention
+(general:fail_timeout, which the lock's line keeps too, bin/lock-line)
+— and neither is painted on the ring, which has no colour but its rest
+grey and the check's lit.
 
 Keys: type and Enter to log in; Up/Down cycle users, Tab cycles
 sessions, Alt+Shift cycles layouts (the compositor's bind); F10 powers
@@ -87,6 +90,9 @@ REBOOT_GLYPH = "\U000F0709"   # nf-md-restart
 # hyprutils' "default" curve, cubic-bezier(0, 0.75, 0.15, 1)
 FADE_TIMEOUT_MS = 2000
 FADE_MS = 800
+# how long "wrong password" stands: hyprlock's general:fail_timeout,
+# cleared sooner by the next keystroke, as hyprlock clears its own fail
+FAIL_TIMEOUT_MS = 2000
 FADE_CURVE = ((0.0, 0.75), (0.15, 1.0))
 
 
@@ -395,14 +401,9 @@ class Page(Gtk.Widget):
                 qx, qy = quadrants[g.quadrant]
                 self.ring(snapshot, rounded, LIT, self.fade, Graphene.Rect().init(qx, qy, r, r))
 
-        # inside: the hour — or, while the password is checked, the "λ"
-        # blinking in its place (pango centres both glyphs' ink on the
-        # same point of the box, so the mark lands where the hour is);
-        # the date at the top
-        if not g.checking:
-            self.text(snapshot, datetime.now().strftime("%H:%M"), 60, LIT, cx, cy)
-        elif g.mark_on:
-            self.text(snapshot, "λ", 60, LIT, cx, cy)
+        # inside: the hour, through the check as well (the lit ring is
+        # the check's only sign, as on the lock); the date at the top
+        self.text(snapshot, datetime.now().strftime("%H:%M"), 60, LIT, cx, cy)
         self.text(snapshot, datetime.now().strftime("%a %d %b"), 16, REST, cx, MARGIN)
 
         # user · session · layout, one line under the ring: the session
@@ -418,17 +419,17 @@ class Page(Gtk.Widget):
         y = cy + LINE_Y
         self.marks(snapshot, parts, 16, y)
 
-        # the feedback line under that, as the lock has it (bin/lock-line):
-        # "caps lock" while caps lock is on, then the message — a prompt,
-        # or what went wrong — and a visible prompt (an OTP, a question)
-        # shows the answer as it is typed
+        # the feedback line under that, in the same size, as the lock has
+        # it (bin/lock-line): "caps lock" while caps lock is on, then the
+        # message — a prompt, or what went wrong — and a visible prompt
+        # (an OTP, a question) shows the answer as it is typed
         words = [(None, "caps lock")] if g.caps_lock else []
         line = g.message
         if not g.secret and g.typed:
             line = f"{g.message}  {g.typed}" if g.message else g.typed
         if line:
             words.append((None, line))
-        self.marks(snapshot, words, 13, y + 30)
+        self.marks(snapshot, words, 16, y + 30)
 
         # the two glyphs that end the greeter, their ink centred the
         # date's distance from the bottom edge, 32px apart
@@ -448,8 +449,6 @@ class Page(Gtk.Widget):
 
 # --------------------------------------------------------------- greeter ---
 class Greeter(Gtk.Application):
-    BLINK_MS = 500                # the "λ" is on 0.5 s, off 0.5 s
-
     def __init__(self):
         super().__init__(application_id="dev.nafud.monogreet")
         self.users = users() or [pwd.getpwuid(os.getuid()).pw_name]
@@ -463,9 +462,8 @@ class Greeter(Gtk.Application):
         self.secret = True            # the current prompt hides its input
         self.quadrant = None          # the quadrant the last keystroke lit, 0..3 clockwise from top-right
         self.checking = False
-        self.mark_on = False          # the "λ" is in its on half
-        self.blinking = False         # its timer runs
         self.message = ""             # the line under the name: a prompt, or what went wrong
+        self.transient_timer = None   # runs while a transient message ("wrong password") stands
         self.caps_lock = False        # the keyboard's caps lock, as GDK reports it
         self.answers = queue.Queue()  # the auth thread waits here for further answers
         self.in_conversation = False
@@ -489,9 +487,24 @@ class Greeter(Gtk.Application):
         """The session's id (niri, sway…): the line is lowercase marks."""
         return self.sessions[self.session_index][0] if self.sessions else "no session"
 
-    def say(self, message):
+    def say(self, message, transient=False):
+        """Put a line under the name. A transient one — "wrong password" —
+        stands for FAIL_TIMEOUT_MS or until the next keystroke, as
+        hyprlock's fail display does; a prompt or an error stays until
+        something replaces it."""
         self.message = message
+        if self.transient_timer is not None:
+            GLib.source_remove(self.transient_timer)
+            self.transient_timer = None
+        if transient and message:
+            self.transient_timer = GLib.timeout_add(FAIL_TIMEOUT_MS, self.on_transient_timeout)
         self.page.queue_draw()
+
+    def on_transient_timeout(self):
+        self.transient_timer = None
+        self.message = ""
+        self.page.queue_draw()
+        return GLib.SOURCE_REMOVE
 
     # -- window --------------------------------------------------------------
     def do_activate(self):
@@ -559,6 +572,8 @@ class Greeter(Gtk.Application):
     def on_key(self, _controller, keyval, _keycode, _state):
         if self.checking:
             return True
+        if self.transient_timer is not None:      # any keystroke clears the fail, as on the lock
+            self.say("")
         if keyval == Gdk.KEY_Escape:
             self.clear()
             self.secret = True
@@ -676,11 +691,14 @@ class Greeter(Gtk.Application):
                         GLib.idle_add(self.say, prompt)
                         reply = greetd.send(type="post_auth_message_response")
                     continue
-                # error: auth_error is a wrong answer, anything else is news
+                # error: auth_error is a wrong answer — said transiently, as
+                # the lock says it; anything else is news that must stand
                 description = reply.get("description", "login failed")
                 greetd.send(type="cancel_session")
-                GLib.idle_add(self.finish, False,
-                              "wrong password" if reply.get("error_type") == "auth_error" else description)
+                if reply.get("error_type") == "auth_error":
+                    GLib.idle_add(self.finish, False, "wrong password", True)
+                else:
+                    GLib.idle_add(self.finish, False, description)
                 return
         except (OSError, ValueError) as error:
             GLib.idle_add(self.finish, False, f"greetd: {error}")
@@ -696,30 +714,15 @@ class Greeter(Gtk.Application):
         self.say(prompt or ("password" if secret else ""))
 
     def busy(self):
-        """The ring lights and the "λ" blinks until the answer comes: one
-        timer, started here, running for as long as the check does (it
-        outlives a short pause for a further prompt, so it is not started
-        twice)."""
+        """The ring lights until the answer comes."""
         self.checking = True
-        self.mark_on = True
-        if not self.blinking:
-            self.blinking = True
-            GLib.timeout_add(self.BLINK_MS, self.blink)
         self.page.queue_draw()
 
-    def blink(self):
-        if not self.checking:
-            self.blinking = False
-            return False
-        self.mark_on = not self.mark_on
-        self.page.queue_draw()
-        return True
-
-    def finish(self, ok, message):
+    def finish(self, ok, message, transient=False):
         self.checking = False
         self.secret = True
         if not ok:
-            self.say(message)
+            self.say(message, transient)
 
 
 if __name__ == "__main__":
