@@ -21,6 +21,7 @@
 # no imagemagick and no pacman.
 # shellcheck disable=SC2016  # snippets handed to a fresh bash are meant literally
 # shellcheck disable=SC2329  # every t_* function is invoked indirectly, through check's "$@"
+# shellcheck disable=SC2317  # the same verdict as shellcheck <= 0.9 (CI's) hands down: per body line, before SC2329 existed
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 REPO_DIR="$PWD"
