@@ -85,6 +85,11 @@ RING = 300                    # outer diameter
 EDGE = 3                      # the edge, inside the 300
 LINE = 185                    # centre to the line under the ring
 HOUR_INK = (226, 60)          # "00:00" at 60pt: ink box, digits' cap height
+# the live clock's own digits move the hour's ink box: across every
+# HH:MM digit set the ink width runs -4..+2 px about 00:00's (pango,
+# narrowest 10:04, widest 00:07 — a 1's side bearings are the deep
+# end), and the frame threshold adds one more either side
+HOUR_SPREAD = (-5, 3)
 LINE_INK_TOP = 180.5          # centre to the line's x-height top row at 16pt (measured on the lock)
 MESSAGE = 30                  # the line to the feedback line under it ("caps lock", "wrong password")
 # the feedback line's ink widths at 16pt (21.3px, 12.8px per character,
@@ -489,8 +494,8 @@ def ring_report(report, frame, reference, cx, cy, label):
 def hour_report(report, frame, cx, cy, label):
     box = frame.hour_box(cx, cy)
     report.measure(f"{label}: hour ink box (x, y, w, h)", box)
-    report.check(f"{label}: hour ink is {HOUR_INK[0]} x {HOUR_INK[1]} (60pt digits)",
-                 box is not None and abs(box[2] - HOUR_INK[0]) <= 2 and abs(box[3] - HOUR_INK[1]) <= 1)
+    report.check(f"{label}: hour ink is {HOUR_INK[0]}{HOUR_SPREAD[0]:+d}..{HOUR_SPREAD[1]:+d} x {HOUR_INK[1]} (60pt digits, the clock's own digits moving the box)",
+                 box is not None and HOUR_SPREAD[0] <= box[2] - HOUR_INK[0] <= HOUR_SPREAD[1] and abs(box[3] - HOUR_INK[1]) <= 1)
     if box:
         report.measure(f"{label}: hour ink centre", (box[0] + box[2] / 2, box[1] + box[3] / 2))
 
@@ -741,7 +746,7 @@ def test_login(out, scale, pixel_size, report):
             marks = [f.hour_box(cx, cy) for f in (rising, lit1, lit2)]
             report.measure("login checking: the hour's ink box at 0.25 / 1 / 2 s", marks)
             report.check("login checking: the hour stays, unmoved, through the check (the lit ring is the only sign)",
-                         all(m is not None and abs(m[2] - HOUR_INK[0]) <= 2 and abs(m[3] - HOUR_INK[1]) <= 1 for m in marks), marks)
+                         all(m is not None and HOUR_SPREAD[0] <= m[2] - HOUR_INK[0] <= HOUR_SPREAD[1] and abs(m[3] - HOUR_INK[1]) <= 1 for m in marks), marks)
             # the verdict, 3 s after the answer: the edge on its way back
             # from the check colour to rest grey over COLOUR — the lit
             # fading, as on the lock, not snapping — the rest grey itself
