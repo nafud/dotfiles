@@ -192,25 +192,39 @@ class Greetd:
 
 # -------------------------------------------------------------- sessions ---
 def sessions():
-    """Session entries from the usual dirs: (id, name, argv, env)."""
+    """Session entries from the usual dirs: (id, name, argv, env).
+
+    One bad file must not cost the login page: these dirs are filled by
+    packages, and a .desktop that configparser refuses (a duplicated
+    key, a stray line) or an Exec that shlex cannot split would
+    otherwise raise out of here and end the greeter before it draws.
+    strict=False takes the common duplicates in stride (last value
+    wins); whatever still fails is skipped with a word on stderr, and
+    the other sessions stand."""
     found = []
     for directory in SESSION_DIRS:
         for path in sorted(directory.glob("*.desktop")):
-            entry = configparser.ConfigParser(interpolation=None)
-            entry.read(path, encoding="utf-8")
-            if not entry.has_section("Desktop Entry"):
-                continue
-            desktop = entry["Desktop Entry"]
-            if desktop.getboolean("Hidden", False) or desktop.getboolean("NoDisplay", False):
-                continue
-            if "Exec" not in desktop:
+            entry = configparser.ConfigParser(interpolation=None, strict=False)
+            try:
+                entry.read(path, encoding="utf-8")
+                if not entry.has_section("Desktop Entry"):
+                    continue
+                desktop = entry["Desktop Entry"]
+                if desktop.getboolean("Hidden", False) or desktop.getboolean("NoDisplay", False):
+                    continue
+                if "Exec" not in desktop:
+                    continue
+                argv = shlex.split(desktop["Exec"])
+                name = desktop.get("Name", path.stem)
+                desktop_names = desktop.get("DesktopNames")
+            except (configparser.Error, OSError, UnicodeDecodeError, ValueError) as error:
+                print(f"monogreet: session entry {path} skipped: {error}", file=sys.stderr)
                 continue
             session_type = "wayland" if directory.name == "wayland-sessions" else "x11"
             env = [f"XDG_SESSION_TYPE={session_type}", f"XDG_SESSION_DESKTOP={path.stem}"]
-            if desktop.get("DesktopNames"):
-                env.append(f"XDG_CURRENT_DESKTOP={desktop['DesktopNames']}")
-            found.append((path.stem, desktop.get("Name", path.stem),
-                          shlex.split(desktop["Exec"]), env))
+            if desktop_names:
+                env.append(f"XDG_CURRENT_DESKTOP={desktop_names}")
+            found.append((path.stem, name, argv, env))
     return found
 
 
@@ -642,6 +656,11 @@ class Greeter(Gtk.Application):
         def on_event(source, _condition):
             line = source.readline()
             if not line:
+                # the stream is over (the compositor is going down):
+                # close and reap it, or the dead process would stand as
+                # a zombie for the greeter's life
+                stream.stdout.close()
+                stream.wait()
                 return False
             if "KeyboardLayout" in line:
                 self.layout = layout_mark()
@@ -739,13 +758,19 @@ class Greeter(Gtk.Application):
         create the session, answer every prompt (the first with what was
         typed, later ones with what the user types next), start the
         session on success. UI changes go through the main loop."""
-        self.in_conversation = True
         session_id, _, argv, env = self.sessions[self.session_index]
         try:
             greetd = Greetd(os.environ["GREETD_SOCK"])
         except (KeyError, OSError) as error:
             GLib.idle_add(self.finish, False, f"greetd unreachable: {error}")
             return
+        # only now that the socket is open: the flag routes the next
+        # Enter into the answers queue, and the finally below is what
+        # clears it — set before the connect, an unreachable greetd
+        # would leave it standing, and the next password would sit in
+        # the queue with no conversation to take it while checking
+        # holds every key out
+        self.in_conversation = True
         try:
             reply = greetd.send(type="create_session", username=user)
             while True:
