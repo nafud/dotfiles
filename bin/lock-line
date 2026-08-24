@@ -41,7 +41,11 @@ FAIL_TIMEOUT_MS=2000
 state="${XDG_RUNTIME_DIR:-/tmp}/lock-line.state"   # "count stamp-ms" of the last refusal
 
 case "$attempts" in *[!0-9]*|"") attempts=0 ;; esac
-now=$(( ${EPOCHREALTIME/./} / 1000 ))
+# EPOCHREALTIME writes the locale's decimal separator — a comma under
+# the ru/az session locales this machine's layouts invite — so every
+# non-digit is stripped rather than the dot alone: six fractional
+# digits either way, the same microsecond count in any locale
+now=$(( ${EPOCHREALTIME//[^0-9]/} / 1000 ))
 
 stored=0 stamp=0
 if [ -r "$state" ]; then

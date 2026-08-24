@@ -29,6 +29,8 @@
 #   tools/    generators for committed assets (the plymouth theme's
 #             images) and the ring screens' live test; not installed
 #             anywhere
+#   tests/    the hermetic test suites tools/check runs — sandboxed,
+#             no sudo, no session, no network; not installed anywhere
 #   setup.sh  everything a config file cannot express: packages, system
 #             glue (units, the initramfs and grub.cfg rebuilds, the
 #             greeter's state dirs and background, MIME defaults,
@@ -194,9 +196,12 @@ enable_system_units() {
 # system/ mirrors /: every file under it is installed to the same path,
 # root-owned, the way config/ mirrors ~/.config — one tree, one rule;
 # a file executable in the repo (monogreet) is executable in place.
-# Files already identical in place are left alone, so a rerun is quiet;
-# the paths that did change are collected for the stages below, which
-# rebuild only what those files feed (the initramfs, grub.cfg).
+# A file already in place with the repo's content and mode is left
+# alone, so a rerun is quiet — the mode is part of the comparison,
+# or a permission change alone (a script gaining its x bit) would
+# never reach the disk; the paths that did change are collected for
+# the stages below, which rebuild only what those files feed (the
+# initramfs, grub.cfg).
 #
 # A directory the repo fills wholly is mirrored exactly: a file in it
 # that the repo no longer ships is removed. The plymouth theme dir is
@@ -214,9 +219,11 @@ install_system_files() {
     local src dest mode dir file
     while IFS= read -r -d '' src; do
         dest="${src#"$REPO/system"}"
-        cmp -s "$src" "$dest" && continue
         mode=644
         [ -x "$src" ] && mode=755
+        if cmp -s "$src" "$dest" && [ "$(stat -c %a "$dest")" = "$mode" ]; then
+            continue
+        fi
         log "installing $dest"
         sudo install -D -m "$mode" "$src" "$dest"
         SYSTEM_CHANGED+=("$dest")
@@ -456,10 +463,17 @@ install_shell_hook() {   # install_shell_hook RCFILE NAME — hook config/bash/N
     local hook="[ -r ~/.config/bash/$name ] && . ~/.config/bash/$name"
     [ -f "$rc" ] || touch "$rc"
     if grep -q '^# >>> dotfiles managed block >>>$' "$rc"; then
-        log "removing the managed block from ~/$1 (config/bash/ carries it now)"
-        awk '/^# >>> dotfiles managed block >>>$/,/^# <<< dotfiles managed block <<<$/ { next }
-             { print }' "$rc" > "$WORK/rc"
-        cat "$WORK/rc" > "$rc"
+        # only a block with both its markers is removed: an awk range
+        # whose closing marker is lost runs to the end of the file, and
+        # everything below the opening marker would silently go with it
+        if grep -q '^# <<< dotfiles managed block <<<$' "$rc"; then
+            log "removing the managed block from ~/$1 (config/bash/ carries it now)"
+            awk '/^# >>> dotfiles managed block >>>$/,/^# <<< dotfiles managed block <<<$/ { next }
+                 { print }' "$rc" > "$WORK/rc"
+            cat "$WORK/rc" > "$rc"
+        else
+            warn "the managed block in ~/$1 opens but never closes — left as it is"
+        fi
     fi
     grep -qxF "$hook" "$rc" && return 0
     log "hooking config/bash/$name into ~/$1"
@@ -742,7 +756,7 @@ main() {
             print_summary
             ;;
         *)
-            die "unknown command: $1 (usage: bash setup.sh [link|system|summary])"
+            die "unknown command: $1 (usage: bash setup.sh [install|link|system|summary])"
             ;;
     esac
 }
