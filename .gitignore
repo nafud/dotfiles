@@ -1,2 +1,4 @@
 # per-machine enablement state — enable_units in setup.sh recreates it
 config/systemd/user/*.wants/
+# python bytecode a test import would drop beside monogreet
+__pycache__/

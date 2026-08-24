@@ -1,0 +1,546 @@
+#!/usr/bin/env python3
+"""check-python — the hermetic half of tools/check for the repo's python.
+
+Exercises system/usr/local/bin/monogreet's pure layer — the session and
+user lists, the state file, the greetd wire framing, the fade curve and
+the OkLab lerp, the quadrant rule — plus the cross-file design numbers
+that CLAUDE.md says must move together (hyprlock.conf, monogreet,
+mono.script). Everything runs without a display, without greetd, and
+without PyGObject: CI's Ubuntu runner has no gi, so a stub always
+stands in for it (never conditionally — the suite must behave the same
+on the desk and in CI). Output follows tools/check's "  ok    name"
+style, one line per test, and the exit status is the verdict.
+"""
+
+# The loader below executes monogreet by path; CPython would drop its
+# bytecode into system/usr/local/bin/__pycache__/, and a stray directory
+# there breaks tools/check's script enumeration ("not a file"). Refuse
+# bytecode before anything imports.
+import sys
+sys.dont_write_bytecode = True
+
+import contextlib
+import importlib.machinery
+import importlib.util
+import io
+import json
+import os
+import re
+import socket
+import struct
+import tempfile
+import threading
+import types
+import unittest
+from pathlib import Path
+from unittest import mock
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def stub_gi():
+    """A stand-in for PyGObject, installed before monogreet is loaded:
+    monogreet imports gi at the top and subclasses Gtk.Widget (Page) and
+    Gtk.Application (Greeter) at class-definition time, so those two
+    must be real classes; every other name is only touched at runtime,
+    inside code these tests never call, and an empty namespace serves."""
+    gi = types.ModuleType("gi")
+    gi.require_version = lambda *_args, **_kwargs: None
+    repository = types.ModuleType("gi.repository")
+
+    class Widget:
+        pass
+
+    class Application:
+        pass
+
+    repository.Gtk = types.SimpleNamespace(Widget=Widget, Application=Application)
+    # GLib.idle_add runs its callback at once: monogreet's auth thread
+    # posts UI changes through it, and the converse() test below needs
+    # finish() to actually run — the tests are single-threaded, so
+    # "next idle" and "now" are the same moment
+    repository.GLib = types.SimpleNamespace(idle_add=lambda callback, *args: callback(*args))
+    for name in ("Gdk", "Gsk", "Graphene", "Pango"):
+        setattr(repository, name, types.SimpleNamespace())
+    gi.repository = repository
+    sys.modules["gi"] = gi
+    sys.modules["gi.repository"] = repository
+
+
+# monogreet has no .py extension, so the path loader brings it in; its
+# module level only defines things (the one gi import is stubbed above),
+# so executing it starts nothing.
+stub_gi()
+_loader = importlib.machinery.SourceFileLoader(
+    "monogreet", str(REPO / "system/usr/local/bin/monogreet"))
+_spec = importlib.util.spec_from_loader("monogreet", _loader)
+monogreet = importlib.util.module_from_spec(_spec)
+_loader.exec_module(monogreet)
+
+
+def desktop_file(directory, name, body):
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_text(body)
+
+
+class SessionsTest(unittest.TestCase):
+    """sessions() reads the .desktop dirs packages fill, so one bad file
+    must never cost the login page — the crash-robustness here (the
+    no-section skip, strict=False, the shlex ValueError) pins a fixed
+    bug in monogreet."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="monogreet-sessions-")
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        # the directory basename drives XDG_SESSION_TYPE, so the fakes
+        # keep the real names
+        self.wayland = root / "wayland-sessions"
+        self.x11 = root / "xsessions"
+        patcher = mock.patch.object(monogreet, "SESSION_DIRS", [self.wayland, self.x11])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def read(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            found = monogreet.sessions()
+        return found, stderr.getvalue()
+
+    def test_well_formed_entry(self):
+        """sessions: a well-formed entry yields id, name, argv and env"""
+        desktop_file(self.wayland, "good.desktop",
+                     "[Desktop Entry]\nName=Good Session\n"
+                     'Exec=good-session --flag "an arg"\n')
+        found, _ = self.read()
+        self.assertEqual(found, [("good", "Good Session",
+                                  ["good-session", "--flag", "an arg"],
+                                  ["XDG_SESSION_TYPE=wayland",
+                                   "XDG_SESSION_DESKTOP=good"])])
+
+    def test_desktop_names(self):
+        """sessions: DesktopNames adds XDG_CURRENT_DESKTOP to the env"""
+        desktop_file(self.wayland, "named.desktop",
+                     "[Desktop Entry]\nName=Named\nExec=named\nDesktopNames=Named;Extra\n")
+        found, _ = self.read()
+        self.assertIn("XDG_CURRENT_DESKTOP=Named;Extra", found[0][3])
+
+    def test_hidden_nodisplay_and_execless_excluded(self):
+        """sessions: Hidden, NoDisplay and Exec-less entries are excluded"""
+        desktop_file(self.wayland, "hidden.desktop",
+                     "[Desktop Entry]\nName=Hidden\nExec=hidden\nHidden=true\n")
+        desktop_file(self.wayland, "nodisplay.desktop",
+                     "[Desktop Entry]\nName=No\nExec=no\nNoDisplay=true\n")
+        desktop_file(self.wayland, "noexec.desktop",
+                     "[Desktop Entry]\nName=Empty Handed\n")
+        found, _ = self.read()
+        self.assertEqual(found, [])
+
+    def test_xsessions_dir_marks_x11(self):
+        """sessions: an xsessions entry gets XDG_SESSION_TYPE=x11"""
+        desktop_file(self.x11, "xfce.desktop",
+                     "[Desktop Entry]\nName=Xfce\nExec=startxfce4\n")
+        found, _ = self.read()
+        self.assertIn("XDG_SESSION_TYPE=x11", found[0][3])
+        self.assertIn("XDG_SESSION_DESKTOP=xfce", found[0][3])
+
+    def test_duplicate_key_parses_last_wins(self):
+        """sessions: a duplicated key parses, last value winning (strict=False)"""
+        # ConfigParser's default strict=True raises DuplicateOptionError
+        # here; monogreet passes strict=False so real-world .desktop
+        # files with repeated keys still log in
+        desktop_file(self.wayland, "dup.desktop",
+                     "[Desktop Entry]\nName=Dup\nExec=first\nExec=dup-session --last\n")
+        found, _ = self.read()
+        self.assertEqual(found[0][2], ["dup-session", "--last"])
+
+    def test_headerless_file_skipped_with_note(self):
+        """sessions: a file with no section header is skipped, the rest load"""
+        # MissingSectionHeaderError used to escape sessions() and kill
+        # the greeter before it drew; now it is a word on stderr and the
+        # later (sorted-after) entry still loads
+        desktop_file(self.wayland, "aaa-headless.desktop", "Exec=lost\nName=Lost\n")
+        desktop_file(self.wayland, "zzz-fine.desktop",
+                     "[Desktop Entry]\nName=Fine\nExec=fine\n")
+        found, stderr = self.read()
+        self.assertEqual([s[0] for s in found], ["zzz-fine"])
+        self.assertIn("aaa-headless.desktop", stderr)
+        self.assertIn("skipped", stderr)
+
+    def test_unbalanced_quote_skipped(self):
+        """sessions: an Exec with an unbalanced quote is skipped, not raised"""
+        # shlex.split raises ValueError("No closing quotation"); the
+        # except clause names ValueError so the entry is dropped instead
+        desktop_file(self.wayland, "quote.desktop",
+                     '[Desktop Entry]\nName=Quote\nExec=broken "unbalanced\n')
+        desktop_file(self.wayland, "sane.desktop",
+                     "[Desktop Entry]\nName=Sane\nExec=sane\n")
+        found, stderr = self.read()
+        self.assertEqual([s[0] for s in found], ["sane"])
+        self.assertIn("quote.desktop", stderr)
+
+
+class UsersTest(unittest.TestCase):
+    """users() filters getpwall the way a greeter must: only accounts a
+    person can actually log into, sorted for a stable cycle order."""
+
+    def test_filter_and_sort(self):
+        """users: ordinary UID range, login shells only, sorted"""
+        records = [
+            types.SimpleNamespace(pw_uid=0, pw_shell="/bin/bash", pw_name="root"),
+            types.SimpleNamespace(pw_uid=999, pw_shell="/bin/bash", pw_name="daemonish"),
+            types.SimpleNamespace(pw_uid=1000, pw_shell="/bin/bash", pw_name="zeta"),
+            types.SimpleNamespace(pw_uid=1001, pw_shell="/bin/zsh", pw_name="adam"),
+            types.SimpleNamespace(pw_uid=1002, pw_shell="/usr/bin/nologin", pw_name="shut"),
+            types.SimpleNamespace(pw_uid=1003, pw_shell="/bin/false", pw_name="falsey"),
+            types.SimpleNamespace(pw_uid=59999, pw_shell="/bin/sh", pw_name="edge"),
+            types.SimpleNamespace(pw_uid=60000, pw_shell="/bin/bash", pw_name="overflow"),
+        ]
+        with mock.patch.object(monogreet.pwd, "getpwall", lambda: records):
+            self.assertEqual(monogreet.users(), ["adam", "edge", "zeta"])
+
+
+class StateTest(unittest.TestCase):
+    """load_state()/save_state() guard /var/lib/monogreet/state.json —
+    a greeter that dies on a corrupt or unwritable state file locks the
+    machine out, so every failure must collapse to a default."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="monogreet-state-")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def state_file(self, path):
+        patcher = mock.patch.object(monogreet, "STATE_FILE", path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_missing_file(self):
+        """state: a missing file loads as {}"""
+        self.state_file(self.root / "absent.json")
+        self.assertEqual(monogreet.load_state(), {})
+
+    def test_invalid_json(self):
+        """state: invalid JSON loads as {}"""
+        path = self.root / "broken.json"
+        path.write_text("{not json")
+        self.state_file(path)
+        self.assertEqual(monogreet.load_state(), {})
+
+    def test_round_trip_creates_parent(self):
+        """state: save creates the parent dir and load round-trips"""
+        # first boot: /var/lib/monogreet does not exist yet, and
+        # save_state must conjure it (mkdir parents=True)
+        self.state_file(self.root / "var" / "monogreet" / "state.json")
+        state = {"user": "adam", "session": "niri"}
+        monogreet.save_state(state)
+        self.assertEqual(monogreet.load_state(), state)
+
+    def test_unwritable_path_says_so(self):
+        """state: an unwritable path prints an error, never raises"""
+        if os.geteuid() == 0:
+            self.skipTest("root ignores directory modes")
+        sealed = self.root / "sealed"
+        sealed.mkdir()
+        sealed.chmod(0o500)
+        self.addCleanup(sealed.chmod, 0o700)   # or the tempdir cleanup fails too
+        self.state_file(sealed / "sub" / "state.json")
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            monogreet.save_state({"user": "adam"})
+        self.assertIn("state not saved", stderr.getvalue())
+
+
+class GreetdTest(unittest.TestCase):
+    """The Greetd class speaks greetd-ipc(7): a 4-byte native-endian
+    length prefix, then JSON — the same framing tools/ring-screens-test's
+    FakeGreetd serves. A threaded server here plays greetd's side."""
+
+    def socket_path(self):
+        # AF_UNIX caps sun_path around 108 bytes; a deep TMPDIR (the
+        # session scratchpad) can overflow it, so fall back to /tmp —
+        # the one place short enough by construction
+        directory = tempfile.mkdtemp(prefix="monogreet-greetd-")
+        path = os.path.join(directory, "sock")
+        if len(path) >= 100:
+            directory = tempfile.mkdtemp(prefix="mg-", dir="/tmp")
+            path = os.path.join(directory, "sock")
+        self.addCleanup(lambda: (os.path.exists(path) and os.unlink(path), os.rmdir(directory)))
+        return path
+
+    def serve_once(self, path, respond):
+        """Accept one connection, read one framed request, hand it to
+        respond(connection, request); the request is returned to the test
+        through a list once the thread finishes."""
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(path)
+        server.listen(1)
+        self.addCleanup(server.close)
+        seen = []
+
+        def read(connection, n):
+            data = b""
+            while len(data) < n:
+                chunk = connection.recv(n - len(data))
+                if not chunk:
+                    raise ConnectionError
+                data += chunk
+            return data
+
+        def run():
+            connection, _ = server.accept()
+            with connection:
+                (length,) = struct.unpack("=I", read(connection, 4))
+                body = read(connection, length)
+                seen.append((length, json.loads(body)))
+                respond(connection)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        return seen, thread
+
+    def test_send_frames_and_decodes(self):
+        """greetd: send() length-prefixes the JSON and returns the reply"""
+        path = self.socket_path()
+        reply_body = json.dumps({"type": "success"}).encode()
+
+        def respond(connection):
+            connection.sendall(struct.pack("=I", len(reply_body)) + reply_body)
+
+        seen, thread = self.serve_once(path, respond)
+        client = monogreet.Greetd(path)
+        self.addCleanup(client.close)
+        reply = client.send(type="create_session", username="adam")
+        thread.join(timeout=5)
+        self.assertEqual(reply, {"type": "success"})
+        length, request = seen[0]
+        self.assertEqual(request, {"type": "create_session", "username": "adam"})
+        # the prefix counted exactly the JSON body's bytes
+        self.assertEqual(length, len(json.dumps(request).encode()))
+
+    def test_truncated_reply_raises_connection_error(self):
+        """greetd: a socket closed mid-reply raises ConnectionError"""
+        path = self.socket_path()
+
+        def respond(connection):
+            # promise 64 bytes, deliver 2, hang up: _recv must see the
+            # empty read as the peer dying, not spin or return short
+            connection.sendall(struct.pack("=I", 64) + b"{}")
+
+        _, thread = self.serve_once(path, respond)
+        client = monogreet.Greetd(path)
+        self.addCleanup(client.close)
+        with self.assertRaises(ConnectionError):
+            client.send(type="create_session", username="adam")
+        thread.join(timeout=5)
+
+
+class CurveTest(unittest.TestCase):
+    """ease() is hyprutils' "default" bezier solved by bisection and
+    oklab_lerp() is hyprlock's colour lerp — the numbers the fade and
+    the check's ring colour ride on."""
+
+    def test_ease_endpoints_and_monotone(self):
+        """ease: 0→0, 1→1, strictly monotone, values within [0, 1]"""
+        self.assertAlmostEqual(monogreet.ease(0.0), 0.0, delta=1e-6)
+        self.assertAlmostEqual(monogreet.ease(1.0), 1.0, delta=1e-6)
+        sweep = [monogreet.ease(i / 100) for i in range(101)]
+        for value in sweep:
+            self.assertGreaterEqual(value, 0.0)
+            self.assertLessEqual(value, 1.0)
+        for earlier, later in zip(sweep, sweep[1:]):
+            self.assertGreater(later, earlier)
+
+    def test_oklab_endpoints(self):
+        """oklab_lerp: progress 0 and 1 return the endpoints"""
+        # not to 1e-9: Ottosson's published matrices (the ones hyprgraphics
+        # and monogreet both carry, 10 decimals) are not exact inverses —
+        # a grey round-trips to about 1e-7, saturated colours to about
+        # 1e-6. 5e-7 covers the greys this greeter actually lerps
+        # (EDGE ↔ LIT) with room, and an 8-bit step is 3.9e-3 anyway.
+        a, b = monogreet.EDGE, monogreet.LIT
+        for got, want in zip(monogreet.oklab_lerp(a, b, 0.0), a):
+            self.assertAlmostEqual(got, want, delta=5e-7)
+        for got, want in zip(monogreet.oklab_lerp(a, b, 1.0), b):
+            self.assertAlmostEqual(got, want, delta=5e-7)
+
+    def test_oklab_midpoint_of_greys_is_grey(self):
+        """oklab_lerp: the midpoint of two greys is a grey between them"""
+        low, high = (0.2, 0.2, 0.2), (0.9, 0.9, 0.9)
+        r, g, b = monogreet.oklab_lerp(low, high, 0.5)
+        self.assertAlmostEqual(r, g, delta=1e-6)
+        self.assertAlmostEqual(g, b, delta=1e-6)
+        self.assertGreater(min(r, g, b), 0.2)
+        self.assertLess(max(r, g, b), 0.9)
+
+    def test_oklab_output_clamped(self):
+        """oklab_lerp: every channel stays within [0, 1] across progress"""
+        for one, two in (((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+                         ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+                         (monogreet.EDGE, monogreet.LIT)):
+            for i in range(21):
+                for channel in monogreet.oklab_lerp(one, two, i / 20):
+                    self.assertGreaterEqual(channel, 0.0)
+                    self.assertLessEqual(channel, 1.0)
+
+
+class ConverseTest(unittest.TestCase):
+    """converse() must leave no flag standing when greetd is not there:
+    in_conversation set before the connect once outlived an unreachable
+    greetd, and the next Enter then queued the password for a
+    conversation that did not exist while checking held every key out —
+    the fix sets it only after Greetd() succeeds, and this pins that."""
+
+    def test_unreachable_greetd_clears_the_way(self):
+        """converse: greetd unreachable leaves in_conversation False"""
+        # built without __init__ (Gtk.Application needs a real GTK),
+        # with just the attributes this path touches: the session to
+        # start, the flag under test, and what finish()/say() reach —
+        # the stub's immediate idle_add runs finish() right here
+        greeter = object.__new__(monogreet.Greeter)
+        greeter.sessions = [("niri", "niri", ["niri-session"], [])]
+        greeter.session_index = 0
+        greeter.in_conversation = False
+        greeter.checking = True
+        greeter.secret = True
+        greeter.message = ""
+        greeter.transient_timer = None
+        greeter.page = types.SimpleNamespace(queue_draw=lambda: None)
+        with mock.patch.dict(os.environ):
+            os.environ.pop("GREETD_SOCK", None)
+            greeter.converse("adam", "hunter2")
+        self.assertFalse(greeter.in_conversation)
+        self.assertFalse(greeter.checking)
+        self.assertIn("greetd unreachable", greeter.message)
+
+
+class QuadrantTest(unittest.TestCase):
+    """light() is the lock's hidden input: one random quadrant per
+    keystroke, never the one already lit. Built without __init__ —
+    Gtk.Application's constructor needs a real GTK."""
+
+    def make(self):
+        greeter = object.__new__(monogreet.Greeter)
+        greeter.typed = ""
+        greeter.quadrant = None
+        return greeter
+
+    def test_empty_input_lights_nothing(self):
+        """light: nothing typed puts the quadrant out"""
+        greeter = self.make()
+        greeter.quadrant = 2
+        greeter.light()
+        self.assertIsNone(greeter.quadrant)
+
+    def test_never_the_same_twice_running(self):
+        """light: 200 keystrokes, always 0..3, never a repeat"""
+        greeter = self.make()
+        greeter.typed = "x"
+        previous = None
+        for _ in range(200):
+            greeter.light()
+            self.assertIn(greeter.quadrant, (0, 1, 2, 3))
+            self.assertNotEqual(greeter.quadrant, previous)
+            previous = greeter.quadrant
+
+
+class LayoutMarkTest(unittest.TestCase):
+    def test_no_niri_socket_no_mark(self):
+        """layout_mark: without NIRI_SOCKET the mark is empty"""
+        # under the greeter niri there is a socket; in CI and under a
+        # bare TTY there is not, and the line must simply omit the mark
+        # rather than shell out to a niri that is not there
+        with mock.patch.dict(os.environ):
+            os.environ.pop("NIRI_SOCKET", None)
+            self.assertEqual(monogreet.layout_mark(), "")
+
+
+class CrossFileTest(unittest.TestCase):
+    """CLAUDE.md's spanning invariant: the design numbers are duplicated
+    on purpose across config/hypr/hyprlock.conf, monogreet and
+    system/usr/share/plymouth/themes/mono/mono.script — change one,
+    change all. These pin the pairs a static test can read;
+    tools/ring-screens-test measures the same numbers live."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.conf = (REPO / "config/hypr/hyprlock.conf").read_text()
+        cls.script = (REPO / "system/usr/share/plymouth/themes/mono/mono.script").read_text()
+
+    def conf_int(self, key):
+        return int(re.search(rf"^\s*{key}\s*=\s*(-?\d+)", self.conf, re.M).group(1))
+
+    def conf_rgb(self, key):
+        value = re.search(rf"^\s*{key}\s*=\s*rgb\(([0-9a-fA-F]{{6}})\)", self.conf, re.M).group(1)
+        return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+
+    def test_fade_timeout(self):
+        """cross-file: hyprlock fade_timeout == monogreet FADE_TIMEOUT_MS"""
+        self.assertEqual(self.conf_int("fade_timeout"), monogreet.FADE_TIMEOUT_MS)
+
+    def test_ring_geometry(self):
+        """cross-file: hyprlock's 294 + 2×3 ring is monogreet's 2×150, edge 3"""
+        size = int(re.search(r"^\s*size\s*=\s*(\d+),", self.conf, re.M).group(1))
+        thickness = self.conf_int("outline_thickness")
+        self.assertEqual(size + 2 * thickness, 2 * monogreet.RING_RADIUS)
+        self.assertEqual(thickness, monogreet.RING_WIDTH)
+
+    def test_ring_colors(self):
+        """cross-file: hyprlock's check_color is LIT, outer_color is EDGE"""
+        as_bytes = lambda color: tuple(round(v * 255) for v in color)   # noqa: E731
+        self.assertEqual(self.conf_rgb("check_color"), as_bytes(monogreet.LIT))
+        self.assertEqual(self.conf_rgb("outer_color"), as_bytes(monogreet.EDGE))
+
+    def test_line_pitch(self):
+        """cross-file: mono.script's LINE pitch is the lock's label spacing"""
+        # the lock's layout mark sits at (0, -185) and its feedback line
+        # at (0, -215): one 30px pitch apart, the same LINE = 30 the
+        # splash spaces its two lines by (and monogreet's y + 30);
+        # -185 itself is monogreet's LINE_Y under the ring's centre
+        line = int(re.search(r"^LINE\s*=\s*(\d+);", self.script, re.M).group(1))
+        offsets = sorted(int(y) for y in
+                         re.findall(r"^\s*position\s*=\s*0,\s*-(\d+)", self.conf, re.M))
+        self.assertEqual(len(offsets), 2)
+        self.assertEqual(offsets[1] - offsets[0], line)
+        self.assertEqual(offsets[0], monogreet.LINE_Y)
+
+
+# ------------------------------------------------------------------ runner ---
+class CheckResult(unittest.TestResult):
+    """tools/check's voice: one '  ok    name' line per test, failures
+    speaking on stderr, so this suite reads as more rows of the same
+    table when tools/check runs it."""
+
+    def name(self, test):
+        return test.shortDescription() or test.id()
+
+    def addSuccess(self, test):
+        super().addSuccess(test)
+        print(f"  ok    {self.name(test)}")
+
+    def addFailure(self, test, err):
+        super().addFailure(test, err)
+        print(f"  FAIL  {self.name(test)}")
+        print(self._exc_info_to_string(err, test), file=sys.stderr)
+
+    def addError(self, test, err):
+        super().addError(test, err)
+        print(f"  FAIL  {self.name(test)}")
+        print(self._exc_info_to_string(err, test), file=sys.stderr)
+
+    def addSkip(self, test, reason):
+        super().addSkip(test, reason)
+        print(f"  skip  {self.name(test)} ({reason})")
+
+
+def main():
+    suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
+    result = CheckResult()
+    suite.run(result)
+    bad = len(result.failures) + len(result.errors)
+    print(f"{result.testsRun} checks, {bad} failed")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

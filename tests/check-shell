@@ -1,0 +1,431 @@
+#!/bin/bash
+# check-shell — behaviour tests for the repo's shell scripts, the
+# dynamic half of tools/check's static pass: tools/check proves the
+# scripts parse and lint, this suite proves the load-bearing ones do
+# what their comments claim — and it proves it hermetically. Every test
+# runs inside a mktemp -d sandbox (removed by the trap below): HOME,
+# CFG and XDG_RUNTIME_DIR point into it, and the commands the scripts
+# shell out to (checkupdates, paru, systemctl) are PATH shims that
+# record into the sandbox — no sudo, no network, no session, and the
+# real $HOME untouched. setup.sh is sourced, not run: its closing
+# BASH_SOURCE guard exists precisely so link_one, install_shell_hook,
+# btop_set and system_changed_under can be exercised alone.
+# install_system_files needs sudo to run, so what is tested is its
+# skip predicate — cmp -s plus the stat mode comparison — replicated
+# here as a decision, not an installation.
+#
+# Needs: bash (>= 5: lock-line reads EPOCHREALTIME), coreutils, grep,
+# sed, awk. jq (the updates-module JSON assertions) and magick (the
+# glass render) are optional: a test whose tool is absent prints
+# "skip", not "FAIL", so the suite passes on a bare Ubuntu runner with
+# no imagemagick and no pacman.
+# shellcheck disable=SC2016  # snippets handed to a fresh bash are meant literally
+# shellcheck disable=SC2329  # every t_* function is invoked indirectly, through check's "$@"
+set -uo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+REPO_DIR="$PWD"
+
+# one sandbox root, resolved so that link_one's `readlink -f` no-op
+# comparison sees exactly the paths the tests pass in; every test takes
+# a fresh box under it
+SANDBOX="$(mktemp -d -t check-shell.XXXXXX)"
+SANDBOX="$(readlink -f "$SANDBOX")"
+trap 'rm -rf "$SANDBOX"' EXIT
+
+failed=0
+check() {   # check NAME COMMAND... — tools/check's reporter: stdout dropped, failures speak on stderr
+    local name="$1"; shift
+    if "$@" >/dev/null; then
+        printf '  ok    %s\n' "$name"
+    else
+        printf '  FAIL  %s\n' "$name"
+        failed=1
+    fi
+}
+skip() {   # skip NAME REASON — the tool the test needs is absent here (a bare CI runner)
+    printf '  skip  %s (%s)\n' "$1" "$2"
+}
+have() { command -v "$1" >/dev/null 2>&1; }
+mkbox() { mktemp -d "$SANDBOX/box.XXXXXX"; }
+
+# with_setup HOMEDIR SNIPPET — a fresh bash sources setup.sh with HOME
+# boxed ($CFG follows from it inside setup.sh), then evals SNIPPET under
+# the `set -euo pipefail` setup.sh established, so any failed assertion
+# is the test's failure. A fresh process per test keeps setup.sh's WORK
+# tempdir and EXIT trap from leaking into this suite's own.
+with_setup() {
+    HOME="$1" bash -c 'source "$1/setup.sh" && eval "$2"' check-shell "$REPO_DIR" "$2"
+}
+
+# shim DIR NAME BODY — a fake NAME for PATH, standing in for the
+# commands the tested scripts call out to: config/waybar/updates.sh's
+# checkupdates and paru, bin/wallset's systemctl
+shim() {
+    printf '#!/bin/bash\n%s\n' "$3" > "$1/$2"
+    chmod +x "$1/$2"
+}
+
+# comma_locale — the machine's own spelling of the first generated
+# locale whose decimal separator is a comma (the session locales the
+# keyboard-layout list invites: de, ru, az), for pinning bin/lock-line's
+# EPOCHREALTIME digit-stripping. Dashes and case are normalized on both
+# sides because `locale -a` answers "de_DE.utf8" where the request said
+# "de_DE.UTF-8". No hit means no such locale is generated (a bare CI
+# runner): the caller skips.
+comma_locale() {
+    local want line norm
+    for want in de_DE.UTF-8 ru_RU.UTF-8 az_AZ.UTF-8; do
+        want="${want//-/}"; want="${want,,}"
+        while IFS= read -r line; do
+            norm="${line//-/}"
+            if [ "${norm,,}" = "$want" ]; then
+                printf '%s\n' "$line"
+                return 0
+            fi
+        done < <(locale -a 2>/dev/null)
+    done
+    return 1
+}
+
+# ------------------------------------------------------ setup.sh: link_one ---
+t_link_fresh() ( set -e
+    b="$(mkbox)"
+    echo content > "$b/src"
+    with_setup "$b" '
+        link_one "$HOME/src" "$HOME/dest"
+        [ -L "$HOME/dest" ]
+        [ "$(readlink "$HOME/dest")" = "$HOME/src" ]'
+)
+
+t_link_noop() ( set -e
+    b="$(mkbox)"
+    echo content > "$b/src"
+    # the second call must take the silent return-0 path: no log line,
+    # no aside file, the link untouched
+    with_setup "$b" '
+        link_one "$HOME/src" "$HOME/dest" > /dev/null
+        out="$(link_one "$HOME/src" "$HOME/dest")"
+        [ -z "$out" ]
+        [ "$(readlink "$HOME/dest")" = "$HOME/src" ]
+        ! [ -e "$HOME/dest.pre-dotfiles" ]'
+)
+
+t_link_moves_aside() ( set -e
+    b="$(mkbox)"
+    echo content > "$b/src"
+    echo precious > "$b/dest"
+    with_setup "$b" '
+        link_one "$HOME/src" "$HOME/dest" > /dev/null
+        [ -L "$HOME/dest" ]
+        [ "$(readlink "$HOME/dest")" = "$HOME/src" ]
+        [ "$(cat "$HOME/dest.pre-dotfiles")" = "precious" ]'
+)
+
+t_link_replaces_wrong() ( set -e
+    b="$(mkbox)"
+    echo content > "$b/src"
+    echo other > "$b/other"
+    ln -s "$b/other" "$b/dest"
+    # a wrong symlink is disposable — replaced, never moved aside
+    with_setup "$b" '
+        link_one "$HOME/src" "$HOME/dest" > /dev/null
+        [ "$(readlink "$HOME/dest")" = "$HOME/src" ]
+        ! [ -e "$HOME/dest.pre-dotfiles" ]'
+)
+
+# --------------------------------------------- setup.sh: install_shell_hook ---
+t_hook_appends() ( set -e
+    b="$(mkbox)"
+    with_setup "$b" '
+        install_shell_hook .bashrc bashrc > /dev/null
+        [ "$(grep -cxF "[ -r ~/.config/bash/bashrc ] && . ~/.config/bash/bashrc" "$HOME/.bashrc")" -eq 1 ]'
+)
+
+t_hook_idempotent() ( set -e
+    b="$(mkbox)"
+    with_setup "$b" '
+        install_shell_hook .bashrc bashrc > /dev/null
+        cp "$HOME/.bashrc" "$HOME/first-run"
+        install_shell_hook .bashrc bashrc > /dev/null
+        cmp -s "$HOME/.bashrc" "$HOME/first-run"'
+)
+
+t_hook_removes_legacy_block() ( set -e
+    b="$(mkbox)"
+    # an rc file from the era when setup.sh wrote a managed block into
+    # ~/.bashrc: the block goes, the user's own lines around it stay
+    printf 'alias ll="eza -l"\n# >>> dotfiles managed block >>>\nexport LEGACY=1\n# <<< dotfiles managed block <<<\nPS1=x\n' > "$b/.bashrc"
+    with_setup "$b" '
+        install_shell_hook .bashrc bashrc > /dev/null
+        ! grep -q "dotfiles managed block" "$HOME/.bashrc"
+        ! grep -q "LEGACY=1" "$HOME/.bashrc"
+        grep -qxF "alias ll=\"eza -l\"" "$HOME/.bashrc"
+        grep -qxF "PS1=x" "$HOME/.bashrc"
+        [ "$(grep -cxF "[ -r ~/.config/bash/bashrc ] && . ~/.config/bash/bashrc" "$HOME/.bashrc")" -eq 1 ]'
+)
+
+t_hook_keeps_unclosed_block() ( set -e
+    b="$(mkbox)"
+    # a block whose closing marker was lost: the awk range would run to
+    # the end of the file, so install_shell_hook now warns (silenced
+    # here — check keeps stderr for real failures) and leaves the file
+    # alone. Everything from the opening marker down must survive
+    # byte-for-byte, with the hook still appended after it.
+    printf 'alias ll="eza -l"\n# >>> dotfiles managed block >>>\nexport LEGACY=1\nPS1=x\n' > "$b/.bashrc"
+    cp "$b/.bashrc" "$b/before"
+    with_setup "$b" '
+        install_shell_hook .bashrc bashrc > /dev/null 2> /dev/null
+        head -n 4 "$HOME/.bashrc" | cmp -s - "$HOME/before"
+        [ "$(grep -cxF "[ -r ~/.config/bash/bashrc ] && . ~/.config/bash/bashrc" "$HOME/.bashrc")" -eq 1 ]'
+)
+
+# ------------------------------------------------------ setup.sh: btop_set ---
+t_btop_appends() ( set -e
+    b="$(mkbox)"
+    with_setup "$b" '
+        mkdir -p "$CFG/btop"
+        btop_set vim_keys True
+        grep -qxF "vim_keys = True" "$CFG/btop/btop.conf"
+        [ "$(grep -c "^vim_keys" "$CFG/btop/btop.conf")" -eq 1 ]'
+)
+
+t_btop_rewrites_in_place() ( set -e
+    b="$(mkbox)"
+    # a conf btop itself wrote: the one key is rewritten on its own
+    # line, the neighbours and the line count untouched
+    with_setup "$b" '
+        mkdir -p "$CFG/btop"
+        printf "color_theme = \"Default\"\nvim_keys = False\nupdate_ms = 2000\n" > "$CFG/btop/btop.conf"
+        btop_set vim_keys True
+        [ "$(wc -l < "$CFG/btop/btop.conf")" -eq 3 ]
+        [ "$(sed -n 2p "$CFG/btop/btop.conf")" = "vim_keys = True" ]
+        grep -qxF "color_theme = \"Default\"" "$CFG/btop/btop.conf"
+        grep -qxF "update_ms = 2000" "$CFG/btop/btop.conf"
+        [ "$(grep -c "^vim_keys" "$CFG/btop/btop.conf")" -eq 1 ]'
+)
+
+# ------------------------------------------- setup.sh: system_changed_under ---
+t_changed_under_prefix() ( set -e
+    b="$(mkbox)"
+    with_setup "$b" '
+        SYSTEM_CHANGED=(/etc/plymouth/plymouthd.conf /usr/share/plymouth/themes/mono/mono.script)
+        system_changed_under /etc/plymouth
+        system_changed_under /usr/share/plymouth
+        ! system_changed_under /etc/default/grub.d'
+)
+
+t_changed_under_empty() ( set -e
+    b="$(mkbox)"
+    # a run where install_system_files touched nothing: no rebuild fires
+    with_setup "$b" '
+        SYSTEM_CHANGED=()
+        ! system_changed_under /etc'
+)
+
+# ---------------------------------------- setup.sh: install_system_files ---
+t_system_mode_predicate() ( set -e
+    b="$(mkbox)"
+    # setup.sh's install_system_files skips a file only when
+    # `cmp -s src dest` succeeds AND `stat -c %a dest` equals the mode
+    # derived from the source (755 executable, 644 not) — the mode is
+    # part of the comparison so a script gaining its x bit alone still
+    # reaches the disk. The function itself installs with sudo, so the
+    # predicate is replicated verbatim and tested as a decision.
+    skips() {
+        local mode=644
+        [ -x "$1" ] && mode=755
+        cmp -s "$1" "$2" && [ "$(stat -c %a "$2")" = "$mode" ]
+    }
+    printf '#!/bin/bash\nexit 0\n' > "$b/src"
+    chmod 755 "$b/src"
+    cp "$b/src" "$b/dest"
+    chmod 644 "$b/dest"
+    if skips "$b/src" "$b/dest"; then exit 1; fi   # mode-only drift: reinstall
+    chmod 755 "$b/dest"
+    skips "$b/src" "$b/dest"                       # content and mode match: skip
+    printf 'drift\n' >> "$b/dest"
+    if skips "$b/src" "$b/dest"; then exit 1; fi   # content drift: reinstall
+)
+
+# -------------------------------------------------------------- lock-line ---
+LOCK_LINE="$REPO_DIR/bin/lock-line"
+
+t_lock_quiet() ( set -e
+    b="$(mkbox)"; mkdir "$b/run"; echo 0 > "$b/led"
+    out="$(XDG_RUNTIME_DIR="$b/run" "$LOCK_LINE" 0 "$b/led")"
+    [ -z "$out" ]
+)
+
+t_lock_caps() ( set -e
+    b="$(mkbox)"; mkdir "$b/run"; echo 1 > "$b/led"
+    out="$(XDG_RUNTIME_DIR="$b/run" "$LOCK_LINE" 0 "$b/led")"
+    [ "$out" = "caps lock" ]
+)
+
+t_lock_fail_then_expires() ( set -e
+    b="$(mkbox)"; mkdir "$b/run"; echo 0 > "$b/led"
+    XDG_RUNTIME_DIR="$b/run" "$LOCK_LINE" 0 "$b/led" > /dev/null
+    out="$(XDG_RUNTIME_DIR="$b/run" "$LOCK_LINE" 1 "$b/led")"
+    [ "$out" = "wrong password" ]
+    # past fail_timeout, without waiting it out: age the stored stamp
+    # (the "count stamp-ms" pair in lock-line.state) instead of sleeping
+    printf '1 1\n' > "$b/run/lock-line.state"
+    out="$(XDG_RUNTIME_DIR="$b/run" "$LOCK_LINE" 1 "$b/led")"
+    [ -z "$out" ]
+)
+
+t_lock_caps_and_fail() ( set -e
+    b="$(mkbox)"; mkdir "$b/run"; echo 1 > "$b/led"
+    out="$(XDG_RUNTIME_DIR="$b/run" "$LOCK_LINE" 1 "$b/led")"
+    [ "$out" = 'caps lock <span foreground="#666666">·</span> wrong password' ]
+)
+
+t_lock_resets_on_new_lock() ( set -e
+    b="$(mkbox)"; mkdir "$b/run"; echo 0 > "$b/led"
+    # a shrunken count is a new lock: state left by the previous lock's
+    # three refusals must clear, not read as another refusal
+    printf '3 999999999999999\n' > "$b/run/lock-line.state"
+    out="$(XDG_RUNTIME_DIR="$b/run" "$LOCK_LINE" 0 "$b/led")"
+    [ -z "$out" ]
+    [ "$(cat "$b/run/lock-line.state")" = "0 0" ]
+)
+
+t_lock_comma_locale() ( set -e
+    b="$(mkbox)"; mkdir "$b/run"; echo 0 > "$b/led"
+    # lock-line strips every non-digit from EPOCHREALTIME, so a locale
+    # that writes the seconds as "1756…,123456" must behave exactly
+    # like the dot: the 0→1 growth still speaks, and stderr stays empty
+    # (the comma once made the arithmetic itself the error)
+    LC_ALL="$COMMA_LOCALE" XDG_RUNTIME_DIR="$b/run" "$LOCK_LINE" 0 "$b/led" > /dev/null 2> "$b/err"
+    out="$(LC_ALL="$COMMA_LOCALE" XDG_RUNTIME_DIR="$b/run" "$LOCK_LINE" 1 "$b/led" 2>> "$b/err")"
+    [ "$out" = "wrong password" ]
+    [ ! -s "$b/err" ]
+)
+
+# ------------------------------------------------ config/waybar/updates.sh ---
+UPDATES="$REPO_DIR/config/waybar/updates.sh"
+
+t_updates_none() ( set -e
+    b="$(mkbox)"; mkdir "$b/bin"
+    shim "$b/bin" checkupdates 'exit 2'   # checkupdates: 2 = nothing pending
+    shim "$b/bin" paru 'exit 0'
+    out="$(PATH="$b/bin:$PATH" "$UPDATES")"
+    [ -z "$out" ]
+)
+
+t_updates_json() ( set -e
+    b="$(mkbox)"; mkdir "$b/bin"
+    shim "$b/bin" checkupdates 'printf "alpha 1.0-1 -> 1.1-1\nbeta 2.0-1 -> 2.1-1\ngamma 3.0-1 -> 3.1-1\n"'
+    shim "$b/bin" paru '[ "${1:-}" = "-Qua" ] && printf "auraea 4.0-1 -> 4.1-1\n"; exit 0'
+    out="$(PATH="$b/bin:$PATH" "$UPDATES")"
+    jq -e . <<<"$out" > /dev/null
+    jq -e '.class == "updates" and (.text | endswith(" 4"))' <<<"$out" > /dev/null
+    tip="$(jq -r .tooltip <<<"$out")"
+    [ "$(wc -l <<<"$tip")" -eq 4 ]
+    grep -qxF 'alpha 1.0-1 → 1.1-1' <<<"$tip"
+    grep -qxF 'auraea 4.0-1 → 4.1-1' <<<"$tip"
+)
+
+t_updates_error_silent() ( set -e
+    b="$(mkbox)"; mkdir "$b/bin"
+    # checkupdates 1 = error (network down, db locked): the module must
+    # render nothing rather than a stale count, and still exit 0
+    shim "$b/bin" checkupdates 'exit 1'
+    shim "$b/bin" paru 'exit 0'
+    out="$(PATH="$b/bin:$PATH" "$UPDATES")"
+    [ -z "$out" ]
+)
+
+t_updates_tooltip_cap() ( set -e
+    b="$(mkbox)"; mkdir "$b/bin"
+    shim "$b/bin" checkupdates 'for i in $(seq 20); do echo "pkg$i 1.0-1 -> 2.0-1"; done'
+    shim "$b/bin" paru 'exit 0'
+    out="$(PATH="$b/bin:$PATH" "$UPDATES")"
+    jq -e '.text | endswith(" 20")' <<<"$out" > /dev/null
+    tip="$(jq -r .tooltip <<<"$out")"
+    [ "$(wc -l <<<"$tip")" -eq 16 ]           # 15 packages + the tail line
+    [ "$(tail -n 1 <<<"$tip")" = "… 5 more" ]
+)
+
+# ------------------------------------------------------------- bin/wallset ---
+# the systemctl shim logs its argv and answers is-active with $SHIM_RC,
+# so one shim plays both the live session and the ssh-shell case
+SYSTEMCTL_SHIM='printf "%s\n" "$*" >> "$SHIM_LOG"
+case "$*" in *is-active*) exit "${SHIM_RC:-0}" ;; esac
+exit 0'
+
+t_wallset_active_session() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/home" "$b/bin"
+    printf 'jpeg bytes stand-in' > "$b/img"
+    shim "$b/bin" systemctl "$SYSTEMCTL_SHIM"
+    HOME="$b/home" PATH="$b/bin:$PATH" SHIM_LOG="$b/log" SHIM_RC=0 \
+        "$REPO_DIR/bin/wallset" "$b/img" > /dev/null
+    cmp -s "$b/img" "$b/home/Pictures/wallpaper.jpg"
+    grep -qxF -- '--user restart wallpaper.service' "$b/log"
+)
+
+t_wallset_no_session() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/home" "$b/bin"
+    printf 'jpeg bytes stand-in' > "$b/img"
+    shim "$b/bin" systemctl "$SYSTEMCTL_SHIM"
+    HOME="$b/home" PATH="$b/bin:$PATH" SHIM_LOG="$b/log" SHIM_RC=1 \
+        "$REPO_DIR/bin/wallset" "$b/img" > /dev/null
+    cmp -s "$b/img" "$b/home/Pictures/wallpaper.jpg"
+    grep -q 'is-active' "$b/log"      # it did ask whether a session is up
+    ! grep -q 'restart' "$b/log"      # and touched no unit when none was
+)
+
+# --------------------------------------------------------------- bin/glass ---
+t_glass_renders() ( set -e
+    b="$(mkbox)"
+    magick -size 64x36 xc:'#446688' "$b/in.png"
+    "$REPO_DIR/bin/glass" "$b/in.png" "$b/out.jpg" > /dev/null
+    [ -s "$b/out.jpg" ]
+    magick identify "$b/out.jpg" > /dev/null
+)
+
+# ------------------------------------------------------------------- suite ---
+check "link_one creates a fresh symlink"             t_link_fresh
+check "link_one is a no-op on the correct link"      t_link_noop
+check "link_one moves a real file aside"             t_link_moves_aside
+check "link_one replaces a wrong symlink"            t_link_replaces_wrong
+check "install_shell_hook appends the hook once"     t_hook_appends
+check "install_shell_hook is idempotent"             t_hook_idempotent
+check "install_shell_hook removes the legacy block"  t_hook_removes_legacy_block
+check "install_shell_hook keeps an unclosed block"   t_hook_keeps_unclosed_block
+check "btop_set appends a missing key"               t_btop_appends
+check "btop_set rewrites an existing key in place"   t_btop_rewrites_in_place
+check "system_changed_under matches prefixes"        t_changed_under_prefix
+check "system_changed_under with nothing changed"    t_changed_under_empty
+check "install_system_files reinstalls on mode or content drift" t_system_mode_predicate
+check "lock-line is quiet at rest"                   t_lock_quiet
+check "lock-line says caps lock"                     t_lock_caps
+check "lock-line fail word appears then expires"     t_lock_fail_then_expires
+check "lock-line joins caps and fail with the dot"   t_lock_caps_and_fail
+check "lock-line resets on a new lock"               t_lock_resets_on_new_lock
+if COMMA_LOCALE="$(comma_locale)"; then
+    check "lock-line survives a comma-decimal locale" t_lock_comma_locale
+else
+    skip "lock-line survives a comma-decimal locale" "no de_DE/ru_RU/az_AZ locale generated"
+fi
+check "updates.sh renders nothing when up to date"   t_updates_none
+if have jq; then
+    check "updates.sh emits JSON with the total"     t_updates_json
+else
+    skip "updates.sh emits JSON with the total" "jq not installed"
+fi
+check "updates.sh is silent on checkupdates error"   t_updates_error_silent
+if have jq; then
+    check "updates.sh caps the tooltip at 15 lines"  t_updates_tooltip_cap
+else
+    skip "updates.sh caps the tooltip at 15 lines" "jq not installed"
+fi
+check "wallset records and restarts in a session"    t_wallset_active_session
+check "wallset skips the restart without a session"  t_wallset_no_session
+if have magick; then
+    check "glass renders the greeter background"     t_glass_renders
+else
+    skip "glass renders the greeter background" "magick not installed"
+fi
+
+exit "$failed"

@@ -4,7 +4,10 @@
 # drift: shell scripts parse and lint, python compiles, the structured
 # configs parse, every script is executable, and the keyboard-layout
 # list — kept in three files for three programs that cannot share one —
-# agrees with itself. Catches a stray comma or quote before it reaches
+# agrees with itself — and the hermetic suites under tests/ run last:
+# the shell one over setup.sh's functions and the bin/ and bar scripts,
+# the python one over monogreet's pure layer and the cross-file design
+# numbers. Catches a stray comma or quote before it reaches
 # the next `setup.sh link`. The one check left out needs the niri
 # binary: `niri validate` on config/niri/config.kdl, which CI runs in an
 # Arch container and `setup.sh link` runs here.
@@ -28,7 +31,7 @@ check() {   # check NAME COMMAND... — run (its stdout dropped, failures speak 
 # scripts sorted by interpreter from their shebang: tools/ and
 # system/usr/local/bin mix bash and python
 shell_scripts=() python_scripts=() unclassified=0
-for f in setup.sh bootstrap.sh bin/* tools/* config/waybar/*.sh system/usr/local/bin/*; do
+for f in setup.sh bootstrap.sh bin/* tools/* tests/* config/waybar/*.sh system/usr/local/bin/*; do
     [ -f "$f" ] || { echo "  not a file: $f" >&2; unclassified=1; continue; }
     case "$(head -n1 "$f")" in
         '#!'*bash*|'#!'*/sh) shell_scripts+=("$f") ;;
@@ -48,7 +51,7 @@ for path in sys.argv[1:]:
     with open(path, encoding="utf-8") as fh:
         compile(fh.read(), path, "exec")' "${python_scripts[@]}"
 check "scripts are executable" bash -c 'for f; do [ -x "$f" ] || { echo "    $f is not executable" >&2; exit 1; }; done' _ \
-    bootstrap.sh bin/* tools/* config/waybar/*.sh system/usr/local/bin/*
+    bootstrap.sh bin/* tools/* tests/* config/waybar/*.sh system/usr/local/bin/*
 check "waybar config is JSON" jq -e . config/waybar/config.jsonc
 check "TOML configs parse" python3 -c '
 import glob, tomllib
@@ -81,5 +84,12 @@ if greeter != session:
     sys.exit(f"    greeter niri.kdl has {greeter}, input.kdl has {session}")
 if len(marks) != len(session):
     sys.exit(f"    hyprlock.conf lists {len(marks)} marks {marks} for {len(session)} layouts {session}")'
+
+# The hermetic suites (tests/) — sandboxed, no sudo, no session, no
+# display, tools they cannot find skipped with a note — speak row by
+# row as this script does, so they run direct rather than through
+# check(), whose stdout drop would eat the row that names a failure.
+tests/check-shell || failed=1
+tests/check-python || failed=1
 
 exit "$failed"
