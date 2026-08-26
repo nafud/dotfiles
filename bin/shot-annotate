@@ -1,14 +1,21 @@
 #!/bin/bash
 # shot-annotate — select a region, save it under ~/Pictures/Screenshots,
-# open it in the ksnip editor for arrows and redaction (Mod+Shift+S).
-# grim and slurp speak the wlr screencopy protocols directly; no portal
-# round-trip is involved. An escaped slurp selection aborts cleanly.
+# put it on the clipboard, and offer the ksnip editor (arrows,
+# redaction) from the notification (Mod+Shift+S). grim and slurp speak
+# the wlr screencopy protocols directly; no portal round-trip is
+# involved. An escaped selection aborts before anything is written —
+# not even the directory. The copy happens before the notification, so
+# the clipboard is ready while it shows; notify-send then waits for the
+# notification to be acted on or to expire and prints the chosen
+# action's id — only "edit" opens the editor.
 set -euo pipefail
 
+region="$(slurp)" || exit 0
 dir="$HOME/Pictures/Screenshots"
 mkdir -p "$dir"
 file="$dir/annotate-$(date +%Y%m%d-%H%M%S).png"
-
-region="$(slurp)" || exit 0
 grim -g "$region" "$file"
-exec ksnip -e "$file"
+wl-copy < "$file"
+action="$(notify-send -a screenshot -A edit=Edit -t 5000 "Screenshot" "copied — $(basename "$file")")" || action=""
+[ "$action" = edit ] && exec ksnip -e "$file"
+exit 0

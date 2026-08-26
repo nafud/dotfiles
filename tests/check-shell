@@ -34,15 +34,25 @@ SANDBOX="$(readlink -f "$SANDBOX")"
 trap 'rm -rf "$SANDBOX"' EXIT
 
 failed=0
-check() {   # check NAME COMMAND... — tools/check's reporter: stdout dropped, failures speak on stderr
-    local name="$1"; shift
-    if "$@" >/dev/null; then
+# check NAME COMMAND... — tools/check's reporter: stdout dropped,
+# failures speak on stderr. The test runs as a plain command, not as
+# the `if` condition: bash ignores errexit — including the `set -e`
+# each t_* body sets itself — for everything called from a condition,
+# so as a condition only a body's last line would decide. As a command,
+# every line is an assertion.
+check() {
+    local name="$1" rc; shift
+    "$@" >/dev/null; rc=$?
+    if [ "$rc" -eq 0 ]; then
         printf '  ok    %s\n' "$name"
     else
         printf '  FAIL  %s\n' "$name"
         failed=1
     fi
 }
+# not COMMAND... — a negated assertion errexit sees (a bare `! cmd` is
+# exempt from set -e; a function returning the inverse is not)
+not() { ! "$@"; }
 skip() {   # skip NAME REASON — the tool the test needs is absent here (a bare CI runner)
     printf '  skip  %s (%s)\n' "$1" "$2"
 }

@@ -116,6 +116,10 @@ colour — that is the configuration meaning "no change", not a leftover.
   come from `tools/render-plymouth-mono` and `tools/mono-icons`; rerun
   the tool rather than editing pixels. The PNGs are written without date
   chunks, so an unchanged rerun is byte-identical.
+- Condition modules on the bar (updates, privacy, failed units,
+  temperature, bluetooth, recording) render empty when there is nothing
+  to say and the bar collapses them; a new one follows the same rule,
+  its icon span measured by `tools/waybar-icon-span`.
 - `bin/` scripts are called bare from niri binds (the login shell puts
   `~/.local/bin` on PATH and niri-session imports it); systemd units and
   hyprlock.conf spell the path out instead — they must not depend on a
@@ -131,7 +135,12 @@ colour — that is the configuration meaning "no change", not a leftover.
   compiles, JSON/TOML/unit files parse, layout lists agree, and the
   hermetic suites run — `tests/check-shell` (setup.sh's functions,
   bin/lock-line, the waybar scripts against PATH shims, all in
-  sandboxes, no sudo) and `tests/check-python` (monogreet's pure layer
+  sandboxes, no sudo), `tests/check-system` (bootkeep against a fake
+  /boot, the pacman hooks, every `system/etc` drop-in read as text,
+  `nft -c` in a user namespace, setup.sh's service decisions through a
+  sudo shim), `tests/check-session` (the capture, recording, web-app
+  and netmenu scripts against PATH shims, the bar and bind config) and
+  `tests/check-python` (monogreet's pure layer
   under a stubbed gi — sessions/users/state/greetd framing/easing/
   OkLab/quadrants — plus the static cross-file invariants). CI
   (`.github/workflows/check.yml`) runs exactly this plus
@@ -163,5 +172,26 @@ colour — that is the configuration meaning "no change", not a leftover.
   screens that must never die on bad input — a malformed .desktop file,
   a missing LED, an absent wallpaper are all "skip and carry on with a
   word on stderr", never a crash.
-- Snapshots/boot: GRUB + grub-btrfs + snapper are configured by the Kiln
-  guide, not this repo; this repo owns what's under `system/`.
+- Snapshots/boot: GRUB + grub-btrfs + snapper + snap-pac (a snapshot
+  around every pacman transaction) are configured by the Kiln guide,
+  not this repo. What this repo adds is the rollback's missing piece:
+  `/boot` is a separate ext4 partition (GRUB cannot open the argon2
+  LUKS2 root), so a snapshot holds its kernel's modules but not its
+  kernel — `system/usr/local/bin/bootkeep` and its pacman hooks keep
+  the outgoing kernel on `/boot` under a version-suffixed name both
+  generators pair (`vmlinuz-linux-<kver>` / `initramfs-linux-<kver>.img`)
+  and mirror `/boot` into `/.bootbackup` ahead of each snapshot.
+  Rolling back = the snapshot entry + the kernel with its version.
+- System policy lives in `system/etc` as drop-ins, one concern per
+  file, the reason in its header: memory pressure
+  (`systemd/oomd.conf.d`, `user.slice.d`), the firewall
+  (`nftables.conf` — only its own table is rebuilt; Mullvad's table
+  must survive a reload), DNS (`systemd/resolved.conf.d`: Mullvad's
+  DNS-over-TLS resolver as the global `~.` route, so the tunnel's own
+  resolver wins when up and nothing falls back to a network's DHCP one
+  when down; `netmenu`'s captive-portal row is the one deliberate,
+  self-reverting exception), NetworkManager privacy defaults,
+  `faillock`, TLP's conservation-mode cap, bluez's `AutoEnable=false`.
+  sshd is disabled by `setup.sh` and admitted from private ranges only
+  when started by hand. `setup.sh system` restarts exactly the services
+  whose files changed (`configure_system_services`).

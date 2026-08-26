@@ -1,0 +1,21 @@
+#!/bin/bash
+# shot-ocr — select a region, read its text with tesseract, put the
+# text on the clipboard (Mod+Ctrl+Shift+S). Nothing touches the disk:
+# grim streams the PNG into tesseract's stdin. tesseract's raw output
+# carries trailing blanks, empty lines and a form feed; the clipboard
+# gets the tidied text. The notification carries the line count and
+# the first line, so a misread is visible at once; an empty read says
+# so and leaves the clipboard alone.
+set -euo pipefail
+
+region="$(slurp)" || exit 0
+text="$(grim -g "$region" - | tesseract stdin stdout -l eng 2>/dev/null \
+        | sed 's/[[:space:]]*$//' | grep . || true)"
+if [ -z "$text" ]; then
+    notify-send -a screenshot -t 3000 "OCR" "no text found"
+    exit 0
+fi
+printf '%s\n' "$text" | wl-copy
+lines=$(printf '%s\n' "$text" | wc -l)
+[ "$lines" -eq 1 ] && plural="" || plural="s"
+notify-send -a screenshot -t 5000 "OCR — $lines line$plural copied" "$(head -n1 <<<"$text")"

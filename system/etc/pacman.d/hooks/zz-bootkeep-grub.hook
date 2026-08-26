@@ -1,0 +1,17 @@
+# Regenerates grub.cfg after a kernel package changes so the kept
+# kernels appear in the menu. Named zz- to run after mkinitcpio's
+# 90-mkinitcpio-install hook: on a fresh kernel install the initramfs
+# exists only once that has run, and an entry generated before it would
+# have no initrd. See /usr/local/bin/bootkeep.
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Target = linux
+Target = linux-lts
+
+[Action]
+Description = Updating the GRUB menu with the kept kernels...
+When = PostTransaction
+Exec = /usr/local/bin/bootkeep grub

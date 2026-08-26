@@ -1,0 +1,616 @@
+#!/bin/bash
+# check-system — acceptance tests for the system/ tree's hardening
+# layer and the setup.sh glue that installs it: bootkeep (the kernel
+# pair keeper the pacman hooks call), the hooks themselves, and the
+# drop-ins for oomd, nftables, sshd, NetworkManager, resolved,
+# faillock, tlp and bluetooth — plus the polkit agent user unit.
+# tools/check proves these files parse; this suite proves they say
+# what the system needs them to say, and it proves it hermetically:
+# bootkeep runs against a fake /boot and /usr/lib/modules inside a
+# mktemp -d sandbox (removed by the trap below), the grub call and
+# setup.sh's sudo are PATH shims that record into the sandbox, and the
+# configs are read as text — no sudo, no network, no root filesystem
+# touched. setup.sh is sourced, not run: its closing BASH_SOURCE guard
+# exists precisely so enable_system_units, configure_boot and
+# configure_system_services can be exercised alone.
+#
+# Needs: bash, coreutils, grep, sed, awk. shellcheck (bootkeep's lint)
+# and nft + unshare (the ruleset syntax check, run unprivileged in a
+# user+net namespace) are optional: a test whose tool is absent prints
+# "skip", not "FAIL", so the suite passes on a bare Ubuntu runner.
+# shellcheck disable=SC2016  # snippets handed to a fresh bash are meant literally
+# shellcheck disable=SC2329  # every t_* function is invoked indirectly, through check's "$@"
+# shellcheck disable=SC2317  # the same verdict as shellcheck <= 0.9 (CI's) hands down: per body line, before SC2329 existed
+set -uo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+REPO_DIR="$PWD"
+
+SANDBOX="$(mktemp -d -t check-system.XXXXXX)"
+SANDBOX="$(readlink -f "$SANDBOX")"
+trap 'rm -rf "$SANDBOX"' EXIT
+
+failed=0
+# check NAME COMMAND... — tools/check's reporter: stdout dropped,
+# failures speak on stderr. The test runs as a plain command, not as
+# an `if` condition: bash ignores errexit — including a `set -e` the
+# function sets itself — for everything called from a condition, and
+# every t_* body below relies on its `set -e` to make each line an
+# assertion rather than only the last one.
+# shellcheck disable=SC2181  # the $? test is the point: `if "$@"` would defeat the bodies' set -e
+check() {
+    local name="$1"; shift
+    "$@" >/dev/null
+    if [ $? -eq 0 ]; then
+        printf '  ok    %s\n' "$name"
+    else
+        printf '  FAIL  %s\n' "$name"
+        failed=1
+    fi
+}
+skip() {   # skip NAME REASON — the tool the test needs is absent here (a bare CI runner)
+    printf '  skip  %s (%s)\n' "$1" "$2"
+}
+have() { command -v "$1" >/dev/null 2>&1; }
+# not COMMAND... — a negated assertion that errexit honours: a bare
+# `! cmd` is exempt from set -e, so a wrongly-present file would pass
+not() { ! "$@"; }
+mkbox() { mktemp -d "$SANDBOX/box.XXXXXX"; }
+
+# with_setup HOMEDIR SNIPPET — check-shell's harness: a fresh bash
+# sources setup.sh with HOME boxed, then evals SNIPPET under the
+# `set -euo pipefail` setup.sh established. PATH and SHIM_LOG pass
+# through the environment, so a test that exported a shim dir first
+# has setup.sh's sudo land on the shim.
+with_setup() {
+    HOME="$1" bash -c 'source "$1/setup.sh" && eval "$2"' check-system "$REPO_DIR" "$2"
+}
+
+# shim DIR NAME BODY — a fake NAME for PATH: bootkeep's grub-mkconfig,
+# setup.sh's sudo
+shim() {
+    printf '#!/bin/bash\n%s\n' "$3" > "$1/$2"
+    chmod +x "$1/$2"
+}
+
+# ini_get FILE SECTION KEY — every value KEY carries inside [SECTION],
+# one per line, whitespace around the = and at the ends trimmed. The
+# pacman hooks repeat Target=, so a key may answer more than once;
+# ini_is wants exactly one value, ini_has any of them.
+ini_get() {
+    awk -v want="$2" -v key="$3" '
+        /^[ \t]*[#;]/ { next }
+        /^\[.*\]/ { sec = $0; sub(/^\[/, "", sec); sub(/\].*$/, "", sec); next }
+        sec == want && index($0, "=") {
+            k = substr($0, 1, index($0, "=") - 1); gsub(/^[ \t]+|[ \t]+$/, "", k)
+            if (k != key) next
+            v = substr($0, index($0, "=") + 1); gsub(/^[ \t]+|[ \t]+$/, "", v)
+            print v
+        }' "$1"
+}
+ini_is()  { [ "$(ini_get "$1" "$2" "$3")" = "$4" ]; }
+ini_has() { ini_get "$1" "$2" "$3" | grep -qxF -- "$4"; }
+
+# commented FILE — an INI-ish file explains itself: a # line before
+# the first section (the pacman hook parser and systemd both allow it)
+commented() { awk '/^\[/ { exit } /^#/ { found = 1 } END { exit !found }' "$1"; }
+
+# ------------------------------------------------------------- bootkeep ---
+BOOTKEEP="$REPO_DIR/system/usr/local/bin/bootkeep"
+
+# fake_boot BOX — a /boot with the live linux pair plus the microcode,
+# and a modules tree where 7.1.9-arch1-2 belongs to linux and the lts
+# kernel to linux-lts, so the pkgbase lookup has a neighbour to get
+# wrong. Prints nothing; the caller exports BOOTKEEP_* into it.
+fake_boot() {
+    mkdir -p "$1/boot" "$1/modules/7.1.9-arch1-2" "$1/modules/6.12.40-1-lts"
+    printf 'kernel\n' > "$1/boot/vmlinuz-linux"
+    printf 'initrd\n' > "$1/boot/initramfs-linux.img"
+    printf 'ucode\n'  > "$1/boot/intel-ucode.img"
+    printf 'linux\n'     > "$1/modules/7.1.9-arch1-2/pkgbase"
+    printf 'linux-lts\n' > "$1/modules/6.12.40-1-lts/pkgbase"
+}
+bk() {   # bk BOX SUBCOMMAND... — bootkeep pointed into the box
+    local b="$1"; shift
+    BOOTKEEP_BOOT="$b/boot" BOOTKEEP_MODULES="$b/modules" BOOTKEEP_BACKUP="$b/backup" \
+        BOOTKEEP_KEEP="${KEEP:-2}" "$BOOTKEEP" "$@"
+}
+
+t_bootkeep_is_bash() ( set -e
+    [ -x "$BOOTKEEP" ]
+    head -n1 "$BOOTKEEP" | grep -q bash
+    bash -n "$BOOTKEEP"
+)
+
+t_bootkeep_usage() ( set -e
+    b="$(mkbox)"
+    # an unknown word must not fall through to any subcommand: usage on
+    # stderr, nothing on stdout, exit 2
+    rc=0; out="$(bk "$b" frobnicate 2> "$b/err")" || rc=$?
+    [ "$rc" -eq 2 ]
+    [ -z "$out" ]
+    [ -s "$b/err" ]
+)
+
+t_keep_copies_pair() ( set -e
+    b="$(mkbox)"; fake_boot "$b"
+    touch -d '2026-08-01 12:00:00' "$b/boot/vmlinuz-linux" "$b/boot/initramfs-linux.img"
+    printf 'linux\n' | bk "$b" keep
+    # GRUB's 10_linux pairs vmlinuz-<version> with initramfs-<version>.img
+    # and grub-btrfs takes kversion=${name#*-} then initramfs-$kversion.img:
+    # only these exact spellings are found by both
+    cmp -s "$b/boot/vmlinuz-linux"        "$b/boot/vmlinuz-linux-7.1.9-arch1-2"
+    cmp -s "$b/boot/initramfs-linux.img"  "$b/boot/initramfs-linux-7.1.9-arch1-2.img"
+    # the copy keeps the live file's mtime: that stamp is the prune order
+    [ "$(stat -c %Y "$b/boot/vmlinuz-linux-7.1.9-arch1-2")" = "$(stat -c %Y "$b/boot/vmlinuz-linux")" ]
+    [ "$(stat -c %Y "$b/boot/initramfs-linux-7.1.9-arch1-2.img")" = "$(stat -c %Y "$b/boot/initramfs-linux.img")" ]
+    # and nothing was filed under the lts kernel's version
+    not [ -e "$b/boot/vmlinuz-linux-6.12.40-1-lts" ]
+)
+
+t_keep_names_match_grub() ( set -e
+    b="$(mkbox)"; fake_boot "$b"
+    printf 'linux\n' | bk "$b" keep
+    cd "$b/boot"
+    for name in vmlinuz-linux-*; do
+        [[ $name =~ ^vmlinuz-(linux-[0-9][^/]*)$ ]]
+        kversion="${name#*-}"
+        [ "$kversion" = "linux-7.1.9-arch1-2" ]
+        [ -f "initramfs-$kversion.img" ]
+    done
+)
+
+t_keep_live_untouched() ( set -e
+    b="$(mkbox)"; fake_boot "$b"
+    before="$(cd "$b/boot" && sha256sum vmlinuz-linux initramfs-linux.img intel-ucode.img)"
+    printf 'linux\n' | bk "$b" keep
+    [ "$(cd "$b/boot" && sha256sum vmlinuz-linux initramfs-linux.img intel-ucode.img)" = "$before" ]
+)
+
+t_keep_prunes_to_keep() ( set -e
+    b="$(mkbox)"; fake_boot "$b"
+    # three upgrades in a row, each a newer kernel: the modules dir is
+    # renamed to the next version and the live pair restamped, so the
+    # kept pairs differ only in mtime. Two survive, the oldest goes,
+    # both files of it.
+    for v in 7.1.7-arch1-1 7.1.8-arch1-1 7.1.9-arch1-2; do
+        rm -rf "$b/modules"/7.*; mkdir -p "$b/modules/$v"; printf 'linux\n' > "$b/modules/$v/pkgbase"
+        touch -d "2026-08-0${v:4:1} 12:00:00" "$b/boot/vmlinuz-linux" "$b/boot/initramfs-linux.img"
+        printf 'linux\n' | bk "$b" keep
+    done
+    not [ -e "$b/boot/vmlinuz-linux-7.1.7-arch1-1" ]
+    not [ -e "$b/boot/initramfs-linux-7.1.7-arch1-1.img" ]
+    [ -f "$b/boot/vmlinuz-linux-7.1.8-arch1-1" ]
+    [ -f "$b/boot/initramfs-linux-7.1.8-arch1-1.img" ]
+    [ -f "$b/boot/vmlinuz-linux-7.1.9-arch1-2" ]
+    [ -f "$b/boot/initramfs-linux-7.1.9-arch1-2.img" ]
+    [ "$(find "$b/boot" -name 'vmlinuz-linux-*' | wc -l)" -eq 2 ]
+)
+
+t_keep_prunes_by_mtime_not_name() ( set -e
+    b="$(mkbox)"; fake_boot "$b"
+    # a version string that sorts later but was built earlier: mtime
+    # decides, so the alphabetically-last 7.1.10 (older build) is pruned
+    for v in 7.1.10-arch1-1 7.1.8-arch1-1 7.1.9-arch1-2; do
+        rm -rf "$b/modules"/7.*; mkdir -p "$b/modules/$v"; printf 'linux\n' > "$b/modules/$v/pkgbase"
+        touch -d "2026-08-01 12:0${v:4:1}:00" "$b/boot/vmlinuz-linux" "$b/boot/initramfs-linux.img"
+        KEEP=2 printf 'linux\n' | bk "$b" keep
+    done
+    not [ -e "$b/boot/vmlinuz-linux-7.1.10-arch1-1" ]
+    [ -f "$b/boot/vmlinuz-linux-7.1.8-arch1-1" ]
+    [ -f "$b/boot/vmlinuz-linux-7.1.9-arch1-2" ]
+)
+
+t_keep_honours_keep_env() ( set -e
+    b="$(mkbox)"; fake_boot "$b"
+    for v in 7.1.7-arch1-1 7.1.8-arch1-1 7.1.9-arch1-2; do
+        rm -rf "$b/modules"/7.*; mkdir -p "$b/modules/$v"; printf 'linux\n' > "$b/modules/$v/pkgbase"
+        touch -d "2026-08-0${v:4:1} 12:00:00" "$b/boot/vmlinuz-linux" "$b/boot/initramfs-linux.img"
+        printf 'linux\n' | KEEP=1 bk "$b" keep
+    done
+    [ "$(find "$b/boot" -name 'vmlinuz-linux-*' | wc -l)" -eq 1 ]
+    [ -f "$b/boot/vmlinuz-linux-7.1.9-arch1-2" ]
+)
+
+t_keep_per_package() ( set -e
+    b="$(mkbox)"; fake_boot "$b"
+    printf 'lts kernel\n' > "$b/boot/vmlinuz-linux-lts"
+    printf 'lts initrd\n' > "$b/boot/initramfs-linux-lts.img"
+    # both packages on stdin, a blank line between them; each lands
+    # under its own kver and the count is per package
+    printf 'linux\n\nlinux-lts\n' | bk "$b" keep
+    cmp -s "$b/boot/vmlinuz-linux"     "$b/boot/vmlinuz-linux-7.1.9-arch1-2"
+    cmp -s "$b/boot/vmlinuz-linux-lts" "$b/boot/vmlinuz-linux-lts-6.12.40-1-lts"
+    [ -f "$b/boot/initramfs-linux-lts-6.12.40-1-lts.img" ]
+    not [ -e "$b/boot/vmlinuz-linux-lts-7.1.9-arch1-2" ]
+)
+
+t_keep_unknown_package() ( set -e
+    b="$(mkbox)"; fake_boot "$b"
+    before="$(find "$b/boot" | sort)"
+    # no vmlinuz-linux-zen, no modules dir naming it: nothing happens,
+    # and it is not an error — the hook must not abort the transaction
+    printf 'linux-zen\n' | bk "$b" keep
+    [ "$(find "$b/boot" | sort)" = "$before" ]
+)
+
+t_keep_needs_both_files() ( set -e
+    b="$(mkbox)"; fake_boot "$b"
+    rm "$b/boot/initramfs-linux.img"
+    printf 'linux\n' | bk "$b" keep
+    # half a pair is worse than none: GRUB would list an entry that
+    # cannot boot
+    not [ -e "$b/boot/vmlinuz-linux-7.1.9-arch1-2" ]
+)
+
+t_backup_mirrors() ( set -e
+    b="$(mkbox)"; fake_boot "$b"
+    mkdir "$b/boot/grub"; printf 'cfg\n' > "$b/boot/grub/grub.cfg"
+    # the backup dir's parent does not exist yet: created on the way
+    BOOTKEEP_BACKUP="$b/deep/backup" BOOTKEEP_BOOT="$b/boot" "$BOOTKEEP" backup
+    diff -r "$b/boot" "$b/deep/backup"
+    not [ -e "$b/deep/backup.new" ]
+)
+
+t_backup_replaces() ( set -e
+    b="$(mkbox)"; fake_boot "$b"
+    bk "$b" backup
+    # a second run mirrors the current state: a file gone from /boot is
+    # gone from the mirror too (replace, never merge), and the staging
+    # dir is gone with it
+    rm "$b/boot/intel-ucode.img"
+    printf 'newer\n' > "$b/boot/vmlinuz-linux"
+    bk "$b" backup
+    diff -r "$b/boot" "$b/backup"
+    not [ -e "$b/backup/intel-ucode.img" ]
+    not [ -e "$b/backup.new" ]
+)
+
+t_backup_no_boot() ( set -e
+    b="$(mkbox)"
+    # no /boot (a container, a chroot without it mounted): a no-op, not
+    # a failed pre-transaction hook
+    bk "$b" backup
+    not [ -e "$b/backup" ]
+)
+
+t_grub_runs_mkconfig() ( set -e
+    b="$(mkbox)"; mkdir "$b/bin"
+    shim "$b/bin" grub-mkconfig 'printf "%s\n" "$*" > "$SHIM_LOG"'
+    PATH="$b/bin:$PATH" SHIM_LOG="$b/log" \
+        BOOTKEEP_GRUB_MKCONFIG="grub-mkconfig -o $b/grub.cfg" "$BOOTKEEP" grub
+    [ "$(cat "$b/log")" = "-o $b/grub.cfg" ]
+)
+
+# --------------------------------------------------------- pacman hooks ---
+HOOKS="$REPO_DIR/system/etc/pacman.d/hooks"
+
+t_hook_backup() ( set -e
+    f="$HOOKS/00-bootkeep-backup.hook"
+    commented "$f"
+    ini_is  "$f" Trigger Type Package
+    ini_has "$f" Trigger Operation Install
+    ini_has "$f" Trigger Operation Upgrade
+    ini_has "$f" Trigger Operation Remove
+    ini_is  "$f" Trigger Target '*'
+    ini_is  "$f" Action When PreTransaction
+    ini_is  "$f" Action Exec '/usr/local/bin/bootkeep backup'
+)
+
+t_hook_keep() ( set -e
+    f="$HOOKS/01-bootkeep-keep.hook"
+    commented "$f"
+    ini_is  "$f" Trigger Type Package
+    ini_is  "$f" Trigger Operation Upgrade
+    ini_has "$f" Trigger Target linux
+    ini_has "$f" Trigger Target linux-lts
+    ini_is  "$f" Action When PreTransaction
+    ini_is  "$f" Action Exec '/usr/local/bin/bootkeep keep'
+    # the package names arrive on stdin, one per line — that is NeedsTargets
+    grep -qx 'NeedsTargets' "$f"
+)
+
+t_hook_grub() ( set -e
+    f="$HOOKS/zz-bootkeep-grub.hook"
+    commented "$f"
+    ini_is  "$f" Trigger Type Package
+    ini_has "$f" Trigger Operation Install
+    ini_has "$f" Trigger Operation Upgrade
+    ini_has "$f" Trigger Operation Remove
+    ini_has "$f" Trigger Target linux
+    ini_has "$f" Trigger Target linux-lts
+    ini_is  "$f" Action When PostTransaction
+    ini_is  "$f" Action Exec '/usr/local/bin/bootkeep grub'
+)
+
+t_hook_order() ( set -e
+    # pacman runs hooks in name order: the backup must precede snap-pac's
+    # pre snapshot and the grub regen must follow mkinitcpio's install
+    [ -f "$HOOKS/00-bootkeep-backup.hook" ]
+    [ -f "$HOOKS/zz-bootkeep-grub.hook" ]
+    [ "$(printf '%s\n' 05-snap-pac-pre 00-bootkeep-backup | LC_ALL=C sort | head -n1)" = 00-bootkeep-backup ]
+    [ "$(printf '%s\n' 90-mkinitcpio-install zz-bootkeep-grub | LC_ALL=C sort | tail -n1)" = zz-bootkeep-grub ]
+)
+
+# --------------------------------------------------------------- oomd ---
+t_oomd_conf() ( set -e
+    f="$REPO_DIR/system/etc/systemd/oomd.conf.d/10-pressure.conf"
+    commented "$f"
+    ini_is "$f" OOM DefaultMemoryPressureLimit 50%
+    ini_is "$f" OOM DefaultMemoryPressureDurationSec 20s
+)
+
+t_oomd_user_slice() ( set -e
+    f="$REPO_DIR/system/etc/systemd/system/user.slice.d/10-oomd.conf"
+    commented "$f"
+    ini_is "$f" Slice ManagedOOMMemoryPressure kill
+    ini_is "$f" Slice ManagedOOMMemoryPressureLimit 50%
+)
+
+# ----------------------------------------------------------- nftables ---
+NFT_CONF="$REPO_DIR/system/etc/nftables.conf"
+
+t_nft_shape() ( set -e
+    f="$NFT_CONF"
+    [ "$(head -n1 "$f")" = '#!/usr/bin/nft -f' ]
+    # `flush ruleset` would take Mullvad's `inet mullvad` table down with
+    # ours on every reload; only our own table is rebuilt
+    not grep -q 'flush ruleset' "$f"
+    grep -q '^destroy table inet filter' "$f"
+    grep -q '^table inet filter' "$f"
+    grep -Eq 'type filter hook input priority filter; *policy drop;' "$f"
+    grep -Eq 'type filter hook forward priority filter; *policy drop;' "$f"
+    grep -Eq 'ct state \{ *established, *related *\} accept' "$f"
+    grep -Eq 'iif "?lo"? accept' "$f"
+    grep -Eq '(meta l4proto|ip protocol) icmp' "$f" || grep -Eq '^\s*icmp ' "$f"
+    grep -Eq '(meta l4proto|meta nfproto ipv6 .*) ipv6-icmp|ipv6-icmp ' "$f"
+)
+
+t_nft_ssh_lan_only() ( set -e
+    f="$NFT_CONF"
+    # ssh opens only to the RFC1918 and link/unique-local ranges: every
+    # dport-22 rule carries a saddr set, none stands alone
+    grep -E 'tcp dport (22|ssh)' "$f" | not grep -Eq -v '\bsaddr\b'
+    grep -Eq 'ip saddr \{[^}]*10\.0\.0\.0/8[^}]*\}.*tcp dport (22|ssh).*accept' "$f"
+    grep -Eq 'ip saddr \{[^}]*172\.16\.0\.0/12[^}]*\}' "$f"
+    grep -Eq 'ip saddr \{[^}]*192\.168\.0\.0/16[^}]*\}' "$f"
+    grep -Eq 'ip6 saddr \{[^}]*fe80::/10[^}]*\}.*tcp dport (22|ssh).*accept' "$f"
+    grep -Eq 'ip6 saddr \{[^}]*fc00::/7[^}]*\}' "$f"
+    # no other public ranges sneak into the sets
+    not grep -Eq 'saddr \{[^}]*0\.0\.0\.0/0' "$f"
+    not grep -Eq 'saddr \{[^}]*::/0' "$f"
+)
+
+t_nft_syntax() ( set -e
+    # nft -c parses and resolves without touching any ruleset; inside a
+    # fresh user+net namespace it needs no privilege
+    unshare -rn nft -c -f "$NFT_CONF"
+)
+
+# ---------------------------------------------------------------- sshd ---
+t_sshd_keys_only() ( set -e
+    f="$REPO_DIR/system/etc/ssh/sshd_config.d/10-keys-only.conf"
+    [ "$(head -c1 "$f")" = '#' ]
+    grep -Eiq '^\s*PasswordAuthentication\s+no\s*$' "$f"
+    grep -Eiq '^\s*PermitRootLogin\s+no\s*$' "$f"
+)
+
+# ------------------------------------------------------- NetworkManager ---
+t_nm_privacy() ( set -e
+    f="$REPO_DIR/system/etc/NetworkManager/conf.d/10-privacy.conf"
+    commented "$f"
+    ini_is "$f" main dns systemd-resolved
+    ini_is "$f" connection wifi.cloned-mac-address stable
+    ini_is "$f" connection ethernet.cloned-mac-address stable
+    ini_is "$f" connection ipv6.ip6-privacy 2
+    ini_is "$f" connection connection.llmnr 0
+    ini_is "$f" connection connection.mdns 0
+    ini_is "$f" device wifi.scan-rand-mac-address yes
+)
+
+# ------------------------------------------------------------ resolved ---
+t_resolved_mullvad() ( set -e
+    f="$REPO_DIR/system/etc/systemd/resolved.conf.d/10-mullvad.conf"
+    commented "$f"
+    dns="$(ini_get "$f" Resolve DNS)"
+    grep -qF '194.242.2.4#base.dns.mullvad.net' <<<"$dns"
+    grep -qF '2a07:e340::4#base.dns.mullvad.net' <<<"$dns"
+    # an empty FallbackDNS= is the point: no silent drop to Cloudflare/Google
+    grep -Eq '^\s*FallbackDNS\s*=\s*$' "$f"
+    ini_is "$f" Resolve Domains '~.'
+    ini_is "$f" Resolve DNSOverTLS yes
+    ini_is "$f" Resolve MulticastDNS no
+    ini_is "$f" Resolve LLMNR no
+)
+
+# ------------------------------------------------------------ faillock ---
+t_faillock() ( set -e
+    f="$REPO_DIR/system/etc/security/faillock.conf"
+    [ "$(head -c1 "$f")" = '#' ]
+    grep -Eq '^\s*deny\s*=\s*5\s*$' "$f"
+    grep -Eq '^\s*fail_interval\s*=\s*900\s*$' "$f"
+    grep -Eq '^\s*unlock_time\s*=\s*120\s*$' "$f"
+)
+
+# ----------------------------------------------------------------- tlp ---
+t_tlp_battery() ( set -e
+    f="$REPO_DIR/system/etc/tlp.d/10-battery.conf"
+    [ "$(head -c1 "$f")" = '#' ]
+    grep -Eq '^\s*START_CHARGE_THRESH_BAT0\s*=\s*"?0"?\s*$' "$f"
+    grep -Eq '^\s*STOP_CHARGE_THRESH_BAT0\s*=\s*"?1"?\s*$' "$f"
+)
+
+# ----------------------------------------------------------- bluetooth ---
+t_bluetooth() ( set -e
+    f="$REPO_DIR/system/etc/bluetooth/main.conf"
+    commented "$f"
+    ini_is "$f" Policy AutoEnable false
+)
+
+# --------------------------------------------------------- polkit agent ---
+t_polkit_agent_unit() ( set -e
+    f="$REPO_DIR/config/systemd/user/polkit-agent.service"
+    # asserted as text: systemd-analyze verify would want the binary,
+    # which a runner without polkit-gnome does not have
+    ini_is "$f" Service ExecStart /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
+    ini_is "$f" Service Restart on-failure
+    ini_is "$f" Unit PartOf graphical-session.target
+    ini_is "$f" Unit Requisite graphical-session.target
+    ini_is "$f" Unit After graphical-session.target
+    ini_is "$f" Install WantedBy graphical-session.target
+)
+
+# ------------------------------------------------------------- setup.sh ---
+SETUP="$REPO_DIR/setup.sh"
+
+t_setup_session_units() ( set -e
+    b="$(mkbox)"
+    with_setup "$b" '
+        printf "%s\n" "${SESSION_UNITS[@]}" | grep -qxF polkit-agent.service'
+)
+
+t_setup_packages() ( set -e
+    # the one pacman transaction: from `sudo pacman -Syu` to its first
+    # blank line, every name the new layer needs
+    pkgs="$(sed -n '/sudo pacman -Syu/,/^$/p' "$SETUP" | sed 's/\\$//' | tr -s ' \n' '\n')"
+    for p in thermald nftables polkit-gnome bluez bluez-utils bluetui \
+             tesseract tesseract-data-eng gpu-screen-recorder; do
+        grep -qxF "$p" <<<"$pkgs"
+    done
+)
+
+t_setup_functions_exist() ( set -e
+    b="$(mkbox)"
+    with_setup "$b" '
+        declare -F enable_system_units > /dev/null
+        declare -F apply_nm_privacy > /dev/null
+        declare -F configure_system_services > /dev/null'
+)
+
+t_setup_enable_units_text() ( set -e
+    body="$(sed -n '/^enable_system_units()/,/^}/p' "$SETUP")"
+    [ -n "$body" ]
+    for unit in systemd-oomd nftables systemd-resolved bluetooth thermald tlp paccache.timer; do
+        grep -Eq "systemctl enable[^|]*\b$unit\b" <<<"$body"
+    done
+    grep -Eq 'systemctl disable[^|]*\bsshd\b' <<<"$body"
+    # resolved's stub is the resolver: the symlink NetworkManager's
+    # dns=systemd-resolved expects
+    grep -Eq 'ln -sf? .*/run/systemd/resolve/stub-resolv.conf +/etc/resolv.conf' <<<"$body"
+)
+
+t_setup_configure_boot_text() ( set -e
+    body="$(sed -n '/^configure_boot()/,/^}/p' "$SETUP")"
+    grep -q 'system_changed_under /etc/pacman.d/hooks' <<<"$body"
+    grep -q 'bootkeep backup' <<<"$body"
+    grep -q 'bootkeep keep' <<<"$body"
+    # a hook change regenerates grub.cfg so the kept pairs show as entries
+    hooks_branch="$(sed -n '/system_changed_under \/etc\/pacman.d\/hooks/,/fi/p' <<<"$body")"
+    grep -q 'grub-mkconfig -o /boot/grub/grub.cfg' <<<"$hooks_branch"
+)
+
+# the sudo shim logs its argv; configure_system_services must reach
+# every privileged call through sudo, so the log is the whole decision
+SUDO_SHIM='printf "%s\n" "$*" >> "$SHIM_LOG"; exit 0'
+
+# services_after CHANGED... — run configure_system_services with the
+# given SYSTEM_CHANGED and print the sudo log; a function that is
+# missing or fails is the caller's failure, not an empty log
+services_after() {
+    local b; b="$(mkbox)"; mkdir "$b/bin"
+    shim "$b/bin" sudo "$SUDO_SHIM"
+    PATH="$b/bin:$PATH" SHIM_LOG="$b/log" with_setup "$b" "
+        SYSTEM_CHANGED=($*)
+        configure_system_services > /dev/null" || return 1
+    cat "$b/log" 2>/dev/null || true
+}
+
+t_services_nftables() ( set -e
+    log="$(services_after /etc/nftables.conf)"
+    grep -Eq '^systemctl (restart|reload) nftables$' <<<"$log"
+    not grep -q resolved <<<"$log"
+    not grep -q tlp <<<"$log"
+)
+
+t_services_resolved() ( set -e
+    log="$(services_after /etc/systemd/resolved.conf.d/10-mullvad.conf)"
+    grep -Eq '^systemctl restart systemd-resolved$' <<<"$log"
+    not grep -q nftables <<<"$log"
+    not grep -q tlp <<<"$log"
+)
+
+t_services_tlp() ( set -e
+    log="$(services_after /etc/tlp.d/10-battery.conf)"
+    grep -Eq '^tlp start$' <<<"$log"
+    not grep -q nftables <<<"$log"
+    not grep -q resolved <<<"$log"
+)
+
+t_services_nothing() ( set -e
+    log="$(services_after)"
+    [ -z "$log" ]
+)
+
+# --------------------------------------------------------------- lint ---
+t_bootkeep_shellcheck() ( set -e
+    shellcheck -x "$BOOTKEEP"
+)
+
+t_setup_shellcheck() ( set -e
+    shellcheck -x "$SETUP"
+)
+
+# ------------------------------------------------------------------- suite ---
+check "bootkeep is an executable bash script"           t_bootkeep_is_bash
+check "bootkeep: unknown subcommand is usage, exit 2"   t_bootkeep_usage
+check "bootkeep keep copies the pair under the kver"    t_keep_copies_pair
+check "bootkeep keep names satisfy grub and grub-btrfs" t_keep_names_match_grub
+check "bootkeep keep leaves the live files alone"       t_keep_live_untouched
+check "bootkeep keep prunes to KEEP pairs"              t_keep_prunes_to_keep
+check "bootkeep keep prunes by mtime, not name"         t_keep_prunes_by_mtime_not_name
+check "bootkeep keep honours BOOTKEEP_KEEP"             t_keep_honours_keep_env
+check "bootkeep keep counts per package"                t_keep_per_package
+check "bootkeep keep ignores an unknown package"        t_keep_unknown_package
+check "bootkeep keep wants both halves of a pair"       t_keep_needs_both_files
+check "bootkeep backup mirrors /boot"                   t_backup_mirrors
+check "bootkeep backup replaces, never merges"          t_backup_replaces
+check "bootkeep backup is a no-op without /boot"        t_backup_no_boot
+check "bootkeep grub runs BOOTKEEP_GRUB_MKCONFIG"       t_grub_runs_mkconfig
+check "hook: 00-bootkeep-backup"                        t_hook_backup
+check "hook: 01-bootkeep-keep"                          t_hook_keep
+check "hook: zz-bootkeep-grub"                          t_hook_grub
+check "hooks sort around snap-pac and mkinitcpio"       t_hook_order
+check "oomd pressure drop-in"                           t_oomd_conf
+check "user.slice oomd drop-in"                         t_oomd_user_slice
+check "nftables.conf shape"                             t_nft_shape
+check "nftables.conf opens ssh to the LAN only"         t_nft_ssh_lan_only
+# a runner may ship unshare yet forbid unprivileged user namespaces
+if have nft && unshare -rn true 2>/dev/null; then
+    check "nftables.conf parses (nft -c)"               t_nft_syntax
+else
+    skip "nftables.conf parses (nft -c)" "nft or an unprivileged user namespace unavailable"
+fi
+check "sshd keys-only drop-in"                          t_sshd_keys_only
+check "NetworkManager privacy drop-in"                  t_nm_privacy
+check "resolved mullvad drop-in"                        t_resolved_mullvad
+check "faillock.conf"                                   t_faillock
+check "tlp battery thresholds"                          t_tlp_battery
+check "bluetooth AutoEnable off"                        t_bluetooth
+check "polkit-agent user unit"                          t_polkit_agent_unit
+check "setup.sh: SESSION_UNITS has polkit-agent"        t_setup_session_units
+check "setup.sh: pacman line lists the new packages"    t_setup_packages
+check "setup.sh: the system functions exist"            t_setup_functions_exist
+check "setup.sh: enable_system_units enables the set"   t_setup_enable_units_text
+check "setup.sh: configure_boot primes bootkeep"        t_setup_configure_boot_text
+check "configure_system_services: nftables.conf"        t_services_nftables
+check "configure_system_services: resolved.conf.d"      t_services_resolved
+check "configure_system_services: tlp.d"                t_services_tlp
+check "configure_system_services: nothing changed"      t_services_nothing
+if have shellcheck; then
+    check "bootkeep passes shellcheck"                  t_bootkeep_shellcheck
+    check "setup.sh passes shellcheck"                  t_setup_shellcheck
+else
+    skip "bootkeep passes shellcheck" "shellcheck not installed"
+    skip "setup.sh passes shellcheck" "shellcheck not installed"
+fi
+
+exit "$failed"

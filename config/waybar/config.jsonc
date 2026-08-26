@@ -6,8 +6,8 @@
     "margin-left": 6,
     "margin-right": 6,
     "modules-left": ["niri/workspaces"],
-    "modules-center": ["group/stats"],
-    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "group/levels", "network", "custom/mullvad", "niri/language", "clock"],
+    "modules-center": ["clock"],
+    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "custom/recording", "temperature", "bluetooth", "group/levels", "network", "custom/mullvad", "niri/language"],
 
     "custom/updates": {
         "exec": "~/.config/waybar/updates.sh",
@@ -16,6 +16,26 @@
         "signal": 8,
         "format": "{}",
         "on-click": "~/.config/waybar/updates.sh gui"
+    },
+
+    "custom/recording": {
+        "exec": "~/.config/waybar/recording.sh",
+        "return-type": "json",
+        "interval": 30,
+        "signal": 9,
+        "format": "{}",
+        "on-click": "~/.local/bin/record-toggle"
+    },
+
+    "bluetooth": {
+        "format": "",
+        "format-no-controller": "",
+        "format-disabled": "",
+        "format-off": "",
+        "format-on": "<span size='88.0%' rise='527' letter_spacing='661'>󰂯</span>",
+        "format-connected": "<span size='88.0%' rise='527' letter_spacing='5110'>󰂱</span> {num_connections}",
+        "tooltip-format-connected": "{device_enumerate}",
+        "on-click": "alacritty --class bluetui-float -e bluetui"
     },
 
     "custom/mullvad": {
@@ -50,12 +70,10 @@
         "on-scroll-down": "niri msg action focus-workspace-down"
     },
 
-    "group/stats": { "orientation": "inherit", "modules": ["temperature", "cpu", "memory"] },
-    "group/levels": { "orientation": "inherit", "modules": ["pulseaudio", "battery"] },
+    "group/levels": { "orientation": "inherit", "modules": ["memory", "pulseaudio", "battery"] },
     "temperature": { "hwmon-path-abs": ["/sys/devices/platform/coretemp.0/hwmon", "/sys/devices/pci0000:00/0000:00:18.3/hwmon"],
-                     "input-filename": "temp1_input", "critical-threshold": 80, "format": "<span size='79.3%' rise='951' letter_spacing='752'></span> {temperatureC}°C", "interval": 5 },
-    "cpu": { "format": "<span letter_spacing='7721'>󰓅</span> {usage:>2}%", "interval": 3,
-             "on-click": "alacritty --class btop-float -e btop" },
+                     "input-filename": "temp1_input", "critical-threshold": 80, "interval": 5,
+                     "format": "", "format-critical": "<span size='79.3%' rise='951' letter_spacing='752'></span> {temperatureC}°C" },
     "memory": { "format": "<span letter_spacing='13312'></span> {percentage:>2}%", "interval": 5,
                 "on-click": "alacritty --class btop-float -e btop" },
     "pulseaudio": {

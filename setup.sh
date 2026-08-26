@@ -93,8 +93,11 @@ install_packages() {
         alacritty waybar mako swaybg swayidle hyprlock rofi \
         yazi zellij cliphist starship chafa micro btop \
         zathura zathura-pdf-poppler imv mpv \
-        tlp \
+        tlp thermald \
+        nftables polkit-gnome \
+        bluez bluez-utils bluetui \
         grim slurp ksnip imagemagick brightnessctl pulsemixer wtype \
+        tesseract tesseract-data-eng gpu-screen-recorder \
         fzf zoxide wl-clipboard fd ripgrep eza bat git-delta jq \
         p7zip unzip xdg-user-dirs \
         libnotify gcr-4 qt5-wayland \
@@ -181,15 +184,43 @@ install_herdr() {
 
 # --------------------------------------------------------- 3. system units ---
 # paccache: bound the pacman cache (the @pkg subvolume is excluded from
-# snapshots but nothing else limits it). tlp: battery-side runtime power
-# tuning, stock defaults (machines that expose a charge-threshold
-# interface can set thresholds in /etc/tlp.conf; nothing else needs
-# configuring).
+# snapshots but nothing else limits it). tlp + thermald: battery-side
+# runtime power tuning (system/etc/tlp.d) and Intel's thermal tables.
+# systemd-oomd, nftables, systemd-resolved, bluetooth: the policies
+# under system/etc (oomd.conf.d, nftables.conf, resolved.conf.d,
+# bluetooth). resolved owns /etc/resolv.conf through its stub symlink —
+# the link is how NetworkManager and the Mullvad daemon detect it. sshd
+# is off: started by hand when needed (system/etc/ssh/sshd_config.d).
 enable_system_units() {
-    sudo systemctl enable paccache.timer 2>/dev/null \
-        || warn "could not enable paccache.timer"
-    sudo systemctl enable tlp 2>/dev/null \
-        || warn "could not enable tlp"
+    sudo systemctl enable paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth 2>/dev/null \
+        || warn "could not enable a system unit — systemctl status paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth"
+    # thermald has no file under system/ to trigger a restart on, and
+    # enable alone waits for the next boot: start it now
+    sudo systemctl start thermald 2>/dev/null || warn "could not start thermald"
+    sudo systemctl disable --now sshd 2>/dev/null || true
+    if [ "$(readlink /etc/resolv.conf)" != /run/systemd/resolve/stub-resolv.conf ]; then
+        log "pointing /etc/resolv.conf at systemd-resolved's stub"
+        sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+    fi
+}
+
+# the privacy defaults in system/etc/NetworkManager/conf.d apply to new
+# profiles; the Wi-Fi and wired ones that already exist are brought in
+# line once, here
+apply_nm_privacy() {
+    local uuid
+    while IFS=: read -r uuid type; do
+        case "$type" in
+            802-11-wireless) sudo nmcli connection modify "$uuid" \
+                802-11-wireless.cloned-mac-address stable ipv6.ip6-privacy 2 \
+                connection.llmnr 0 connection.mdns 0 2>/dev/null \
+                || warn "could not update Wi-Fi profile $uuid" ;;
+            802-3-ethernet) sudo nmcli connection modify "$uuid" \
+                802-3-ethernet.cloned-mac-address stable ipv6.ip6-privacy 2 \
+                connection.llmnr 0 connection.mdns 0 2>/dev/null \
+                || warn "could not update wired profile $uuid" ;;
+        esac
+    done < <(nmcli -g UUID,TYPE connection show 2>/dev/null)
 }
 
 # ---------------------------------------------------------- 4. system tree ---
@@ -274,10 +305,51 @@ configure_boot() {
         log "regenerating grub.cfg"
         sudo grub-mkconfig -o /boot/grub/grub.cfg
     fi
+    # the bootkeep hooks (system/etc/pacman.d/hooks) act at the next
+    # kernel upgrade; prime them so today's kernels are already kept
+    # under their version names, /boot is mirrored, and the menu shows
+    # the entries now
+    if system_changed_under /etc/pacman.d/hooks || system_changed_under /usr/local/bin/bootkeep; then
+        log "keeping the current kernels for snapshot rollback"
+        printf 'linux\nlinux-lts\n' | sudo /usr/local/bin/bootkeep keep
+        sudo /usr/local/bin/bootkeep backup
+        sudo grub-mkconfig -o /boot/grub/grub.cfg
+    fi
     # the plymouth-quit drop-in is read at the next boot; reload so a
     # `systemctl cat` shows it now
     if system_changed_under /etc/systemd/system; then
         sudo systemctl daemon-reload
+    fi
+}
+
+# The services whose files changed pick them up now rather than at the
+# next boot: each of these rereads its config on restart (nftables and
+# resolved their drop-ins, oomd both its own and the slice's, tlp its
+# tlp.d, bluez its main.conf); NetworkManager only reloads its conf.d
+# and the existing profiles are updated in place. Nothing runs when
+# nothing changed, so a rerun is quiet.
+configure_system_services() {
+    if system_changed_under /etc/systemd/system; then
+        sudo systemctl daemon-reload
+    fi
+    if system_changed_under /etc/nftables.conf; then
+        sudo systemctl restart nftables
+    fi
+    if system_changed_under /etc/systemd/resolved.conf.d; then
+        sudo systemctl restart systemd-resolved
+    fi
+    if system_changed_under /etc/NetworkManager/conf.d; then
+        sudo systemctl reload NetworkManager
+        apply_nm_privacy
+    fi
+    if system_changed_under /etc/systemd/oomd.conf.d || system_changed_under /etc/systemd/system/user.slice.d; then
+        sudo systemctl restart systemd-oomd
+    fi
+    if system_changed_under /etc/tlp.d; then
+        sudo tlp start > /dev/null
+    fi
+    if system_changed_under /etc/bluetooth; then
+        sudo systemctl restart bluetooth
     fi
 }
 
@@ -439,7 +511,7 @@ install_templates() {
 # agent (gnome-keyring, which once carried it, is not part of this
 # desktop) — its socket unit exports SSH_AUTH_SOCK into the session.
 SESSION_UNITS=(waybar.service mako.service wallpaper.service swayidle.service
-               battwatch.service cliphist@text.service cliphist@image.service)
+               battwatch.service polkit-agent.service cliphist@text.service cliphist@image.service)
 
 enable_units() {
     local out
@@ -710,6 +782,7 @@ system_half() {
     enable_system_units
     install_system_files
     configure_boot
+    configure_system_services
     configure_greeter
 }
 

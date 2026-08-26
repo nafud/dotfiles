@@ -1,0 +1,59 @@
+#!/bin/bash
+# webapp-install NAME URL [ICON] — a site as an application: its own
+# window with no tabs or address bar, its own class (so niri, the
+# workspace dots and rofi-windows treat it as an app, not a browser
+# tab), an entry in rofi's drun and a name to bind. Chromium-family
+# only (`--app=` has no Firefox equivalent): the default browser when
+# it is one, else google-chrome-stable, chromium or brave, whichever
+# is on PATH. ICON is an icon name from the theme or a path, default
+# "web-browser". Writes ~/.local/share/applications/webapp-<slug>.desktop
+# and prints the path; `webapp-install --remove SLUG` deletes it.
+# update-desktop-database (desktop-file-utils) refreshes the MIME cache
+# when present; rofi reads the directory either way.
+set -euo pipefail
+
+apps="$HOME/.local/share/applications"
+usage() { echo "usage: webapp-install NAME URL [ICON] | --remove SLUG" >&2; exit 2; }
+
+refresh() { command -v update-desktop-database >/dev/null && update-desktop-database "$apps" 2>/dev/null || true; }
+
+if [ "${1:-}" = --remove ]; then
+    [ -n "${2:-}" ] || usage
+    rm -f "$apps/webapp-$2.desktop"
+    refresh
+    exit 0
+fi
+[ $# -ge 2 ] || usage
+name="$1" url="$2" icon="${3:-web-browser}"
+case "$url" in http://*|https://*) ;; *) echo "webapp-install: URL must start with http:// or https://" >&2; exit 2 ;; esac
+
+# the browser: the default when Chromium-family, else the first on PATH
+browser=""
+case "$(xdg-settings get default-web-browser 2>/dev/null || true)" in
+    google-chrome*.desktop) browser=google-chrome-stable ;;
+    chromium*.desktop)      browser=chromium ;;
+    brave*.desktop)         browser=brave ;;
+esac
+command -v "${browser:-/}" >/dev/null 2>&1 || browser=""
+for candidate in google-chrome-stable chromium brave; do
+    [ -n "$browser" ] && break
+    command -v "$candidate" >/dev/null 2>&1 && browser="$candidate"
+done
+[ -n "$browser" ] || { echo "webapp-install: no Chromium-family browser found" >&2; exit 1; }
+
+slug="$(printf '%s' "$name" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-')"
+mkdir -p "$apps"
+entry="$apps/webapp-$slug.desktop"
+cat > "$entry" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=$name
+Comment=$url
+Exec=$browser --app=$url --class=webapp-$slug
+Icon=$icon
+Terminal=false
+Categories=Network;
+StartupWMClass=webapp-$slug
+DESKTOP
+refresh
+echo "$entry"

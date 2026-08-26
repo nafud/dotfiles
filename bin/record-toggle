@@ -1,0 +1,35 @@
+#!/bin/bash
+# record-toggle — start or stop a screen recording (Mod+Ctrl+R, the
+# bar's recording mark). gpu-screen-recorder encodes on the GPU (VAAPI
+# here) from the compositor's ScreenCast portal: the first run shows
+# the portal's picker (a screen or a window) and keeps its token, later
+# runs restore that session without asking. Desktop audio goes in, the
+# microphone does not (`-a default_input` would add a voice-over).
+# SIGINT stops and finalises the file; the script waits for the
+# recorder to be gone before announcing the file. The bar's
+# custom/recording module is poked (RTMIN+9) at both ends so the mark
+# appears and goes with the process.
+set -euo pipefail
+
+dir="$HOME/Videos"
+poke() { pkill -RTMIN+9 -x waybar; }
+
+if pgrep -x gpu-screen-recorder >/dev/null; then
+    pkill -INT -x gpu-screen-recorder
+    while pgrep -x gpu-screen-recorder >/dev/null; do sleep 0.1; done
+    poke || true
+    latest="$(find "$dir" -maxdepth 1 -name 'rec-*.mp4' -printf '%T@ %f\n' 2>/dev/null \
+              | sort -rn | head -n1 | cut -d' ' -f2-)"
+    notify-send -a recording -t 5000 "Recording saved" "$latest"
+    exit 0
+fi
+
+if ! command -v gpu-screen-recorder >/dev/null; then
+    notify-send -a recording "Recording" "gpu-screen-recorder is not installed"
+    exit 1
+fi
+mkdir -p "$dir"
+file="$dir/rec-$(date +%Y%m%d-%H%M%S).mp4"
+setsid -f gpu-screen-recorder -w portal -restore-portal-session yes \
+    -f 60 -k h264 -q very_high -a default_output -o "$file" >/dev/null 2>&1
+poke || true

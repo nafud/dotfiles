@@ -1,0 +1,104 @@
+#!/bin/bash
+# bootkeep — keeps a snapshot rollback bootable when /boot is not in
+# the snapshot.
+#
+# The root is LUKS2 + btrfs and snap-pac takes a snapshot around every
+# pacman transaction, but /boot is a separate ext4 partition (GRUB
+# cannot open an argon2 LUKS2 volume, so the kernels must live outside
+# it). A snapshot therefore holds /usr/lib/modules of *its* kernel
+# while /boot holds only the newest one; grub-btrfs pairs every
+# snapshot with the kernels it finds on the live /boot
+# (/etc/grub.d/41_snapshots-btrfs, detect_kernel), so a snapshot taken
+# before a kernel upgrade would boot a kernel whose modules it does not
+# have. Three pacman hooks (/etc/pacman.d/hooks/*bootkeep*) call this
+# around every transaction:
+#
+#   backup   mirrors /boot into /.bootbackup on the root subvolume, so
+#            every snapshot carries the /boot it was taken with — the
+#            way back if the partition itself is lost (from a live
+#            system: cp -a /.bootbackup/. /boot/). Hook 00- runs it
+#            before snap-pac's pre snapshot (05-).
+#   keep     for each kernel package about to be upgraded (pkgbase
+#            names on stdin, pacman's NeedsTargets), copies the kernel
+#            and initramfs still on /boot to version-suffixed names —
+#            vmlinuz-linux-7.1.9-arch1-2 / initramfs-linux-7.1.9-arch1-2.img
+#            — and prunes to the newest KEEP such pairs per package, by
+#            the kernel file's mtime (the copies keep it). Both GRUB's
+#            10_linux (version = the name after "vmlinuz-", paired with
+#            initramfs-<version>.img) and grub-btrfs (kversion = the
+#            name after the first "-", paired with the suffix
+#            kversion.img) list these unconfigured, so every snapshot's
+#            submenu offers the kernel its modules belong to. GRUB's
+#            own ".old" suffix would not: grub-btrfs reads
+#            initramfs-linux.img.old as suffix "linux.img.old", never
+#            "linux.old.img". A pair is ~55 MB of the 1 GB /boot; the
+#            microcode image is shared.
+#   grub     regenerates grub.cfg after the transaction so the kept
+#            pairs are in the menu (hook zz- sorts after mkinitcpio's
+#            90-, which writes the new initramfs first).
+#
+# Every path is overridable so tests/check-system can drive the script
+# against a fake /boot; the hooks never set them.
+set -euo pipefail
+
+BOOT="${BOOTKEEP_BOOT:-/boot}"
+MODULES="${BOOTKEEP_MODULES:-/usr/lib/modules}"
+BACKUP="${BOOTKEEP_BACKUP:-/.bootbackup}"
+KEEP="${BOOTKEEP_KEEP:-2}"
+GRUB_MKCONFIG="${BOOTKEEP_GRUB_MKCONFIG:-grub-mkconfig -o /boot/grub/grub.cfg}"
+
+backup() {
+    [ -d "$BOOT" ] || return 0          # no /boot here (a chroot): nothing to mirror
+    mkdir -p "$(dirname "$BACKUP")"
+    rm -rf "$BACKUP.new"
+    cp -a "$BOOT/." "$BACKUP.new"       # staged, then swapped: never a half-written mirror
+    rm -rf "$BACKUP"
+    mv "$BACKUP.new" "$BACKUP"
+}
+
+# kver_of PKGBASE — the installed version of a kernel package: the
+# modules directory whose pkgbase file (shipped by the package itself)
+# names it exactly; linux must not answer for linux-lts
+kver_of() {
+    local dir
+    for dir in "$MODULES"/*/; do
+        [ -f "$dir/pkgbase" ] || continue
+        [ "$(<"$dir/pkgbase")" = "$1" ] || continue
+        basename "$dir"
+        return 0
+    done
+    return 1
+}
+
+# keep_one PKGBASE — copy the live pair under its version, prune
+keep_one() {
+    local pkg="$1" kver kernel initramfs old
+    kernel="$BOOT/vmlinuz-$pkg"
+    initramfs="$BOOT/initramfs-$pkg.img"
+    # half a pair would give GRUB an entry that cannot boot
+    [ -f "$kernel" ] && [ -f "$initramfs" ] || return 0
+    kver="$(kver_of "$pkg")" || return 0
+    cp -p "$kernel" "$BOOT/vmlinuz-$pkg-$kver"
+    cp -p "$initramfs" "$BOOT/initramfs-$pkg-$kver.img"
+    # newest KEEP by mtime stay; a version string that sorts later but
+    # was built earlier is older, and goes
+    while IFS= read -r old; do
+        rm -f "$old" "$BOOT/initramfs-${old#"$BOOT"/vmlinuz-}.img"
+    done < <(find "$BOOT" -maxdepth 1 -name "vmlinuz-$pkg-[0-9]*" -printf '%T@ %p\n' \
+             | sort -rn | cut -d' ' -f2- | tail -n +$((KEEP + 1)))
+}
+
+keep() {
+    local pkg
+    while IFS= read -r pkg; do
+        [ -n "$pkg" ] && keep_one "$pkg"
+    done
+    return 0
+}
+
+case "${1:-}" in
+    backup) backup ;;
+    keep)   keep ;;
+    grub)   $GRUB_MKCONFIG ;;
+    *)      echo "usage: bootkeep backup|keep|grub" >&2; exit 2 ;;
+esac

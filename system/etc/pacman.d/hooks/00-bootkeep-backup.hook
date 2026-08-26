@@ -1,0 +1,15 @@
+# Mirrors /boot into /.bootbackup before every transaction, ahead of
+# snap-pac's pre snapshot (hooks run in name order: 00- before 05-), so
+# each snapshot carries the /boot it was taken with. See
+# /usr/local/bin/bootkeep.
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Target = *
+
+[Action]
+Description = Backing up /boot into the root subvolume...
+When = PreTransaction
+Exec = /usr/local/bin/bootkeep backup

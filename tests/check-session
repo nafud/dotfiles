@@ -1,0 +1,615 @@
+#!/bin/bash
+# check-session — behaviour tests for the session's desk tools, the
+# ones that talk to the compositor, the clipboard, the bar and the
+# network stack: shot-annotate and shot-ocr (grim/slurp, tesseract,
+# wl-copy, a notification with an action), record-toggle and the bar's
+# recording module (gpu-screen-recorder started detached and stopped
+# with SIGINT, waybar poked with RTMIN+9), webapp-install (a Chromium
+# --app launcher as a .desktop file), netmenu's captive-portal row
+# (resolvectl steering the connected Wi-Fi device's DNS around DoT for
+# the length of one browser visit), and the config that wires them in:
+# the bar's bluetooth and recording entries, their CSS, the niri binds,
+# the tlp alias. Written before the features, as the acceptance
+# criteria: every row here is red until the script it names exists and
+# behaves as its comment will claim.
+#
+# The suite is hermetic in tests/check-shell's manner: each test takes
+# a fresh box under one mktemp -d root (removed by the trap below),
+# HOME points into it, and every external command a script reaches for
+# — slurp, grim, wl-copy, notify-send, ksnip, tesseract, pgrep, pkill,
+# setsid, gpu-screen-recorder, nmcli, resolvectl, gtk-launch,
+# xdg-settings, rofi-toggle, update-desktop-database — is a PATH shim
+# that records its argv into the box. No display, no session, no
+# sudo, no network, no pacman; a bare CI runner passes it once the
+# features land. Where a script must find a tool *absent* (no
+# Chromium-family browser, no recorder) the test hands it a sparse PATH
+# of symlinked coreutils rather than trusting the runner not to have
+# google-chrome installed.
+#
+# Needs: bash, coreutils, grep, sed, awk, python3 (the config
+# assertions). jq (the JSON module output), shellcheck (the lint row)
+# and niri (`niri validate`) are optional: a test whose tool is absent
+# prints "skip", not "FAIL".
+# shellcheck disable=SC2016  # snippets handed to shims and python are meant literally
+# shellcheck disable=SC2329  # every t_* function is invoked indirectly, through check's "$@"
+# shellcheck disable=SC2317  # the same verdict as shellcheck <= 0.9 (CI's) hands down: per body line, before SC2329 existed
+set -uo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+REPO_DIR="$PWD"
+
+SANDBOX="$(mktemp -d -t check-session.XXXXXX)"
+SANDBOX="$(readlink -f "$SANDBOX")"
+trap 'rm -rf "$SANDBOX"' EXIT
+
+failed=0
+# check NAME COMMAND... — tools/check's reporter: stdout dropped,
+# failures speak on stderr. The test runs as a plain command, not as
+# the condition of the `if`: a command tested by `if` runs with errexit
+# ignored, and that reaches into the t_* subshells, whose `set -e`
+# would then bind nothing — only the last line would decide. Here
+# every assertion line decides.
+check() {
+    local name="$1" rc; shift
+    "$@" >/dev/null; rc=$?
+    if [ "$rc" -eq 0 ]; then
+        printf '  ok    %s\n' "$name"
+    else
+        printf '  FAIL  %s\n' "$name"
+        failed=1
+    fi
+}
+# not COMMAND... — a negated assertion errexit sees (a bare `! cmd` is
+# exempt from set -e; a function returning the inverse is not)
+not() { ! "$@"; }
+skip() {   # skip NAME REASON — the tool the test needs is absent here (a bare CI runner)
+    printf '  skip  %s (%s)\n' "$1" "$2"
+}
+have() { command -v "$1" >/dev/null 2>&1; }
+mkbox() { mktemp -d "$SANDBOX/box.XXXXXX"; }
+
+# shim DIR NAME BODY — a fake NAME for PATH, standing in for the
+# commands the tested scripts call out to. Most shims log their argv
+# as one line "NAME ARGS" into $SHIM_LOG so a test can assert both
+# what was called and in which order.
+shim() {
+    printf '#!/bin/bash\n%s\n' "$3" > "$1/$2"
+    chmod +x "$1/$2"
+}
+LOGGED='printf "%s %s\n" "$(basename "$0")" "$*" >> "$SHIM_LOG"'
+
+# sparse_path DIR — a PATH holding DIR's shims and symlinks to the
+# plain tools a shell script may reasonably reach for, and nothing
+# else: the way to make a script see gpu-screen-recorder or
+# google-chrome-stable as *not installed* on a desk where they are.
+sparse_path() {
+    local sys="$1/sys" t p
+    mkdir -p "$sys"
+    for t in bash sh env sed awk grep tr cut mkdir rmdir rm cat printf echo date \
+             basename dirname readlink realpath head tail sort uniq ls find touch \
+             wc sleep stat id tee mktemp mv cp ln true false test xargs; do
+        p="$(command -v "$t" 2>/dev/null)" || continue
+        ln -sf "$p" "$sys/$t"
+    done
+    printf '%s:%s\n' "$1/bin" "$sys"
+}
+
+# strip_jsonc — config.jsonc to JSON on stdout, // comments dropped (a
+# "//" inside a quoted string, as in a URL, is left alone)
+strip_jsonc() {
+    python3 -c '
+import re, sys
+text = sys.stdin.read()
+print(re.sub(r"(^|(?<=\s))//[^\"\n]*$", "", text, flags=re.M))' < "$REPO_DIR/config/waybar/config.jsonc"
+}
+
+# ----------------------------------------------------- bin/shot-annotate ---
+ANNOTATE="$REPO_DIR/bin/shot-annotate"
+
+# the screenshot shims: slurp answers a region (or refuses, SLURP_RC),
+# grim writes a marker "PNG" to its output file — or to stdout for "-"
+# — and logs, wl-copy keeps its stdin as $BOX/clip, notify-send logs
+# and answers with the action the test configured ($ACTION), ksnip logs
+shot_shims() {
+    local d="$1"
+    shim "$d" slurp 'if [ "${SLURP_RC:-0}" -ne 0 ]; then exit "$SLURP_RC"; fi; echo "1,2 30x40"'
+    shim "$d" grim "$LOGGED"'
+out=""; while [ $# -gt 0 ]; do case "$1" in -g) shift ;; *) out="$1" ;; esac; shift; done
+if [ "$out" = "-" ]; then printf PNG; else printf PNG > "$out"; fi'
+    shim "$d" wl-copy "$LOGGED"'
+cat > "$BOX/clip"'
+    shim "$d" notify-send 'printf "%s\n" "$*" >> "$BOX/notify"
+'"$LOGGED"'
+[ -n "${ACTION:-}" ] && echo "$ACTION"; exit 0'
+    shim "$d" ksnip "$LOGGED"
+}
+
+t_annotate_escape() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; shot_shims "$b/bin"
+    # an escaped slurp: exit 0 with nothing saved, copied or announced —
+    # not even the Screenshots directory, which is made for the file
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" SLURP_RC=1 "$ANNOTATE"
+    not [ -e "$b/home/Pictures/Screenshots" ]
+    [ -z "$(find "$b/home" -name '*.png' 2>/dev/null)" ]
+    not [ -e "$b/clip" ]
+    not [ -e "$b/notify" ]
+    not [ -e "$b/log" ] || not grep -q '^ksnip' "$b/log"
+)
+
+t_annotate_saves_copies_notifies() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; shot_shims "$b/bin"
+    # the notification's action is dismissed (notify-send prints
+    # nothing): the file is saved, its bytes are on the clipboard, and
+    # no editor opens
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" ACTION='' "$ANNOTATE"
+    file="$(find "$b/home/Pictures/Screenshots" -name 'annotate-*.png')"
+    [ "$(wc -l <<<"$file")" -eq 1 ]
+    grep -qE '/annotate-[0-9]{8}-[0-9]{6}\.png$' <<<"$file"
+    [ "$(cat "$file")" = "PNG" ]
+    grep -qxF "grim -g 1,2 30x40 $file" "$b/log"
+    [ "$(cat "$b/clip")" = "PNG" ]
+    n="$(cat "$b/notify")"
+    grep -q -- '-a screenshot' <<<"$n"
+    grep -q -- '-A edit=Edit' <<<"$n"
+    grep -q -- '-t 5000' <<<"$n"
+    grep -q 'Screenshot' <<<"$n"
+    not grep -q '^ksnip' "$b/log"
+    # copy before the notification, so the clipboard is ready while it shows
+    [ "$(grep -n '^wl-copy' "$b/log" | cut -d: -f1)" -lt "$(grep -n '^notify-send' "$b/log" | cut -d: -f1)" ]
+)
+
+t_annotate_edit_opens_ksnip() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; shot_shims "$b/bin"
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" ACTION=edit "$ANNOTATE"
+    file="$(find "$b/home/Pictures/Screenshots" -name 'annotate-*.png')"
+    grep -qxF "ksnip -e $file" "$b/log"
+    [ "$(cat "$b/clip")" = "PNG" ]
+)
+
+t_annotate_other_action_no_ksnip() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; shot_shims "$b/bin"
+    # only the literal action id "edit" opens the editor: a closed
+    # notification (notify-send answers "2", or a stray id) does not
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" ACTION=2 "$ANNOTATE"
+    not grep -q '^ksnip' "$b/log"
+)
+
+# ---------------------------------------------------------- bin/shot-ocr ---
+OCR="$REPO_DIR/bin/shot-ocr"
+
+# tesseract shim: insists on the invocation (stdin → stdout, English),
+# refuses anything but the PNG marker on stdin, answers $OCR_TEXT
+ocr_shims() {
+    shot_shims "$1"
+    shim "$1" tesseract "$LOGGED"'
+[ "$*" = "stdin stdout -l eng" ] || { echo "tesseract: bad args: $*" >&2; exit 1; }
+[ "$(cat)" = "PNG" ] || { echo "tesseract: stdin is not the grim PNG" >&2; exit 1; }
+printf "%b" "$OCR_TEXT"'
+}
+
+t_ocr_escape() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; ocr_shims "$b/bin"
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" SLURP_RC=1 OCR_TEXT='' "$OCR"
+    not [ -e "$b/clip" ]
+    not [ -e "$b/notify" ]
+    not [ -e "$b/log" ] || not grep -q '^tesseract' "$b/log"
+)
+
+t_ocr_copies_text() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; ocr_shims "$b/bin"
+    # tesseract's raw output carries trailing spaces and blank lines
+    # (a form feed too): the clipboard gets the tidied text only
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" \
+        OCR_TEXT='hello world   \n\n   \nsecond line\t\n\f\n' "$OCR"
+    grep -qxF 'grim -g 1,2 30x40 -' "$b/log"
+    [ "$(cat "$b/clip")" = $'hello world\nsecond line' ]
+    n="$(cat "$b/notify")"
+    grep -q '2 lines' <<<"$n"
+    grep -q 'hello world' <<<"$n"
+    # nothing lands on disk: OCR is clipboard only
+    [ -z "$(find "$b/home" -name '*.png' 2>/dev/null)" ]
+)
+
+t_ocr_single_line() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; ocr_shims "$b/bin"
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" OCR_TEXT='only one  \n' "$OCR"
+    [ "$(cat "$b/clip")" = "only one" ]
+    grep -q '1 line' "$b/notify"
+    not grep -q '1 lines' "$b/notify"
+)
+
+t_ocr_nothing_found() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; ocr_shims "$b/bin"
+    # whitespace only: say so, leave the clipboard alone, still exit 0
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" OCR_TEXT='  \n\n \n' "$OCR"
+    not [ -e "$b/clip" ]
+    not grep -q '^wl-copy' "$b/log"
+    grep -qi 'no text found' "$b/notify"
+)
+
+# ----------------------------------------------------- bin/record-toggle ---
+RECORD="$REPO_DIR/bin/record-toggle"
+
+record_shims() {
+    local d="$1"
+    shim "$d" pkill "$LOGGED"
+    shim "$d" notify-send 'printf "%s\n" "$*" >> "$BOX/notify"
+'"$LOGGED"
+    # setsid runs its command in the foreground here (the -f dropped),
+    # so the recorder shim's log line is written before the script
+    # returns and the test needs no sleep
+    shim "$d" setsid "$LOGGED"'
+[ "$1" = "-f" ] && shift
+exec "$@"'
+    shim "$d" gpu-screen-recorder "$LOGGED"
+}
+
+t_record_start() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; record_shims "$b/bin"
+    shim "$b/bin" pgrep 'exit 1'   # nothing recording
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" "$RECORD"
+    [ -d "$b/home/Videos" ]
+    line="$(grep '^gpu-screen-recorder ' "$b/log")"
+    grep -q -- '-w portal' <<<"$line"
+    grep -q -- '-restore-portal-session yes' <<<"$line"
+    grep -q -- '-f 60' <<<"$line"
+    grep -q -- '-k h264' <<<"$line"
+    grep -q -- '-q very_high' <<<"$line"
+    grep -q -- '-a default_output' <<<"$line"
+    grep -qE -- "-o $b/home/Videos/rec-[0-9]{8}-[0-9]{6}\.mp4( |$)" <<<"$line"
+    grep -q '^setsid -f ' "$b/log"
+    grep -qxF 'pkill -RTMIN+9 -x waybar' "$b/log"
+    not grep -q -- '-INT' "$b/log"
+)
+
+t_record_not_installed() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; record_shims "$b/bin"
+    rm "$b/bin/gpu-screen-recorder"
+    shim "$b/bin" pgrep 'exit 1'
+    # no recorder on PATH: a notification saying so, exit 1, and no
+    # ~/Videos conjured for a file that will never come
+    rc=0
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$(sparse_path "$b")" "$RECORD" || rc=$?
+    [ "$rc" -eq 1 ]
+    grep -qi 'not installed' "$b/notify"
+    not [ -d "$b/home/Videos" ]
+    not [ -e "$b/log" ] || not grep -q '^pkill' "$b/log"
+)
+
+t_record_stop() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home/Videos"; record_shims "$b/bin"
+    # pgrep: the recorder is alive for the first look, gone from the
+    # second — the script must poll past the SIGINT until it is gone
+    shim "$b/bin" pgrep 'n=$(cat "$BOX/pgrep.n" 2>/dev/null || echo 0); echo $((n+1)) > "$BOX/pgrep.n"
+[ "$n" -eq 0 ]'
+    touch -d '2026-01-01 00:00:00' "$b/home/Videos/rec-20260101-000000.mp4"
+    touch -d '2026-08-26 12:00:00' "$b/home/Videos/rec-20260826-120000.mp4"
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" "$RECORD"
+    [ "$(cat "$b/pgrep.n")" -ge 2 ]
+    grep -qxF 'pkill -INT -x gpu-screen-recorder' "$b/log"
+    grep -qxF 'pkill -RTMIN+9 -x waybar' "$b/log"
+    [ "$(grep -n 'pkill -INT' "$b/log" | cut -d: -f1)" -lt "$(grep -n 'pkill -RTMIN+9' "$b/log" | cut -d: -f1)" ]
+    grep -q 'Recording saved' "$b/notify"
+    grep -q 'rec-20260826-120000.mp4' "$b/notify"
+    not grep -q 'rec-20260101' "$b/notify"
+    not grep -q '^gpu-screen-recorder' "$b/log"   # stop does not start
+)
+
+# --------------------------------------------- config/waybar/recording.sh ---
+RECORDING="$REPO_DIR/config/waybar/recording.sh"
+
+t_recording_idle() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin"
+    shim "$b/bin" pgrep '[ "$*" = "-x gpu-screen-recorder" ] || exit 2; exit 1'
+    out="$(PATH="$b/bin:$PATH" "$RECORDING")"
+    jq -e '.text == "" and (has("class") | not)' <<<"$out" > /dev/null
+)
+
+t_recording_active() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin"
+    shim "$b/bin" pgrep '[ "$*" = "-x gpu-screen-recorder" ] || exit 2; echo 4242; exit 0'
+    out="$(PATH="$b/bin:$PATH" "$RECORDING")"
+    jq -e '.class == "recording"' <<<"$out" > /dev/null
+    jq -e '.tooltip | type == "string" and length > 0' <<<"$out" > /dev/null
+    # the glyph is 󰻂 (U+F0EC2) inside the measured span; the glyph goes
+    # in through --arg, jq's own escapes stopping at the BMP
+    jq -e --arg span "<span size='88.0%' rise='527' letter_spacing='6983'>"$'\U000f0ec2'"</span>" \
+        '.text | contains($span)' <<<"$out" > /dev/null
+)
+
+# ----------------------------------------------------- bin/webapp-install ---
+WEBAPP="$REPO_DIR/bin/webapp-install"
+
+webapp_shims() {   # DEFAULT — what xdg-settings names as the default browser
+    shim "$1" xdg-settings 'echo "$DEFAULT_BROWSER"'
+    shim "$1" chromium 'exit 0'
+    shim "$1" update-desktop-database "$LOGGED"
+}
+
+t_webapp_writes_desktop() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; webapp_shims "$b/bin"
+    out="$(HOME="$b/home" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" DEFAULT_BROWSER=chromium.desktop \
+        "$WEBAPP" "Proton Mail" https://mail.proton.me)"
+    f="$b/home/.local/share/applications/webapp-proton-mail.desktop"
+    [ "$out" = "$f" ]
+    [ -f "$f" ]
+    grep -qxF '[Desktop Entry]' "$f"
+    grep -qxF 'Type=Application' "$f"
+    grep -qxF 'Name=Proton Mail' "$f"
+    grep -qE '^Exec=(\S*/)?chromium --app=https://mail\.proton\.me --class=webapp-proton-mail$' "$f"
+    grep -qxF 'Icon=web-browser' "$f"
+    grep -qxF 'StartupWMClass=webapp-proton-mail' "$f"
+)
+
+t_webapp_slug_and_icon() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; webapp_shims "$b/bin"
+    # the slug keeps [a-z0-9-] only, after lowercasing and spaces → '-'
+    out="$(HOME="$b/home" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" DEFAULT_BROWSER=chromium.desktop \
+        "$WEBAPP" "Chat GPT!" http://chat.example.org/x?y=1 chat-icon)"
+    f="$b/home/.local/share/applications/webapp-chat-gpt.desktop"
+    [ "$out" = "$f" ]
+    grep -qxF 'Name=Chat GPT!' "$f"
+    grep -qxF 'Icon=chat-icon' "$f"
+    grep -qxF 'StartupWMClass=webapp-chat-gpt' "$f"
+    grep -qE '^Exec=(\S*/)?chromium --app=http://chat\.example\.org/x\?y=1 --class=webapp-chat-gpt$' "$f"
+)
+
+t_webapp_default_browser() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; webapp_shims "$b/bin"
+    # the default browser is Chromium-family: it wins over the PATH list
+    shim "$b/bin" brave 'exit 0'
+    HOME="$b/home" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" DEFAULT_BROWSER=brave-browser.desktop \
+        "$WEBAPP" Notes https://notes.example.org > /dev/null
+    grep -qE '^Exec=(\S*/)?brave(-browser)? --app=' "$b/home/.local/share/applications/webapp-notes.desktop"
+)
+
+t_webapp_fallback_browser() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; webapp_shims "$b/bin"
+    # firefox is the default here (config/niri/binds.kdl's Mod+B), and
+    # it has no --app mode: the first Chromium-family binary on PATH
+    # stands in
+    HOME="$b/home" SHIM_LOG="$b/log" PATH="$(sparse_path "$b")" DEFAULT_BROWSER=firefox.desktop \
+        "$WEBAPP" Notes https://notes.example.org > /dev/null
+    grep -qE '^Exec=(\S*/)?chromium --app=' "$b/home/.local/share/applications/webapp-notes.desktop"
+)
+
+t_webapp_bad_url() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; webapp_shims "$b/bin"
+    rc=0
+    HOME="$b/home" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" DEFAULT_BROWSER=chromium.desktop \
+        "$WEBAPP" Notes notes.example.org > /dev/null 2>&1 || rc=$?
+    [ "$rc" -eq 2 ]
+    [ -z "$(find "$b/home" -name '*.desktop' 2>/dev/null)" ]
+)
+
+t_webapp_no_browser() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; webapp_shims "$b/bin"
+    rm "$b/bin/chromium"
+    rc=0
+    HOME="$b/home" SHIM_LOG="$b/log" PATH="$(sparse_path "$b")" DEFAULT_BROWSER=firefox.desktop \
+        "$WEBAPP" Notes https://notes.example.org > /dev/null 2>&1 || rc=$?
+    [ "$rc" -eq 1 ]
+    [ -z "$(find "$b/home" -name '*.desktop' 2>/dev/null)" ]
+)
+
+t_webapp_remove() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; webapp_shims "$b/bin"
+    HOME="$b/home" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" DEFAULT_BROWSER=chromium.desktop \
+        "$WEBAPP" Notes https://notes.example.org > /dev/null
+    f="$b/home/.local/share/applications/webapp-notes.desktop"
+    [ -f "$f" ]
+    HOME="$b/home" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" DEFAULT_BROWSER=chromium.desktop \
+        "$WEBAPP" --remove notes
+    not [ -e "$f" ]
+)
+
+t_webapp_without_desktop_database() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; webapp_shims "$b/bin"
+    # update-desktop-database is desktop-file-utils, not a dependency:
+    # its absence changes nothing
+    rm "$b/bin/update-desktop-database"
+    HOME="$b/home" SHIM_LOG="$b/log" PATH="$(sparse_path "$b")" DEFAULT_BROWSER=chromium.desktop \
+        "$WEBAPP" Notes https://notes.example.org > /dev/null
+    [ -f "$b/home/.local/share/applications/webapp-notes.desktop" ]
+)
+
+# ------------------------------------------------ bin/netmenu: captive portal ---
+NETMENU="$REPO_DIR/bin/netmenu"
+
+# netmenu calls "$HOME/.local/bin/rofi-toggle" by path: the shim lives
+# there, dumps the rows it was offered to $BOX/rows and answers the
+# 0-based index of the first row matching $PICK (rofi's -format i)
+portal_shims() {
+    local d="$1" home="$2"
+    mkdir -p "$home/.local/bin"
+    shim "$home/.local/bin" rofi-toggle 'cat > "$BOX/rows"
+grep -n -- "$PICK" "$BOX/rows" | head -n 1 | cut -d: -f1 | awk "{print \$1-1}"'
+    shim "$d" nmcli 'case "$*" in
+    *"-g WIFI general"*)            echo "${RADIO:-enabled}" ;;
+    *"device wifi list"*)           echo "80:WPA2:*:angmar" ;;
+    *"-f DEVICE,TYPE,STATE"*)       echo "${DEVSTATE:-wlp0s20f3:wifi:connected}" ;;
+    *"-f TYPE,STATE"*)              echo "${DEVSTATE:-wlp0s20f3:wifi:connected}" | cut -d: -f2- ;;
+    *) exit 0 ;;
+esac'
+    shim "$d" resolvectl "$LOGGED"
+    shim "$d" gtk-launch "$LOGGED"
+    shim "$d" xdg-settings 'echo firefox.desktop'
+    shim "$d" notify-send 'printf "%s\n" "$*" >> "$BOX/notify"
+'"$LOGGED"
+}
+
+t_portal_row_listed() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; portal_shims "$b/bin" "$b/home"
+    # pick nothing (a row no menu has): the point is the rows offered
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" PICK='no such row' "$NETMENU"
+    grep -qi 'captive portal login' "$b/rows"
+    [ "$(grep -n 'rescan' "$b/rows" | cut -d: -f1)" -lt "$(grep -ni 'captive portal' "$b/rows" | cut -d: -f1)" ]
+)
+
+t_portal_row_absent_when_off() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; portal_shims "$b/bin" "$b/home"
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" PICK='no such row' RADIO=disabled "$NETMENU"
+    not grep -qi 'captive portal' "$b/rows"
+)
+
+t_portal_steers_dns_around_dot() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; portal_shims "$b/bin" "$b/home"
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" PICK='captive portal' "$NETMENU"
+    # the exact calls, in order: route every name to the link, drop
+    # DoT (a portal's DNS answers plain), open the browser, put it back
+    grep -v '^notify-send' "$b/log" > "$b/calls"
+    [ "$(cat "$b/calls")" = "resolvectl domain wlp0s20f3 ~.
+resolvectl dns-over-tls wlp0s20f3 no
+gtk-launch firefox.desktop http://neverssl.com
+resolvectl revert wlp0s20f3" ]
+    # a notification before the browser and one after the revert
+    [ "$(grep -c '^notify-send' "$b/log")" -ge 2 ]
+    [ "$(grep -n '^notify-send' "$b/log" | head -n 1 | cut -d: -f1)" -lt "$(grep -n '^gtk-launch' "$b/log" | cut -d: -f1)" ]
+    [ "$(grep -n '^notify-send' "$b/log" | tail -n 1 | cut -d: -f1)" -gt "$(grep -n 'resolvectl revert' "$b/log" | cut -d: -f1)" ]
+)
+
+t_portal_needs_wifi() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; portal_shims "$b/bin" "$b/home"
+    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" PICK='captive portal' \
+        DEVSTATE='wlp0s20f3:wifi:disconnected' "$NETMENU"
+    grep -qi 'not connected to Wi-Fi' "$b/notify"
+    not [ -e "$b/log" ] || not grep -q '^resolvectl' "$b/log"
+    not [ -e "$b/log" ] || not grep -q '^gtk-launch' "$b/log"
+)
+
+# ------------------------------------------------ config/waybar/config.jsonc ---
+t_waybar_modules() ( set -e
+    strip_jsonc | python3 -c '
+import json, re, sys
+cfg = json.load(sys.stdin)
+right = cfg["modules-right"]
+for m in ("custom/recording", "temperature", "bluetooth", "group/levels"):
+    assert m in right, f"modules-right lacks {m}"
+assert right.index("custom/recording") < right.index("temperature"), "custom/recording must precede temperature"
+assert right.index("temperature") < right.index("bluetooth") < right.index("group/levels"), "bluetooth sits between temperature and group/levels"
+
+rec = cfg["custom/recording"]
+assert rec["exec"] == "~/.config/waybar/recording.sh", rec.get("exec")
+assert rec["return-type"] == "json"
+assert rec["signal"] == 9
+assert "record-toggle" in rec["on-click"], rec.get("on-click")
+
+bt = cfg["bluetooth"]
+for key in ("format", "format-no-controller", "format-disabled", "format-off"):
+    assert bt[key] == "", f"bluetooth {key} must be empty, is {bt[key]!r}"
+on = bt["format-on"]
+assert "<span size=\x2788.0%\x27 rise=\x27527\x27 letter_spacing=\x27661\x27>\U000f00af</span>" in on, on
+conn = bt["format-connected"]
+assert "\U000f00b1" in conn and "letter_spacing=\x275110\x27" in conn, conn
+assert "{num_connections}" in conn, conn
+click = bt["on-click"]
+assert "alacritty" in click and "bluetui" in click, click
+m = re.search(r"--class[= ]+(\S+)", click)
+assert m and m.group(1).endswith("-float"), click'
+)
+
+# ----------------------------------------------------- config/waybar/style.css ---
+t_waybar_css() ( set -e
+    python3 -c '
+import re
+css = open("config/waybar/style.css", encoding="utf-8").read()
+css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+rules = [(sel.strip(), body) for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)]
+def selectors(sel):
+    return {s.strip() for s in sel.split(",")}
+def rule_with(prop):
+    hits = [selectors(s) for s, b in rules if re.search(prop, b)]
+    assert hits, f"no rule with {prop}"
+    return hits
+pad = rule_with(r"padding:\s*0\s+8px")
+assert any({"#bluetooth", "#custom-recording", "#temperature"} <= h for h in pad), "shared padding rule lacks bluetooth/recording"
+left = rule_with(r"padding-left:\s*9px")
+assert any({"#bluetooth", "#custom-recording", "#temperature"} <= h for h in left), "padding-left 9px rule lacks bluetooth/recording"
+amber = rule_with(r"color:\s*#b0a06a")
+assert any({"#custom-recording.recording", "#custom-updates.updates"} <= h for h in amber), "recording is not amber alongside updates"'
+)
+
+# ------------------------------------------------------ config/niri/binds.kdl ---
+t_niri_binds() ( set -e
+    f="$REPO_DIR/config/niri/binds.kdl"
+    grep -qE '^\s*Mod\+Ctrl\+B\s.*spawn "alacritty" "--class" "bluetui-float" "-e" "bluetui"' "$f"
+    grep -qE '^\s*Mod\+Ctrl\+R\s.*spawn "record-toggle"' "$f"
+    grep -qE '^\s*Mod\+Ctrl\+Shift\+S\s.*spawn "shot-ocr"' "$f"
+)
+
+t_niri_validate() ( set -e
+    niri validate -c "$REPO_DIR/config/niri/config.kdl" > /dev/null 2>&1
+)
+
+# ---------------------------------------------------------- config/bash/bashrc ---
+t_bashrc_fullcharge() ( set -e
+    grep -qxF "alias fullcharge='sudo tlp fullcharge'" "$REPO_DIR/config/bash/bashrc"
+)
+
+# ------------------------------------------------------------------ lint ---
+SESSION_SCRIPTS=(bin/shot-annotate bin/shot-ocr bin/record-toggle bin/webapp-install bin/netmenu config/waybar/recording.sh)
+
+t_scripts_present_executable() ( set -e
+    for f in "${SESSION_SCRIPTS[@]}"; do
+        [ -f "$REPO_DIR/$f" ] || { echo "    missing: $f" >&2; exit 1; }
+        [ -x "$REPO_DIR/$f" ] || { echo "    not executable: $f" >&2; exit 1; }
+    done
+)
+
+t_scripts_parse() ( set -e
+    for f in "${SESSION_SCRIPTS[@]}"; do bash -n "$REPO_DIR/$f"; done
+)
+
+t_scripts_shellcheck() ( set -e
+    cd "$REPO_DIR"
+    shellcheck -x "${SESSION_SCRIPTS[@]}"
+)
+
+# ------------------------------------------------------------------- suite ---
+check "shot-annotate: escaped slurp writes nothing"          t_annotate_escape
+check "shot-annotate: saves, copies, notifies"               t_annotate_saves_copies_notifies
+check "shot-annotate: the edit action opens ksnip"           t_annotate_edit_opens_ksnip
+check "shot-annotate: any other action skips ksnip"          t_annotate_other_action_no_ksnip
+check "shot-ocr: escaped slurp writes nothing"               t_ocr_escape
+check "shot-ocr: tidied text to the clipboard, count noted"  t_ocr_copies_text
+check "shot-ocr: a single line is \"1 line\""                t_ocr_single_line
+check "shot-ocr: no text found leaves the clipboard alone"   t_ocr_nothing_found
+check "record-toggle: starts the recorder detached"          t_record_start
+check "record-toggle: recorder missing says so, exit 1"      t_record_not_installed
+check "record-toggle: stops, waits, names the file"          t_record_stop
+if have jq; then
+    check "recording.sh: empty text while idle"              t_recording_idle
+    check "recording.sh: the recording glyph and class"      t_recording_active
+else
+    skip "recording.sh: empty text while idle" "jq not installed"
+    skip "recording.sh: the recording glyph and class" "jq not installed"
+fi
+check "webapp-install: writes the .desktop entry"            t_webapp_writes_desktop
+check "webapp-install: slug and icon"                        t_webapp_slug_and_icon
+check "webapp-install: a Chromium-family default wins"       t_webapp_default_browser
+check "webapp-install: falls back to the first on PATH"      t_webapp_fallback_browser
+check "webapp-install: a bare URL is refused (2)"            t_webapp_bad_url
+check "webapp-install: no Chromium at all (1)"               t_webapp_no_browser
+check "webapp-install: --remove deletes the entry"           t_webapp_remove
+check "webapp-install: update-desktop-database optional"     t_webapp_without_desktop_database
+check "netmenu: captive portal row after rescan"             t_portal_row_listed
+check "netmenu: no portal row with Wi-Fi off"                t_portal_row_absent_when_off
+check "netmenu: portal steers DNS, browses, reverts"         t_portal_steers_dns_around_dot
+check "netmenu: portal needs a connected Wi-Fi device"       t_portal_needs_wifi
+check "waybar config: recording and bluetooth modules"       t_waybar_modules
+check "waybar css: recording and bluetooth styled"           t_waybar_css
+check "niri binds: bluetui, record-toggle, shot-ocr"         t_niri_binds
+if have niri; then
+    check "niri validate"                                    t_niri_validate
+else
+    skip "niri validate" "niri not installed"
+fi
+check "bashrc: fullcharge alias"                             t_bashrc_fullcharge
+check "session scripts exist and are executable"             t_scripts_present_executable
+check "session scripts parse"                                t_scripts_parse
+if have shellcheck; then
+    check "session scripts pass shellcheck"                  t_scripts_shellcheck
+else
+    skip "session scripts pass shellcheck" "shellcheck not installed"
+fi
+
+exit "$failed"

@@ -1,0 +1,15 @@
+# Keeps the outgoing kernel on /boot under a version-suffixed name
+# before a kernel package is upgraded, so the snapshot snap-pac is
+# about to take has a bootable kernel to pair with. The package names
+# arrive on stdin (NeedsTargets). See /usr/local/bin/bootkeep.
+[Trigger]
+Type = Package
+Operation = Upgrade
+Target = linux
+Target = linux-lts
+
+[Action]
+Description = Keeping the outgoing kernel for snapshot rollback...
+When = PreTransaction
+Exec = /usr/local/bin/bootkeep keep
+NeedsTargets

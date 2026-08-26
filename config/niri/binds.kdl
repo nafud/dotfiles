@@ -27,6 +27,8 @@ binds {
     // floating TUI popups, btop-style: network and audio
     Mod+N { spawn "netmenu"; }
     Mod+A { spawn "alacritty" "--class" "mixer-float" "-e" "pulsemixer"; }
+    Mod+Ctrl+B { spawn "alacritty" "--class" "bluetui-float" "-e" "bluetui"; }
+    Mod+Ctrl+R { spawn "record-toggle"; }
 
     Mod+O { toggle-overview; }
 
@@ -86,4 +88,5 @@ binds {
     Mod+Ctrl+S { screenshot-screen; }
     Mod+Alt+S { screenshot-window; }
     Mod+Shift+S { spawn "shot-annotate"; }
+    Mod+Ctrl+Shift+S { spawn "shot-ocr"; }
 }

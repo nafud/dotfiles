@@ -30,6 +30,8 @@ alias cat='bat --style=plain --paging=never'
 alias grep='grep --color=auto'
 alias diff='diff --color=auto'
 alias ip='ip -c'
+# lift the battery's conservation-mode cap until the next boot (system/etc/tlp.d)
+alias fullcharge='sudo tlp fullcharge'
 
 # shellcheck source=/dev/null
 [ -f /usr/share/fzf/key-bindings.bash ] && source /usr/share/fzf/key-bindings.bash

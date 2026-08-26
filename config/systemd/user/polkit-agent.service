@@ -1,0 +1,17 @@
+# The session's polkit authentication agent: polkitd asks it to show
+# the password dialog when a rule says "authenticate" (mounting another
+# partition, a system NetworkManager change, pkexec). Without one those
+# requests fail silently — `pkexec true` errors with "no authentication
+# agent". polkit-gnome's GTK3 dialog takes the Adwaita dark theme.
+[Unit]
+Description=polkit authentication agent
+PartOf=graphical-session.target
+After=graphical-session.target
+Requisite=graphical-session.target
+
+[Service]
+ExecStart=/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

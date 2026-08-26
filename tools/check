@@ -90,6 +90,8 @@ if len(marks) != len(session):
 # row as this script does, so they run direct rather than through
 # check(), whose stdout drop would eat the row that names a failure.
 tests/check-shell || failed=1
+tests/check-system || failed=1
+tests/check-session || failed=1
 tests/check-python || failed=1
 
 exit "$failed"
