@@ -15,7 +15,11 @@ set -euo pipefail
 apps="$HOME/.local/share/applications"
 usage() { echo "usage: webapp-install NAME URL [ICON] | --remove SLUG" >&2; exit 2; }
 
-refresh() { command -v update-desktop-database >/dev/null && update-desktop-database "$apps" 2>/dev/null || true; }
+refresh() {
+    if command -v update-desktop-database >/dev/null; then
+        update-desktop-database "$apps" 2>/dev/null || true
+    fi
+}
 
 if [ "${1:-}" = --remove ]; then
     [ -n "${2:-}" ] || usage
