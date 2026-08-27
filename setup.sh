@@ -595,10 +595,15 @@ configure_btop() {
 # keys, 4-space indent) — the committed file is kept in that form, so
 # the routine rewrite is byte-identical and the repo stays clean, while
 # an interactive `set` lands in the repo as a visible diff to commit or
-# revert (all verified on micro 2.0.13).
+# revert (all verified on micro 2.0.13). bindings.json is read only, never
+# rewritten: it adds Esc = Quit, so a file opened from yazi closes on the
+# same key that clears yazi's selection (config/yazi/keymap.toml) — an
+# unsaved buffer still gets micro's save prompt first, and Esc inside a
+# prompt still only cancels the prompt (verified on micro 2.0.15).
 configure_micro() {
     mkdir -p "$CFG/micro"
     link_one "$REPO/config/micro/settings.json" "$CFG/micro/settings.json"
+    link_one "$REPO/config/micro/bindings.json" "$CFG/micro/bindings.json"
     link_one "$REPO/config/micro/colorschemes" "$CFG/micro/colorschemes"
 }
 
