@@ -1,0 +1,16 @@
+# Custom bindings; everything not listed here keeps Yazi's defaults ("a" = create, etc.)
+[mgr]
+prepend_keymap = [
+	# Selection
+	{ on = "<Space>",   run = "toggle",                    desc = "Select/deselect the hovered file" },
+	{ on = "<C-a>",     run = "toggle_all --state=on",     desc = "Select all files" },
+	{ on = "<Esc>",     run = [ "escape --all", "unyank" ], desc = "Clear selection, range, copy/cut, filter and search" },
+
+	# Range selection: Ctrl+Space opens a range, arrows extend it, Ctrl+Space closes it
+	{ on = "<C-Space>", run = "plugin toggle-range",       desc = "Start/close a selection range" },
+
+	# Clipboard
+	{ on = "<C-c>",     run = "yank",                      desc = "Copy the selected files" },
+	{ on = "<C-x>",     run = "yank --cut",                desc = "Cut the selected files" },
+	{ on = "<C-v>",     run = "paste",                     desc = "Paste the yanked files" },
+]
