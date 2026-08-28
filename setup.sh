@@ -100,7 +100,7 @@ install_packages() {
         tesseract tesseract-data-eng gpu-screen-recorder \
         fzf zoxide wl-clipboard fd ripgrep eza bat git-delta jq \
         p7zip unzip xdg-user-dirs \
-        libnotify gcr-4 qt5-wayland \
+        libnotify gcr-4 qt5-wayland udiskie exfatprogs \
         gsettings-desktop-schemas adwaita-icon-theme \
         xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-gnome \
         pipewire pipewire-pulse pipewire-alsa wireplumber \
@@ -511,7 +511,8 @@ install_templates() {
 # agent (gnome-keyring, which once carried it, is not part of this
 # desktop) — its socket unit exports SSH_AUTH_SOCK into the session.
 SESSION_UNITS=(waybar.service mako.service wallpaper.service swayidle.service
-               battwatch.service polkit-agent.service cliphist@text.service cliphist@image.service)
+               battwatch.service polkit-agent.service udiskie.service
+               cliphist@text.service cliphist@image.service)
 
 enable_units() {
     local out
@@ -729,7 +730,7 @@ print_summary() {
     printf '\n\033[1m[setup] installed components\033[0m\n'
     summary_row "Niri"          "scrollable-tiling Wayland compositor"   have niri
     summary_row "Dotfiles"      "config/ linked into ~/.config"          configs_linked
-    summary_row "Session units" "waybar, mako, wallpaper, idle, cliphist" session_units_enabled
+    summary_row "Session units" "waybar, mako, wallpaper, idle, cliphist, udiskie" session_units_enabled
     summary_row "Xwayland-sat." "X11 bridge, auto-spawned by niri"       have xwayland-satellite
     summary_row "Plymouth"      "boot splash (mono theme)"               have plymouthd
     summary_row "Greetd"        "login page (monogreet on niri)"         have monogreet
@@ -747,6 +748,7 @@ print_summary() {
     summary_row "Zellij"        "terminal multiplexer"                   have zellij
     summary_row "Herdr"         "agent workspace manager (herdr.dev)"    have herdr
     summary_row "Cliphist"      "clipboard history"                      have cliphist
+    summary_row "Udiskie"       "removable-media automount"              have udiskie
     summary_row "Starship"      "shell prompt"                           have starship
     summary_row "Btop"          "system monitor"                         have btop
     summary_row "Micro"         "text editor"                            have micro

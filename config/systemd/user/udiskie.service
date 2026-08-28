@@ -1,0 +1,17 @@
+# Removable-media automount (udiskie over udisks2) for as long as the
+# session runs: a plugged drive lands under /run/media/$USER/<label>,
+# a notice goes through mako. --no-tray: there is no tray; --no-file-manager:
+# nothing opens, the notice names the path. udisksctl unmount / udiskie-umount
+# to eject.
+[Unit]
+Description=removable-media automount
+PartOf=graphical-session.target
+After=graphical-session.target
+Requisite=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/udiskie --automount --notify --no-tray --no-file-manager
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target
