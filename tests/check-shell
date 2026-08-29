@@ -76,6 +76,21 @@ shim() {
     chmod +x "$1/$2"
 }
 
+# sparse_path DIR — a PATH holding DIR's shims and symlinks to the
+# plain tools setup.sh's functions reach for, and nothing else: the way
+# to make a function see subl as *not installed* on a desk where it is.
+sparse_path() {
+    local sys="$1/sys" t p
+    mkdir -p "$sys"
+    for t in bash sh env sed awk grep tr cut mkdir rmdir rm cat printf echo date \
+             basename dirname readlink realpath head tail sort uniq ls find touch \
+             wc sleep stat id tee mktemp mv cp ln true false test xargs; do
+        p="$(command -v "$t" 2>/dev/null)" || continue
+        ln -sf "$p" "$sys/$t"
+    done
+    printf '%s:%s\n' "$1/bin" "$sys"
+}
+
 # comma_locale — the machine's own spelling of the first generated
 # locale whose decimal separator is a comma (the session locales the
 # keyboard-layout list invites: de, ru, az), for pinning bin/lock-line's
@@ -428,6 +443,41 @@ t_mime_sublime_absent_leaves_text_alone() ( set -e
     grep -q '^xdg-mime default org.pwmt.zathura.desktop' "$b/log"
 )
 
+# ------------------------------------------------- configure_sublime (setup.sh) ---
+# Sublime Text's config dir carries live state (Local/, Installed
+# Packages/, Log/) next to Packages/User, so only the preferences file
+# links into the repo, and only when Sublime is installed: an end-user
+# app installed by hand, absent on a fresh machine.
+t_sublime_links_when_installed() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin"; shim "$b/bin" subl ':'
+    PATH="$b/bin:$PATH" with_setup "$b" 'configure_sublime' >/dev/null
+    dest="$b/.config/sublime-text/Packages/User/Preferences.sublime-settings"
+    [ -L "$dest" ]
+    [ "$(readlink -f "$dest")" = "$REPO_DIR/config/sublime-text/Preferences.sublime-settings" ]
+)
+t_sublime_absent_no_link() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin"
+    PATH="$(sparse_path "$b/bin")" with_setup "$b" 'configure_sublime' >/dev/null
+    not [ -e "$b/.config/sublime-text" ]
+)
+t_sublime_not_linked_whole() ( set -e
+    grep -qE '^PARTIALLY_LINKED=\(.*\bsublime-text\b' "$REPO_DIR/setup.sh"
+)
+# The file is kept in the form Sublime itself writes (tabs, a trailing
+# comma after the last key: its lenient JSON), so a setting changed
+# from its menus lands in the repo as a one-line diff. It names the
+# family the terminal and the bar use, at the terminal's size.
+t_sublime_prefs_font() ( set -e
+    python3 -c '
+import json, re
+raw = open("config/sublime-text/Preferences.sublime-settings").read()
+assert raw.endswith(",\n}\n") and "\t\"" in raw, "not in the form Sublime writes"
+prefs = json.loads(re.sub(r",(\s*[}\]])", r"\1", raw))
+assert prefs["font_face"] == "JetBrainsMono Nerd Font", prefs
+alacritty = open("config/alacritty/alacritty.toml").read()
+assert re.search(r"^size = %d$" % prefs["font_size"], alacritty, re.M), prefs["font_size"]'
+)
+
 check "link_one creates a fresh symlink"             t_link_fresh
 check "link_one is a no-op on the correct link"      t_link_noop
 check "link_one moves a real file aside"             t_link_moves_aside
@@ -465,6 +515,10 @@ else
 fi
 check "set_default_apps names Sublime when installed"  t_mime_sublime_when_installed
 check "set_default_apps skips Sublime when absent"     t_mime_sublime_absent_leaves_text_alone
+check "configure_sublime links the preferences"      t_sublime_links_when_installed
+check "configure_sublime does nothing without subl"  t_sublime_absent_no_link
+check "sublime-text is not linked whole"             t_sublime_not_linked_whole
+check "sublime preferences: JetBrains Mono, one size" t_sublime_prefs_font
 check "wallset records and restarts in a session"    t_wallset_active_session
 check "wallset skips the restart without a session"  t_wallset_no_session
 if have magick; then

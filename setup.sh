@@ -433,13 +433,14 @@ configure_git() {
 # one link on disk. A real file or directory already in the way is moved
 # aside once as <name>.pre-dotfiles.
 #
-# Two programs write live state beside their configuration, so their
+# Three programs write live state beside their configuration, so their
 # dirs are not linked whole — a whole-dir link would point those writes
 # into the repo: btop rewrites btop.conf on every exit (configure_btop
 # links its read-only themes/ and enforces the intent lines in place),
 # micro keeps buffers/ (configure_micro links the configuration files
-# only).
-PARTIALLY_LINKED=(btop micro)
+# only), Sublime Text keeps sessions and packages (configure_sublime
+# links the preferences file only).
+PARTIALLY_LINKED=(btop micro sublime-text)
 
 link_one() {
     local src="$1" dest="$2"
@@ -612,6 +613,20 @@ configure_micro() {
     mkdir -p "$CFG/micro"
     link_one "$REPO/config/micro/settings.json" "$CFG/micro/settings.json"
     link_one "$REPO/config/micro/colorschemes" "$CFG/micro/colorschemes"
+}
+
+# Sublime Text's dir carries live state (Local/ sessions, Installed
+# Packages/, Log/) beside Packages/User, so only the preferences file
+# links in. Sublime writes through the link when a setting changes from
+# its menus, in its own form (tabs, a trailing comma), which the
+# committed file keeps, so the repo shows a one-line diff (verified on
+# build 4200). An end-user app installed by hand: nothing is created
+# while it is absent.
+configure_sublime() {
+    have subl || return 0
+    mkdir -p "$CFG/sublime-text/Packages/User"
+    link_one "$REPO/config/sublime-text/Preferences.sublime-settings" \
+        "$CFG/sublime-text/Packages/User/Preferences.sublime-settings"
 }
 
 # ------------------------------------------------------------- 10. desktop ---
@@ -811,6 +826,7 @@ user_half() {
     install_shell_hooks
     configure_btop
     configure_micro
+    configure_sublime
     apply_desktop_prefs
 
     niri validate
