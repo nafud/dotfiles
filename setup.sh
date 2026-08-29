@@ -439,7 +439,7 @@ configure_git() {
 # links its read-only themes/ and enforces the intent lines in place),
 # micro keeps buffers/ (configure_micro links the configuration files
 # only), Sublime Text keeps sessions and packages (configure_sublime
-# links the preferences file only).
+# links Packages/User only).
 PARTIALLY_LINKED=(btop micro sublime-text)
 
 link_one() {
@@ -616,17 +616,23 @@ configure_micro() {
 }
 
 # Sublime Text's dir carries live state (Local/ sessions, Installed
-# Packages/, Log/) beside Packages/User, so only the preferences file
-# links in. Sublime writes through the link when a setting changes from
-# its menus, in its own form (tabs, a trailing comma), which the
-# committed file keeps, so the repo shows a one-line diff (verified on
-# build 4200). An end-user app installed by hand: nothing is created
-# while it is absent.
+# Packages/, Log/) beside Packages/User, its user configuration
+# (preferences, keymap, plugins), so only Packages/User links in.
+# Sublime writes the preferences through the link when a setting
+# changes from its menus, in its own form (tabs, a trailing comma),
+# which the committed file keeps, so the repo shows a one-line diff
+# (verified on build 4200). Sublime creates an empty Packages/User on
+# first start: an empty one gives way to the link, one already in use
+# is moved aside by link_one. An end-user app installed by hand:
+# nothing is created while it is absent.
 configure_sublime() {
     have subl || return 0
-    mkdir -p "$CFG/sublime-text/Packages/User"
-    link_one "$REPO/config/sublime-text/Preferences.sublime-settings" \
-        "$CFG/sublime-text/Packages/User/Preferences.sublime-settings"
+    local user="$CFG/sublime-text/Packages/User"
+    mkdir -p "$CFG/sublime-text/Packages"
+    if [ -d "$user" ] && [ ! -L "$user" ]; then
+        rmdir --ignore-fail-on-non-empty "$user"
+    fi
+    link_one "$REPO/config/sublime-text/User" "$user"
 }
 
 # ------------------------------------------------------------- 10. desktop ---

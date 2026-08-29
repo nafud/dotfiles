@@ -1,0 +1,6 @@
+[
+	// Ctrl+C leaves the caret after the copied text (copy_and_collapse.py),
+	// so the Ctrl+V that follows inserts beside it instead of replacing
+	// the still selected original with itself
+	{ "keys": ["ctrl+c"], "command": "copy_and_collapse" },
+]
