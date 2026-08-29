@@ -544,7 +544,9 @@ t_niri_validate() ( set -e
 # Opening a text or code file from yazi lands in Sublime Text, detached
 # (orphan: yazi neither blocks nor takes the window down), with micro
 # (yazi's own `edit` opener, $EDITOR) kept as the second choice behind
-# the open-with menu. $EDITOR itself stays a terminal editor.
+# the open-with menu. $EDITOR itself stays a terminal editor. A just
+# created, empty file counts: yazi names it inode/empty (its own
+# spelling, not the inode/x-empty that file(1) and xdg use).
 t_yazi_text_opens_in_sublime() ( set -e
     python3 -c '
 import tomllib
@@ -558,7 +560,7 @@ assert run.get("orphan") is True, run
 assert not run.get("block"), run
 rules = cfg["open"]["prepend_rules"]
 mimes = {r["mime"] for r in rules}
-for m in ("text/*", "inode/x-empty", "application/json", "application/toml",
+for m in ("text/*", "inode/empty", "inode/x-empty", "application/json", "application/toml",
           "application/yaml", "application/xml", "application/x-shellscript"):
     assert m in mimes, f"no rule for {m}"
 for r in rules:

@@ -17,6 +17,9 @@ sublime = [ { run = 'subl "$@"', orphan = true, desc = "Sublime Text" } ]
 [open]
 prepend_rules = [
 	{ mime = "text/*",                  use = [ "sublime", "edit", "reveal" ] },
+	# an empty file, a freshly created one most of all: yazi spells it
+	# inode/empty; file(1) and xdg say inode/x-empty, so both are listed
+	{ mime = "inode/empty",             use = [ "sublime", "edit", "reveal" ] },
 	{ mime = "inode/x-empty",           use = [ "sublime", "edit", "reveal" ] },
 	{ mime = "application/json",        use = [ "sublime", "edit", "reveal" ] },
 	{ mime = "application/toml",        use = [ "sublime", "edit", "reveal" ] },
