@@ -379,9 +379,12 @@ configure_greeter() {
 # ---------------------------------------------------- 7. MIME associations ---
 # xdg-mime records an association even for a desktop file that does not
 # exist, silently breaking xdg-open; only associate what is actually shipped.
+# DESKTOP_DIR is where the installed desktop files live; the shell
+# suite points it at a box.
+DESKTOP_DIR="${DESKTOP_DIR:-/usr/share/applications}"
 set_mime_default() {
     local desk="$1"; shift
-    if [ -f "/usr/share/applications/$desk" ]; then
+    if [ -f "$DESKTOP_DIR/$desk" ]; then
         xdg-mime default "$desk" "$@"
     else
         warn "$desk not installed; MIME defaults for $* left unchanged"
@@ -389,13 +392,21 @@ set_mime_default() {
 }
 
 set_default_apps() {
-    log "MIME defaults (zathura for PDFs, imv for images)"
+    log "MIME defaults (zathura for PDFs, imv for images, Sublime Text for text)"
     set_mime_default org.pwmt.zathura.desktop application/pdf
+
+    # Sublime Text is an end-user app installed by hand (paru -S
+    # sublime-text-4, AUR); with it present, text and code files opened
+    # through xdg-open land there. The same types yazi routes to it.
+    set_mime_default sublime_text.desktop \
+        text/plain inode/x-empty application/json application/toml \
+        application/yaml application/x-yaml application/xml \
+        application/x-shellscript application/javascript
 
     # the imv package's desktop file name has varied; pick the one shipped
     local d imv_desk=""
     for d in imv-dir.desktop imv.desktop; do
-        if [ -f "/usr/share/applications/$d" ]; then imv_desk="$d"; break; fi
+        if [ -f "$DESKTOP_DIR/$d" ]; then imv_desk="$d"; break; fi
     done
     if [ -n "$imv_desk" ]; then
         xdg-mime default "$imv_desk" image/png image/jpeg image/webp image/gif

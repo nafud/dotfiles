@@ -396,6 +396,38 @@ t_glass_renders() ( set -e
 )
 
 # ------------------------------------------------------------------- suite ---
+# ----------------------------------------------------- MIME defaults (setup.sh) ---
+# set_default_apps names Sublime Text for text/plain and the code types
+# but only when its desktop file is installed (an association to an
+# absent desktop file breaks xdg-open); the rest of the table is
+# untouched either way. DESKTOP_DIR is the one knob: the box stands in
+# for /usr/share/applications.
+mime_box() {   # mime_box BOX DESKTOP... — a box with a shimmed xdg-mime and the given desktop files
+    local b="$1" d; shift
+    mkdir -p "$b/bin" "$b/apps"
+    shim "$b/bin" xdg-mime 'printf "xdg-mime %s\n" "$*" >> "$XDG_MIME_LOG"'
+    for d in "$@"; do : > "$b/apps/$d"; done
+}
+t_mime_sublime_when_installed() ( set -e
+    b="$(mkbox)"; mime_box "$b" sublime_text.desktop org.pwmt.zathura.desktop
+    XDG_MIME_LOG="$b/log" PATH="$b/bin:$PATH" DESKTOP_DIR="$b/apps" \
+        with_setup "$b" 'set_default_apps' >/dev/null 2>&1
+    grep -q '^xdg-mime default sublime_text.desktop text/plain ' "$b/log"
+    line="$(grep '^xdg-mime default sublime_text.desktop' "$b/log")"
+    for m in application/json application/toml application/x-shellscript inode/x-empty; do
+        case " $line " in *" $m "*) ;; *) echo "missing $m" >&2; exit 1 ;; esac
+    done
+    grep -q '^xdg-mime default org.pwmt.zathura.desktop application/pdf$' "$b/log"
+)
+t_mime_sublime_absent_leaves_text_alone() ( set -e
+    b="$(mkbox)"; mime_box "$b" org.pwmt.zathura.desktop
+    XDG_MIME_LOG="$b/log" PATH="$b/bin:$PATH" DESKTOP_DIR="$b/apps" \
+        with_setup "$b" 'set_default_apps' >/dev/null 2>"$b/err"
+    not grep -q 'sublime' "$b/log"
+    grep -q 'sublime_text.desktop not installed' "$b/err"
+    grep -q '^xdg-mime default org.pwmt.zathura.desktop' "$b/log"
+)
+
 check "link_one creates a fresh symlink"             t_link_fresh
 check "link_one is a no-op on the correct link"      t_link_noop
 check "link_one moves a real file aside"             t_link_moves_aside
@@ -431,6 +463,8 @@ if have jq; then
 else
     skip "updates.sh caps the tooltip at 15 lines" "jq not installed"
 fi
+check "set_default_apps names Sublime when installed"  t_mime_sublime_when_installed
+check "set_default_apps skips Sublime when absent"     t_mime_sublime_absent_leaves_text_alone
 check "wallset records and restarts in a session"    t_wallset_active_session
 check "wallset skips the restart without a session"  t_wallset_no_session
 if have magick; then

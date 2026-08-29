@@ -540,6 +540,33 @@ t_niri_validate() ( set -e
     niri validate -c "$REPO_DIR/config/niri/config.kdl" > /dev/null 2>&1
 )
 
+# ------------------------------------------------------- config/yazi/yazi.toml ---
+# Opening a text or code file from yazi lands in Sublime Text, detached
+# (orphan: yazi neither blocks nor takes the window down), with micro
+# (yazi's own `edit` opener, $EDITOR) kept as the second choice behind
+# the open-with menu. $EDITOR itself stays a terminal editor.
+t_yazi_text_opens_in_sublime() ( set -e
+    python3 -c '
+import tomllib
+cfg = tomllib.load(open("config/yazi/yazi.toml", "rb"))
+sub = cfg["opener"]["sublime"]
+assert len(sub) == 1, sub
+run = sub[0]
+assert run["run"].startswith("subl "), run
+assert "$@" in run["run"], run
+assert run.get("orphan") is True, run
+assert not run.get("block"), run
+rules = cfg["open"]["prepend_rules"]
+mimes = {r["mime"] for r in rules}
+for m in ("text/*", "inode/x-empty", "application/json", "application/toml",
+          "application/yaml", "application/xml", "application/x-shellscript"):
+    assert m in mimes, f"no rule for {m}"
+for r in rules:
+    assert r["use"][:2] == ["sublime", "edit"], r
+assert "rules" not in cfg["open"], "prepend_rules must extend the defaults, not replace them"'
+    grep -qx 'export EDITOR=micro VISUAL=micro' "$REPO_DIR/config/bash/profile"
+)
+
 # ---------------------------------------------------------- config/bash/bashrc ---
 t_bashrc_fullcharge() ( set -e
     grep -qxF "alias fullcharge='sudo tlp fullcharge'" "$REPO_DIR/config/bash/bashrc"
@@ -603,6 +630,7 @@ if have niri; then
 else
     skip "niri validate" "niri not installed"
 fi
+check "yazi: text and code open in Sublime, micro second"   t_yazi_text_opens_in_sublime
 check "bashrc: fullcharge alias"                             t_bashrc_fullcharge
 check "session scripts exist and are executable"             t_scripts_present_executable
 check "session scripts parse"                                t_scripts_parse

@@ -5,3 +5,24 @@ show_symlink = false
 sort_by = "natural"
 sort_dir_first = true
 sort_sensitive = false
+
+# Text and code open in Sublime Text, detached (orphan: yazi neither
+# waits on the window nor takes it down on quit). `edit` — yazi's own
+# opener, $EDITOR, micro — stays the second choice behind the open-with
+# menu (O). $EDITOR itself is left a terminal editor for git and the
+# shell. prepend_rules: the defaults still handle everything else.
+[opener]
+sublime = [ { run = 'subl "$@"', orphan = true, desc = "Sublime Text" } ]
+
+[open]
+prepend_rules = [
+	{ mime = "text/*",                  use = [ "sublime", "edit", "reveal" ] },
+	{ mime = "inode/x-empty",           use = [ "sublime", "edit", "reveal" ] },
+	{ mime = "application/json",        use = [ "sublime", "edit", "reveal" ] },
+	{ mime = "application/toml",        use = [ "sublime", "edit", "reveal" ] },
+	{ mime = "application/yaml",        use = [ "sublime", "edit", "reveal" ] },
+	{ mime = "application/x-yaml",      use = [ "sublime", "edit", "reveal" ] },
+	{ mime = "application/xml",         use = [ "sublime", "edit", "reveal" ] },
+	{ mime = "application/x-shellscript", use = [ "sublime", "edit", "reveal" ] },
+	{ mime = "application/javascript",  use = [ "sublime", "edit", "reveal" ] },
+]
