@@ -10,9 +10,11 @@ sort_sensitive = false
 # waits on the window nor takes it down on quit). `edit` — yazi's own
 # opener, $EDITOR, micro — stays the second choice behind the open-with
 # menu (O). $EDITOR itself is left a terminal editor for git and the
-# shell. prepend_rules: the defaults still handle everything else.
+# shell. %s is where yazi (26+) substitutes the files, quoted; the
+# older "$@" form is left empty. prepend_rules: the defaults still
+# handle everything else.
 [opener]
-sublime = [ { run = 'subl "$@"', orphan = true, desc = "Sublime Text" } ]
+sublime = [ { run = "subl %s", orphan = true, desc = "Sublime Text" } ]
 
 [open]
 prepend_rules = [

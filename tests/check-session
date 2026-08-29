@@ -554,8 +554,10 @@ cfg = tomllib.load(open("config/yazi/yazi.toml", "rb"))
 sub = cfg["opener"]["sublime"]
 assert len(sub) == 1, sub
 run = sub[0]
-assert run["run"].startswith("subl "), run
-assert "$@" in run["run"], run
+# yazi >= 26 substitutes the files as %s (all) / %s1 (first); the
+# old "$@" form is no longer filled in and launches the editor with
+# no file at all
+assert run["run"] == "subl %s", run
 assert run.get("orphan") is True, run
 assert not run.get("block"), run
 rules = cfg["open"]["prepend_rules"]
