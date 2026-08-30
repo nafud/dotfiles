@@ -1,7 +1,7 @@
 # mako — notifications on the shared surface recipe: the bar's 0.6
 # glass (niri blurs behind via the ^notifications$ layer-rule), radius
-# 8, a 10% white hairline for definition against light windows, no
-# border otherwise — the bar's no-chips discipline. Cards sit 5 px from
+# 8 and nothing else — no borders at all, the bar's no-chips
+# discipline; the blur is what separates a card. Cards sit 5 px from
 # the screen edge so their right edge is flush with the bar's; 10 px
 # below it and between cards. Summary in the bar's hover white, body in
 # its resting grey, both at the bar's 12 px. Duplicates group by app
@@ -11,8 +11,7 @@
 font=JetBrainsMono Nerd Font 12
 background-color=#0d0d0d99
 text-color=#c0c0c0
-border-color=#ffffff1a
-border-size=1
+border-size=0
 border-radius=8
 width=340
 padding=12
@@ -34,7 +33,8 @@ format=<span color='#e8e8e8'>%s</span> ×%g\n%b
 text-color=#909090
 default-timeout=4000
 
+# high urgency differs in behaviour, not dress: it never expires and
+# sits on the overlay layer above fullscreen windows
 [urgency=high]
 default-timeout=0
-border-color=#ff5555
 layer=overlay

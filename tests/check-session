@@ -597,7 +597,9 @@ assert opt("background-color") == "#0d0d0d99", "glass alpha drifted from the bar
 raw = open("config/waybar/config.jsonc").read()
 barmargin = re.search(r"\"margin-right\": (\d+),", raw).group(1)
 assert opt("margin").endswith("," + barmargin), (opt("margin"), barmargin)
-assert opt("icons") == "0"'
+assert opt("icons") == "0"
+assert opt("border-size") == "0", "cards are borderless by decision"
+assert "border-color" not in mako, "no border colors, urgency included"'
 )
 
 # ---------------------------------------------------------- config/bash/bashrc ---
