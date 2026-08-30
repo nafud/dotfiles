@@ -67,7 +67,7 @@ window#waybar {
 #custom-updates, #custom-recording, #systemd-failed-units, #network, #custom-mullvad,
 #language, #clock {
     color: #c0c0c0;
-    padding: 0 7px;
+    padding: 0 8px;
     transition: color 150ms ease;
 }
 
@@ -77,14 +77,14 @@ window#waybar {
    letter_spacing, see tools/waybar-icon-span) */
 #temperature, #memory, #pulseaudio, #battery, #bluetooth,
 #custom-updates, #custom-recording, #systemd-failed-units, #network, #custom-mullvad {
-    padding-left: 8px;
+    padding-left: 9px;
 }
 
 /* the tray is the one place app icons are allowed: it exists so tray
    apps (nm-applet, chat clients) have a StatusNotifierWatcher to dock
    at — without it their D-Bus tray registration has no host at all */
 #tray {
-    padding: 0 7px;
+    padding: 0 8px;
 }
 
 #tray > .passive {
@@ -104,7 +104,7 @@ window#waybar {
 }
 
 #privacy {
-    padding: 0 7px;
+    padding: 0 8px;
 }
 
 /* a failed unit is the one thing on the strip that is wrong, not busy */
