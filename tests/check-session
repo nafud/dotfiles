@@ -579,12 +579,15 @@ assert "rules" not in cfg["open"], "prepend_rules must extend the defaults, not 
 )
 
 # ------------------------------------------------------------- config/mako/config ---
-# Notifications speak the bar's language: same 12 px face, the same
-# dark glass a shade firmer (0.88 — no blur behind cards, the alpha
-# alone carries legibility), and the same screen-edge margin, so a
-# card's right edge stays flush with the bar's. And no blur rule:
-# niri paints blur over the surface's whole rectangle plus a rim,
-# a hazy box around a floating card.
+# A notification is a floating content surface and dresses like the
+# others: the terminal's face size and padding, the floating menu's
+# width — cross-file design numbers, so a change to one surface drags
+# the cards along or goes red here. The glass stays the strip's, a
+# shade firmer (0.88 — no blur behind cards, the alpha alone carries
+# legibility), the screen-edge margin stays the bar's, so a card's
+# right edge is flush with the bar's. And no blur rule: niri paints
+# blur over the surface's whole rectangle plus a rim, a hazy box
+# around a floating card.
 t_mako_matches_bar() ( set -e
     python3 -c '
 import re
@@ -593,9 +596,16 @@ def opt(name):
     m = re.search(r"^%s=(.*)$" % re.escape(name), mako, re.M)
     assert m, "mako lacks %s" % name
     return m.group(1)
-css = open("config/waybar/style.css").read()
-barpx = re.search(r"font-size:\s*(\d+)px", css).group(1)
-assert opt("font") == "JetBrainsMono Nerd Font %s" % barpx, opt("font")
+term = open("config/alacritty/alacritty.toml").read()
+termpt = re.search(r"^size = (\d+)$", term, re.M).group(1)
+rofi = open("config/rofi/config.rasi").read()
+assert ("\"JetBrainsMono Nerd Font %s\"" % termpt) in rofi, "terminal and rofi faces disagree"
+assert opt("font") == "JetBrainsMono Nerd Font %s" % termpt, opt("font")
+termpad = re.search(r"padding = \{ x = (\d+), y = \d+ \}", term).group(1)
+assert opt("padding") == termpad, (opt("padding"), termpad)
+menu = open("config/rofi/themes/menu.rasi").read()
+menuw = re.search(r"width: (\d+)px", menu).group(1)
+assert opt("width") == menuw, (opt("width"), menuw)
 assert opt("background-color") == "#0d0d0dE0", "card glass alpha drifted"
 raw = open("config/waybar/config.jsonc").read()
 barmargin = re.search(r"\"margin-right\": (\d+),", raw).group(1)
@@ -671,7 +681,7 @@ else
     skip "niri validate" "niri not installed"
 fi
 check "yazi: text and code open in Sublime, micro second"   t_yazi_text_opens_in_sublime
-check "mako: cards match the bar"                       t_mako_matches_bar
+check "mako: cards follow the surface conventions"       t_mako_matches_bar
 check "bashrc: fullcharge alias"                             t_bashrc_fullcharge
 check "session scripts exist and are executable"             t_scripts_present_executable
 check "session scripts parse"                                t_scripts_parse
