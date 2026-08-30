@@ -1,23 +1,38 @@
-# mako — notifications on the shared surface recipe: 0.9 glass, faint
-# 1px border, radius 8 (niri blurs behind via the notifications
-# layer-rule). Cards sit 6 px from the screen edge like the bar, so
-# their right edge is flush with the bar's; 10 px below it and between
-# cards. Text only — icons stay out, the waybar discipline.
+# mako — notifications on the shared surface recipe: the bar's 0.6
+# glass (niri blurs behind via the ^notifications$ layer-rule), radius
+# 8, a 10% white hairline for definition against light windows, no
+# border otherwise — the bar's no-chips discipline. Cards sit 5 px from
+# the screen edge so their right edge is flush with the bar's; 10 px
+# below it and between cards. Summary in the bar's hover white, body in
+# its resting grey, both at the bar's 12 px. Duplicates group by app
+# and summary instead of stacking. Text only — icons stay out.
 # Mod+Shift+D dismisses all from the keyboard (config/niri/binds.kdl);
 # a right click anywhere on a notification does the same.
-font=JetBrainsMono Nerd Font 11
-background-color=#0d0d0dE6
+font=JetBrainsMono Nerd Font 12
+background-color=#0d0d0d99
 text-color=#c0c0c0
-border-color=#2a2a2a
+border-color=#ffffff1a
 border-size=1
 border-radius=8
-padding=10
-margin=10,6
+width=340
+padding=12
+margin=10,5
 default-timeout=5000
 layer=top
 icons=0
 max-visible=5
+max-history=10
+group-by=app-name,summary
+format=<span color='#e8e8e8'>%s</span>\n%b
+progress-color=over #b0a06a33
 on-button-right=dismiss-all
+
+[grouped]
+format=<span color='#e8e8e8'>%s</span> ×%g\n%b
+
+[urgency=low]
+text-color=#909090
+default-timeout=4000
 
 [urgency=high]
 default-timeout=0

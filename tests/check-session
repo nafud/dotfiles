@@ -578,6 +578,28 @@ assert "rules" not in cfg["open"], "prepend_rules must extend the defaults, not 
     grep -qx 'export EDITOR=micro VISUAL=micro' "$REPO_DIR/config/bash/profile"
 )
 
+# ------------------------------------------------------------- config/mako/config ---
+# Notifications speak the bar's language: same 12 px face, the bar's
+# 0.6 glass (#0d0d0d99 over the blur rule), and the same screen-edge
+# margin, so a card's right edge stays flush with the bar's.
+t_mako_matches_bar() ( set -e
+    python3 -c '
+import re
+mako = open("config/mako/config").read()
+def opt(name):
+    m = re.search(r"^%s=(.*)$" % re.escape(name), mako, re.M)
+    assert m, "mako lacks %s" % name
+    return m.group(1)
+css = open("config/waybar/style.css").read()
+barpx = re.search(r"font-size:\s*(\d+)px", css).group(1)
+assert opt("font") == "JetBrainsMono Nerd Font %s" % barpx, opt("font")
+assert opt("background-color") == "#0d0d0d99", "glass alpha drifted from the bar"
+raw = open("config/waybar/config.jsonc").read()
+barmargin = re.search(r"\"margin-right\": (\d+),", raw).group(1)
+assert opt("margin").endswith("," + barmargin), (opt("margin"), barmargin)
+assert opt("icons") == "0"'
+)
+
 # ---------------------------------------------------------- config/bash/bashrc ---
 t_bashrc_fullcharge() ( set -e
     grep -qxF "alias fullcharge='sudo tlp fullcharge'" "$REPO_DIR/config/bash/bashrc"
@@ -642,6 +664,7 @@ else
     skip "niri validate" "niri not installed"
 fi
 check "yazi: text and code open in Sublime, micro second"   t_yazi_text_opens_in_sublime
+check "mako: cards match the bar"                       t_mako_matches_bar
 check "bashrc: fullcharge alias"                             t_bashrc_fullcharge
 check "session scripts exist and are executable"             t_scripts_present_executable
 check "session scripts parse"                                t_scripts_parse
