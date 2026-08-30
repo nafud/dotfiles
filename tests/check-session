@@ -493,6 +493,13 @@ assert rec["return-type"] == "json"
 assert rec["signal"] == 9
 assert "record-toggle" in rec["on-click"], rec.get("on-click")
 
+# icons keep one rhythm whether a module is present or not: two tray
+# or privacy icons sit as far apart as two neighbouring modules do
+# (8 px padding on each side), so an icon appearing does not create a
+# tighter pair
+assert cfg["tray"]["spacing"] == 16, cfg["tray"]
+assert cfg["privacy"]["icon-spacing"] == 16, cfg["privacy"]
+
 bt = cfg["bluetooth"]
 for key in ("format", "format-no-controller", "format-disabled", "format-off"):
     assert bt[key] == "", f"bluetooth {key} must be empty, is {bt[key]!r}"

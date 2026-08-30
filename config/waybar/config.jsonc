@@ -53,9 +53,9 @@
         "on-click": "niri msg action switch-layout next"
     },
 
-    "tray": { "icon-size": 11, "spacing": 7 },
+    "tray": { "icon-size": 11, "spacing": 16 },
     "privacy": {
-        "icon-size": 11, "icon-spacing": 7,
+        "icon-size": 11, "icon-spacing": 16,
         "modules": [ { "type": "screenshare" }, { "type": "audio-in" } ]
     },
     "systemd-failed-units": {
