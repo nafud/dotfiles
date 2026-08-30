@@ -22,7 +22,13 @@ input {
         natural-scroll
         accel-speed 0.4
     }
-    focus-follows-mouse max-scroll-amount="0%"
+    // Pointer focus is off. niri's focus-follows-mouse does not know that a
+    // dialog belongs to the window under the pointer, so crossing the parent
+    // on the way to a dialog took the focus from the dialog and left the
+    // keyboard on a window the dialog was blocking (niri 26.04, any toolkit,
+    // Wayland and X11). Focus changes by click or keyboard until that is
+    // fixed upstream.
+    // focus-follows-mouse max-scroll-amount="0%"
 }
 
 // Pointer polish: one cursor theme at one size everywhere (GTK apps
