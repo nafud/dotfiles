@@ -49,5 +49,5 @@ fi
 tooltip=$(head -n 15 <<<"$list" | awk '{printf "%s%s %s → %s", sep, $1, $2, $4; sep="\n"}')
 [ "$total" -gt 15 ] && tooltip="$tooltip"$'\n'"… $((total - 15)) more"
 
-jq -cn --arg text "<span size='98.0%' letter_spacing='5511'>󰚰</span> $total" --arg tooltip "$tooltip" \
+jq -cn --arg text "<span size='98.0%' letter_spacing='5087'>󰚰</span> $total" --arg tooltip "$tooltip" \
     '{text: $text, tooltip: $tooltip, class: "updates"}'

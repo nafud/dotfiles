@@ -9,14 +9,14 @@
    boxes differently and would otherwise come out 8.5–12 px tall; a
    span is never above 100 % because a larger run grows the label's
    line box and shifts the whole label. Tray and privacy icons are
-   images: icon-size 12 gives the same ink height. Modules that report
+   images: icon-size 11 gives the same ink height. Modules that report
    a condition (updates, privacy, failed units, temperature, bluetooth,
    recording) are absent while there is none: temperature has an empty format and only appears
    — red — past its critical threshold. No power button: the power
    menu is Mod+Escape (config/niri/binds.kdl). */
 * {
     font-family: "JetBrainsMono Nerd Font", monospace;
-    font-size: 13px;
+    font-size: 12px;
     border: none;
     border-radius: 0;
     min-height: 0;
@@ -38,7 +38,7 @@ window#waybar {
 
 #workspaces button {
     color: #909090;
-    padding: 0 6px;
+    padding: 0 5px;
     background: transparent;
     box-shadow: none;
     text-shadow: none;
@@ -67,7 +67,7 @@ window#waybar {
 #custom-updates, #custom-recording, #systemd-failed-units, #network, #custom-mullvad,
 #language, #clock {
     color: #c0c0c0;
-    padding: 0 8px;
+    padding: 0 7px;
     transition: color 150ms ease;
 }
 
@@ -77,14 +77,14 @@ window#waybar {
    letter_spacing, see tools/waybar-icon-span) */
 #temperature, #memory, #pulseaudio, #battery, #bluetooth,
 #custom-updates, #custom-recording, #systemd-failed-units, #network, #custom-mullvad {
-    padding-left: 9px;
+    padding-left: 8px;
 }
 
 /* the tray is the one place app icons are allowed: it exists so tray
    apps (nm-applet, chat clients) have a StatusNotifierWatcher to dock
    at — without it their D-Bus tray registration has no host at all */
 #tray {
-    padding: 0 8px;
+    padding: 0 7px;
 }
 
 #tray > .passive {
@@ -104,7 +104,7 @@ window#waybar {
 }
 
 #privacy {
-    padding: 0 8px;
+    padding: 0 7px;
 }
 
 /* a failed unit is the one thing on the strip that is wrong, not busy */

@@ -39,18 +39,18 @@ render() {
         connected)
             # the relay hostname is <country>-<city>-<protocol>-<n>
             # (si-lju-wg-001): its first field is the ISO country code
-            glyph=󰦝 ls=4766 class=connected
+            glyph=󰦝 ls=4400 class=connected
             mark=$(jq -r '.hostname // "" | split("-")[0]' <<<"$location")
             [ -n "$mark" ] || mark=on ;;
-        connecting|disconnecting) glyph=󰒙 ls=4766 mark=…   class=connecting ;;
-        disconnected)             glyph=󰦜 ls=6562 mark=off class=disconnected ;;
-        error)                    glyph=󰻌 ls=4766 mark=err class=error ;;
+        connecting|disconnecting) glyph=󰒙 ls=4400 mark=…   class=connecting ;;
+        disconnected)             glyph=󰦜 ls=6057 mark=off class=disconnected ;;
+        error)                    glyph=󰻌 ls=4400 mark=err class=error ;;
         *) echo; return ;;
     esac
     # tooltip: the visible location — the relay's when up, your own when
     # down — so the mark alone never has to carry that detail
     where=$(jq -r '[.city, .country] | map(select(. != null)) | join(", ")' <<<"$location")
-    jq -cn --arg text "<span size='79.3%' rise='951' letter_spacing='$ls'>$glyph</span> $mark" --arg class "$class" \
+    jq -cn --arg text "<span size='79.3%' rise='878' letter_spacing='$ls'>$glyph</span> $mark" --arg class "$class" \
         --arg tooltip "mullvad: $state${where:+ — $where}" \
         '{text: $text, class: $class, tooltip: $tooltip}'
 }

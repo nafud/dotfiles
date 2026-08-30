@@ -5,7 +5,7 @@
 # way). Absent otherwise, and the bar collapses the module. The glyph's
 # span is the one tools/waybar-icon-span measured for U+F0EC2.
 if pgrep -x gpu-screen-recorder >/dev/null; then
-    printf '%s\n' "{\"text\": \"<span size='88.0%' rise='527' letter_spacing='6983'>󰻂</span>\", \"class\": \"recording\", \"tooltip\": \"recording — click to stop\"}"
+    printf '%s\n' "{\"text\": \"<span size='88.0%' rise='486' letter_spacing='6446'>󰻂</span>\", \"class\": \"recording\", \"tooltip\": \"recording — click to stop\"}"
 else
     printf '%s\n' '{"text": ""}'
 fi
