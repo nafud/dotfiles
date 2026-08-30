@@ -579,9 +579,12 @@ assert "rules" not in cfg["open"], "prepend_rules must extend the defaults, not 
 )
 
 # ------------------------------------------------------------- config/mako/config ---
-# Notifications speak the bar's language: same 12 px face, the bar's
-# 0.6 glass (#0d0d0d99 over the blur rule), and the same screen-edge
-# margin, so a card's right edge stays flush with the bar's.
+# Notifications speak the bar's language: same 12 px face, the same
+# dark glass a shade firmer (0.88 — no blur behind cards, the alpha
+# alone carries legibility), and the same screen-edge margin, so a
+# card's right edge stays flush with the bar's. And no blur rule:
+# niri paints blur over the surface's whole rectangle plus a rim,
+# a hazy box around a floating card.
 t_mako_matches_bar() ( set -e
     python3 -c '
 import re
@@ -593,13 +596,15 @@ def opt(name):
 css = open("config/waybar/style.css").read()
 barpx = re.search(r"font-size:\s*(\d+)px", css).group(1)
 assert opt("font") == "JetBrainsMono Nerd Font %s" % barpx, opt("font")
-assert opt("background-color") == "#0d0d0d99", "glass alpha drifted from the bar"
+assert opt("background-color") == "#0d0d0dE0", "card glass alpha drifted"
 raw = open("config/waybar/config.jsonc").read()
 barmargin = re.search(r"\"margin-right\": (\d+),", raw).group(1)
 assert opt("margin").endswith("," + barmargin), (opt("margin"), barmargin)
 assert opt("icons") == "0"
 assert opt("border-size") == "0", "cards are borderless by decision"
-assert "border-color" not in mako, "no border colors, urgency included"'
+assert "border-color" not in mako, "no border colors, urgency included"
+kdl = open("config/niri/decorations.kdl").read()
+assert "notifications" not in kdl or "blur true" not in kdl.split("notifications")[1][:200], "notifications must not get the blur rule"'
 )
 
 # ---------------------------------------------------------- config/bash/bashrc ---

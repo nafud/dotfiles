@@ -82,9 +82,7 @@ layer-rule {
 // surface), so a blur behind it would frost the whole screen. Its glass
 // is the panel's own alpha in themes/mono.rasi.
 
-layer-rule {
-    match namespace="^notifications$"
-    background-effect {
-        blur true
-    }
-}
+// no blur for notifications: niri blurs a surface's whole rectangle
+// plus a soft rim beyond it, which reads as a hazy box around a
+// floating rounded card (the bar spans its strip, so the same rim is
+// invisible there); mako's cards carry their own alpha instead

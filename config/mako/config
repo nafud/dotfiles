@@ -1,7 +1,8 @@
-# mako — notifications on the shared surface recipe: the bar's 0.6
-# glass (niri blurs behind via the ^notifications$ layer-rule), radius
+# mako — notifications on the bar's surface language: the same dark
+# glass a shade firmer (0.88 — cards get no blur, see the note in
+# niri/decorations.kdl, so the alpha alone carries legibility), radius
 # 8 and nothing else — no borders at all, the bar's no-chips
-# discipline; the blur is what separates a card. Cards sit 5 px from
+# discipline. Cards sit 5 px from
 # the screen edge so their right edge is flush with the bar's; 10 px
 # below it and between cards. Summary in the bar's hover white, body in
 # its resting grey, both at the bar's 12 px. Duplicates group by app
@@ -9,7 +10,7 @@
 # Mod+Shift+D dismisses all from the keyboard (config/niri/binds.kdl);
 # a right click anywhere on a notification does the same.
 font=JetBrainsMono Nerd Font 12
-background-color=#0d0d0d99
+background-color=#0d0d0dE0
 text-color=#c0c0c0
 border-size=0
 border-radius=8
