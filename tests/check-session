@@ -584,8 +584,10 @@ assert "rules" not in cfg["open"], "prepend_rules must extend the defaults, not 
 # width — cross-file design numbers, so a change to one surface drags
 # the cards along or goes red here. The glass stays the strip's, a
 # shade firmer (0.88 — no blur behind cards, the alpha alone carries
-# legibility), the screen-edge margin stays the bar's, so a card's
-# right edge is flush with the bar's. And no blur rule: niri paints
+# legibility), and the card's top-right corner sits on the tiled
+# window's: top margin equals the layout gap, right margin gap+1 (the
+# window snaps one physical column inward at the 1.25 scale, measured
+# 2026-08-30). And no blur rule: niri paints
 # blur over the surface's whole rectangle plus a rim, a hazy box
 # around a floating card.
 t_mako_matches_bar() ( set -e
@@ -609,9 +611,9 @@ menuw = re.search(r"width: (\d+)px", menu).group(1)
 # the bar right edges on the same physical column at the 1.25 scale
 assert opt("width") == str(int(menuw) + 1), (opt("width"), menuw)
 assert opt("background-color") == "#0d0d0dE0", "card glass alpha drifted"
-raw = open("config/waybar/config.jsonc").read()
-barmargin = re.search(r"\"margin-right\": (\d+),", raw).group(1)
-assert opt("margin").endswith("," + barmargin), (opt("margin"), barmargin)
+kdl_layout = open("config/niri/layout.kdl").read()
+gaps = int(re.search(r"^\s*gaps (\d+)$", kdl_layout, re.M).group(1))
+assert opt("margin") == "%d,%d" % (gaps, gaps + 1), (opt("margin"), gaps)
 assert opt("icons") == "0"
 assert opt("border-size") == "0", "cards are borderless by decision"
 assert "border-color" not in mako, "no border colors, urgency included"

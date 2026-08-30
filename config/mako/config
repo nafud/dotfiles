@@ -1,20 +1,19 @@
 # mako — a floating content surface, dressed like the others: the
-# terminal's 11 px face and 10 px padding, the floating menu's 360
-# width (alacritty.toml, rofi config.rasi and themes/menu.rasi — the
-# test pins all three; the card is 361, one wider than the menu: at
-# the display's 1.25 scale a right-anchored 360 surface snaps one
-# physical pixel past the bar's edge, the odd width lands both edges
-# on the same physical column — measured 2026-08-30), the strip's
-# dark glass a shade firmer (0.88 —
+# terminal's 11 px face and 10 px padding (alacritty.toml), the
+# floating menu's width plus one (rofi themes/menu.rasi; the odd 361
+# keeps the card's right edge from snapping a column wide at the
+# display's 1.25 scale), the strip's dark glass a shade firmer (0.88 —
 # cards get no blur, see the note in niri/decorations.kdl, so the
-# alpha alone carries legibility), radius 8 and nothing else — no
-# borders at all, the workspace's no-chips discipline. Cards sit 5 px from
-# the screen edge so their right edge is flush with the bar's; 10 px
-# below it and between cards. Summary in the bar's hover white, body in
-# its resting grey, both at the bar's 12 px. Duplicates group by app
-# and summary instead of stacking. Text only — icons stay out.
-# Mod+Shift+D dismisses all from the keyboard (config/niri/binds.kdl);
-# a right click anywhere on a notification does the same.
+# alpha alone carries legibility), radius 8 and nothing else: no
+# borders, the workspace's no-chips discipline. The card's top-right
+# corner lands on the tiled window's top-right corner — margin 6 (the
+# layout gap) above, 7 on the right, because the window's geometry
+# snaps one physical column inward from the gap arithmetic at 1.25
+# scale (both edges measured onto the same column, 2026-08-30); 10 px
+# between cards. Summary in the strip's hover white over body grey.
+# Duplicates group by app and summary instead of stacking. Text only —
+# icons stay out. Mod+Shift+D dismisses all from the keyboard
+# (config/niri/binds.kdl); a right click on a card does the same.
 font=JetBrainsMono Nerd Font 11
 background-color=#0d0d0dE0
 text-color=#c0c0c0
