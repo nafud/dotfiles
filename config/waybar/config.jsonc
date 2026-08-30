@@ -81,6 +81,7 @@
         "format-muted": "<span letter_spacing='6656'>󰝟</span> mute",
         "format-icons": { "default": ["<span letter_spacing='-1464'>󰕿</span>", "<span letter_spacing='1065'>󰖀</span>", "<span letter_spacing='5591'>󰕾</span>"] },
         "scroll-step": 5,
+        "max-volume": 200,
         "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
     },
     "battery": {
