@@ -1,7 +1,11 @@
 # mako — a floating content surface, dressed like the others: the
 # terminal's 11 px face and 10 px padding, the floating menu's 360
 # width (alacritty.toml, rofi config.rasi and themes/menu.rasi — the
-# test pins all three), the strip's dark glass a shade firmer (0.88 —
+# test pins all three; the card is 361, one wider than the menu: at
+# the display's 1.25 scale a right-anchored 360 surface snaps one
+# physical pixel past the bar's edge, the odd width lands both edges
+# on the same physical column — measured 2026-08-30), the strip's
+# dark glass a shade firmer (0.88 —
 # cards get no blur, see the note in niri/decorations.kdl, so the
 # alpha alone carries legibility), radius 8 and nothing else — no
 # borders at all, the workspace's no-chips discipline. Cards sit 5 px from
@@ -16,7 +20,7 @@ background-color=#0d0d0dE0
 text-color=#c0c0c0
 border-size=0
 border-radius=8
-width=360
+width=361
 padding=10
 margin=10,5
 default-timeout=5000

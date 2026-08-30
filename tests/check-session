@@ -605,7 +605,9 @@ termpad = re.search(r"padding = \{ x = (\d+), y = \d+ \}", term).group(1)
 assert opt("padding") == termpad, (opt("padding"), termpad)
 menu = open("config/rofi/themes/menu.rasi").read()
 menuw = re.search(r"width: (\d+)px", menu).group(1)
-assert opt("width") == menuw, (opt("width"), menuw)
+# one wider than the menu: the odd width is what lands the card and
+# the bar right edges on the same physical column at the 1.25 scale
+assert opt("width") == str(int(menuw) + 1), (opt("width"), menuw)
 assert opt("background-color") == "#0d0d0dE0", "card glass alpha drifted"
 raw = open("config/waybar/config.jsonc").read()
 barmargin = re.search(r"\"margin-right\": (\d+),", raw).group(1)
