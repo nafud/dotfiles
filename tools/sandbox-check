@@ -163,7 +163,7 @@ learn() {
 caps() { capsh --decode="$1" | sed 's/^[^=]*=//'; }
 
 report_unit() {
-    local unit="$1" pid state since cap nnp seccomp score
+    local unit="$1" pid state since cap nnp seccomp score lines
     state="$(systemctl show -p ActiveState --value "$unit.service" 2>/dev/null || true)"
     printf '\n== %s: %s\n' "$unit" "${state:-not loaded}"
     [ "$state" = active ] || return 0
@@ -181,15 +181,17 @@ report_unit() {
     local -a window=()
     [ -n "$since" ] && window=(--since "$since")
     printf '   journal since %s (warning and up):\n' "${since:-boot}"
-    journalctl -q -u "$unit.service" -p warning "${window[@]}" -o cat --no-pager | sed 's/^/     /' | tail -n 20
+    lines="$(journalctl -q -u "$unit.service" -p warning "${window[@]}" -o cat --no-pager | tail -n 20)"
+    printf '%s\n' "${lines:-nothing}" | sed 's/^/     /'
 }
 
 # seccomp_log — the boot's SECCOMP_RET_LOG records as "count  program  syscall"
 seccomp_log() {
     printf '\n== seccomp log records this boot (learning mode hits)\n'
-    journalctl -q -k -b -o cat --no-pager \
-        | grep -E 'type=1326 .*code=0x7ffc0000' \
-        | sed -E 's/.* exe="([^"]*)".* syscall=([0-9]+).*/\1 \2/' \
+    local records
+    records="$(journalctl -q -k -b -o cat --no-pager | grep -E 'type=1326 .*code=0x7ffc0000' || true)"
+    [ -n "$records" ] || { printf '   none\n'; return 0; }
+    sed -E 's/.* exe="([^"]*)".* syscall=([0-9]+).*/\1 \2/' <<<"$records" \
         | sort | uniq -c | sort -rn \
         | while read -r count exe nr; do
             printf '   %5s  %-32s %s\n' "$count" "$exe" "$(ausyscall "$nr" 2>/dev/null || echo "syscall $nr")"
