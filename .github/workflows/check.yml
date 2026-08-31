@@ -30,11 +30,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install niri
-        run: pacman -Syu --noconfirm niri
+      - name: install niri and the suite's tools
+        run: pacman -Syu --noconfirm niri diffutils
 
       - name: niri config validates
         run: niri validate --config config/niri/config.kdl
 
+      # the container is root and setup.sh refuses to be sourced as
+      # root, the same guard that protects a desk run; the suite needs
+      # nothing more than a user that can read the checkout
       - name: tests/check-system (with systemd-analyze)
-        run: tests/check-system
+        run: |
+          useradd -m check
+          runuser -u check -- tests/check-system
