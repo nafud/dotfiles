@@ -655,7 +655,7 @@ t_boundary_thermald() ( set -e
 t_boundary_grub_btrfsd() ( set -e
     f="$(boundary grub-btrfsd)"
     commented "$f"
-    ini_is "$f" Service CapabilityBoundingSet 'CAP_SYS_ADMIN CAP_DAC_OVERRIDE'  # the cgroup2 root is mode 555
+    ini_is "$f" Service CapabilityBoundingSet CAP_SYS_ADMIN
     ini_is "$f" Service ReadWritePaths /boot/grub
     ini_is "$f" Service PrivateTmp yes                         # the script's mount point lives there
     ini_is "$f" Service PrivateNetwork yes
