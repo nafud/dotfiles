@@ -38,9 +38,12 @@ jobs:
 
       # the container is root and setup.sh refuses to be sourced as
       # root, the same guard that protects a desk run; the suite needs
-      # nothing more than a user that can read the checkout
+      # nothing more than a user that can read the checkout. No
+      # systemd runs here, so /run/systemd, which the analyzer expects
+      # of any booted system, is created for it.
       - name: tests/check-system (with systemd-analyze)
         run: |
           systemd-analyze --version | head -n1
+          install -d /run/systemd
           useradd -m check
           runuser -u check -- tests/check-system
