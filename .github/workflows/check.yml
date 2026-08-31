@@ -41,5 +41,6 @@ jobs:
       # nothing more than a user that can read the checkout
       - name: tests/check-system (with systemd-analyze)
         run: |
+          systemd-analyze --version | head -n1
           useradd -m check
           runuser -u check -- tests/check-system

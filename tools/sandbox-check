@@ -113,7 +113,8 @@ score() {
         if [ "${value/./}" -le "${BOUND[$unit]}" ]; then
             printf '  ok    %-30s %s (bound %s.%s)\n' "$unit" "$value" "${BOUND[$unit]%?}" "${BOUND[$unit]: -1}"
         else
-            printf '  FAIL  %-30s %s (bound %s.%s)\n' "$unit" "$value" "${BOUND[$unit]%?}" "${BOUND[$unit]: -1}"
+            # on stderr: the suites' reporter drops stdout, and CI must show which one
+            printf '  FAIL  %-30s %s (bound %s.%s)\n' "$unit" "$value" "${BOUND[$unit]%?}" "${BOUND[$unit]: -1}" >&2
             rc=1
         fi
     done
