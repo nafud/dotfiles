@@ -95,7 +95,7 @@ dropin() { [ -f "$LAYER/$1.service.d/hardening.conf" ] && echo "$LAYER/$1.servic
 # systemd-analyze security --offline reads exactly what the running
 # manager would. One unit over its bound fails the whole command.
 score() {
-    local root d unit line value rc=0
+    local root d unit out line value rc=0
     root="$(mktemp -d -t sandbox-check.XXXXXX)"
     trap 'rm -rf "$root"' RETURN
     mkdir -p "$root/usr/lib/systemd/system" "$root/etc/systemd/system"
@@ -107,9 +107,12 @@ score() {
         [ -n "${BOUND[$unit]+x}" ] || die "no bound for $unit (add it to BOUND)"
     done
     for unit in $(units); do
-        line="$(systemd-analyze security --offline=true --root="$root" --no-pager "$unit.service" 2>/dev/null | tail -n1)"
+        if ! out="$(systemd-analyze security --offline=true --root="$root" --no-pager "$unit.service" 2>&1)"; then
+            die "systemd-analyze security failed for $unit: $(tail -n3 <<<"$out" | tr '\n' ' ')"
+        fi
+        line="$(tail -n1 <<<"$out")"
         value="$(grep -oE '[0-9]+\.[0-9]' <<<"$line" | head -n1)"
-        [ -n "$value" ] || die "systemd-analyze gave no score for $unit"
+        [ -n "$value" ] || die "systemd-analyze gave no score for $unit: $line"
         if [ "${value/./}" -le "${BOUND[$unit]}" ]; then
             printf '  ok    %-30s %s (bound %s.%s)\n' "$unit" "$value" "${BOUND[$unit]%?}" "${BOUND[$unit]: -1}"
         else
