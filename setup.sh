@@ -57,9 +57,11 @@
 #
 # Usage:  bash setup.sh          full run: install everything + link configs
 #         bash setup.sh link     (re)link configs + validate + reload only
-#         bash setup.sh system   packages + the system/ tree + boot and
-#                                greeter glue only (sudo; the user half
-#                                untouched)
+#         bash setup.sh system   the system/ tree + boot and greeter
+#                                glue only (sudo; no packages, no
+#                                network — a fix must be able to land
+#                                while a misconfigured daemon holds the
+#                                network; the user half untouched)
 #         bash setup.sh summary  print the probed component summary
 #
 set -euo pipefail
@@ -84,9 +86,12 @@ trap 'rm -rf "$WORK"' EXIT
 font_ok() { fc-match "$MONO_FONT" | grep -q "JetBrainsMono Nerd Font"; }
 
 # ------------------------------------------------------------- 1. packages ---
-# One transaction, official repos only. --needed keeps reruns cheap and
-# never reinstalls; the full-system upgrade first is the supported way to
-# install on Arch (partial upgrades are not). noto-fonts and
+# One transaction, official repos only, and `install` alone runs it:
+# deploying system files must not wait on mirrors, and an upgrade is a
+# deliberate `pacman -Syu`, never the side effect of a config change.
+# --needed keeps reruns cheap and never reinstalls; the full-system
+# upgrade first is the supported way to install on Arch (partial
+# upgrades are not). noto-fonts and
 # noto-fonts-emoji stand behind JetBrains Mono for the scripts and emoji
 # it lacks — without a fallback those render as hex boxes (in
 # notifications first: chat apps).
@@ -831,9 +836,9 @@ print_summary() {
 
 # ---------------------------------------------------------------- 13. main ---
 # The system half needs sudo and a reboot to show; the user half links,
-# enables and reloads and is live at once. `install` is both, in order.
+# enables and reloads and is live at once. `install` is packages, then
+# both halves, in order.
 system_half() {
-    install_packages
     enable_system_units
     install_system_files
     configure_boot
@@ -864,6 +869,7 @@ user_half() {
 main() {
     case "${1:-install}" in
         install)
+            install_packages
             system_half
             install_paru
             install_herdr

@@ -598,7 +598,10 @@ t_boundary_mullvad_daemon() ( set -e
     ini_is "$f" Unit After mullvad-net-cls.service
     ini_is "$f" Service CapabilityBoundingSet 'CAP_NET_ADMIN CAP_NET_RAW'   # no CAP_SYS_ADMIN: the oneshot mounts
     ini_is "$f" Service ProtectSystem strict
-    ini_has "$f" Service ReadWritePaths '/etc/mullvad-vpn /var/log/mullvad-vpn /var/cache/mullvad-vpn /run'
+    ini_is "$f" Service ConfigurationDirectory mullvad-vpn   # created before the namespace: a deleted
+    ini_is "$f" Service LogsDirectory mullvad-vpn             # dir must not fail the start (the cgroup
+    ini_is "$f" Service CacheDirectory mullvad-vpn            # path below says the same with its dash)
+    ini_has "$f" Service ReadWritePaths /run
     ini_has "$f" Service ReadWritePaths /proc/sys/net
     ini_has "$f" Service ReadWritePaths -/sys/fs/cgroup/net_cls  # dash: a missing hierarchy degrades split tunnelling, never the start
     ini_is "$f" Service ProtectControlGroups yes              # strict/private would lose the net_cls submount
@@ -615,7 +618,7 @@ t_boundary_mullvad_early_boot() ( set -e
     ini_is "$f" Service CapabilityBoundingSet CAP_NET_ADMIN
     ini_is "$f" Service PrivateDevices yes
     ini_is "$f" Service ProtectControlGroups strict
-    ini_is "$f" Service ReadWritePaths /var/log/mullvad-vpn   # the Blocked policy writes no sysctl
+    ini_is "$f" Service LogsDirectory mullvad-vpn             # the Blocked policy writes no sysctl
     ini_is "$f" Service RestrictAddressFamilies 'AF_UNIX AF_NETLINK'
     ini_is "$f" Service IPAddressDeny any
     ini_is "$f" Service SystemCallFilter @system-service

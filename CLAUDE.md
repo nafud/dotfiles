@@ -54,7 +54,10 @@ absent from setup.sh's one pacman transaction.
   copies land only via `sudo bash setup.sh system`, which re-installs
   on a content *or mode* change, rebuilds the initramfs when anything
   under plymouth/mkinitcpio changed, and prunes files the repo dropped
-  from mirrored dirs (the plymouth theme dir). Editing `system/…` does
+  from mirrored dirs (the plymouth theme dir). It runs no package
+  transaction and needs no network (that is `install`'s bootstrap
+  step): a config fix must be able to land while a misconfigured
+  daemon holds the network. Editing `system/…` does
   nothing to the running machine until that command runs; say so when
   you finish such a change.
 - `bash setup.sh link` = the user half (links, units, MIME, shell hooks,
@@ -200,12 +203,24 @@ colour — that is the configuration meaning "no change", not a leftover.
   units, thermald, grub-btrfsd, udisks2) an explicit scope — the
   capabilities, paths, devices, socket families and syscalls it
   actually uses, derived from its footprint and source, the reasoning
-  in each header. Two rules shaped them and must survive edits: any
+  in each header. Four rules shaped them and must survive edits: any
   mount-namespace directive (ProtectSystem, PrivateTmp, ReadWritePaths,
   the Protect* family, PrivateNetwork) hides the unit's own mounts from
-  the host, so udisks2 and `mullvad-net-cls.service` carry none; and a
+  the host, so udisks2 and `mullvad-net-cls.service` carry none; a
   `DeviceAllow` (also the one `ProtectClock` implies) switches the
-  device policy to an allow-list. `tools/sandbox-check` measures them:
+  device policy to an allow-list; a directory the daemon itself owns is
+  granted as ConfigurationDirectory/LogsDirectory/CacheDirectory —
+  systemd creates a missing one before the namespace, where a deleted
+  ReadWritePaths target fails the unit at 226/NAMESPACE — and a path
+  some other unit provides carries a leading dash so its absence
+  degrades the feature, never the start; and the cgroup2 root is mode
+  555, so a unit that mkdirs under /sys/fs/cgroup needs
+  CAP_DAC_OVERRIDE beside CAP_SYS_ADMIN. Deployment order is part of
+  the boundary: the Mullvad package's post_install runs
+  `systemctl enable --now mullvad-daemon`, so changed boundary files
+  land (`setup.sh system`) *before* any install or start of the
+  package — a daemon started against stale boundaries firewalled the
+  machine off its own mirrors once. `tools/sandbox-check` measures them:
   `score` offline against the vendored unit files (a CI row), `learn` +
   `report` for the live learning-mode rollout (SystemCallLog, decoded
   seccomp records), `render` for the learning variant. Excluded on
