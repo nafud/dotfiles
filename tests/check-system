@@ -600,7 +600,7 @@ t_boundary_mullvad_daemon() ( set -e
     ini_is "$f" Service ProtectSystem strict
     ini_has "$f" Service ReadWritePaths '/etc/mullvad-vpn /var/log/mullvad-vpn /var/cache/mullvad-vpn /run'
     ini_has "$f" Service ReadWritePaths /proc/sys/net
-    ini_has "$f" Service ReadWritePaths /sys/fs/cgroup/net_cls
+    ini_has "$f" Service ReadWritePaths -/sys/fs/cgroup/net_cls  # dash: a missing hierarchy degrades split tunnelling, never the start
     ini_is "$f" Service ProtectControlGroups yes              # strict/private would lose the net_cls submount
     ini_is "$f" Service DevicePolicy closed
     ini_is "$f" Service DeviceAllow '/dev/net/tun rw'
@@ -629,7 +629,7 @@ t_boundary_net_cls_unit() ( set -e
     ini_is "$f" Service RemainAfterExit yes
     ini_has "$f" Service ExecStart '/usr/bin/mkdir -p /sys/fs/cgroup/net_cls'
     ini_has "$f" Service ExecStart '/usr/bin/mount -t cgroup -o net_cls net_cls /sys/fs/cgroup/net_cls'
-    ini_is "$f" Service CapabilityBoundingSet CAP_SYS_ADMIN
+    ini_is "$f" Service CapabilityBoundingSet 'CAP_SYS_ADMIN CAP_DAC_OVERRIDE'  # the cgroup2 root is mode 555
     ini_is "$f" Service SystemCallFilter '@system-service @mount'
     namespace_free "$f"                                        # its mount must reach the host
     not grep -q '^\[Install\]' "$f"                            # pulled in by the daemon's Wants=, never enabled
@@ -655,7 +655,7 @@ t_boundary_thermald() ( set -e
 t_boundary_grub_btrfsd() ( set -e
     f="$(boundary grub-btrfsd)"
     commented "$f"
-    ini_is "$f" Service CapabilityBoundingSet CAP_SYS_ADMIN
+    ini_is "$f" Service CapabilityBoundingSet 'CAP_SYS_ADMIN CAP_DAC_OVERRIDE'  # the cgroup2 root is mode 555
     ini_is "$f" Service ReadWritePaths /boot/grub
     ini_is "$f" Service PrivateTmp yes                         # the script's mount point lives there
     ini_is "$f" Service PrivateNetwork yes
