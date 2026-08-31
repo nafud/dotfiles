@@ -195,3 +195,19 @@ colour — that is the configuration meaning "no change", not a leftover.
   sshd is disabled by `setup.sh` and admitted from private ranges only
   when started by hand. `setup.sh system` restarts exactly the services
   whose files changed (`configure_system_services`).
+- Service boundaries: `system/etc/systemd/system/*.service.d/hardening.conf`
+  gives each root daemon the machine runs (wpa_supplicant, the Mullvad
+  units, thermald, grub-btrfsd, udisks2) an explicit scope — the
+  capabilities, paths, devices, socket families and syscalls it
+  actually uses, derived from its footprint and source, the reasoning
+  in each header. Two rules shaped them and must survive edits: any
+  mount-namespace directive (ProtectSystem, PrivateTmp, ReadWritePaths,
+  the Protect* family, PrivateNetwork) hides the unit's own mounts from
+  the host, so udisks2 and `mullvad-net-cls.service` carry none; and a
+  `DeviceAllow` (also the one `ProtectClock` implies) switches the
+  device policy to an allow-list. `tools/sandbox-check` measures them:
+  `score` offline against the vendored unit files (a CI row), `learn` +
+  `report` for the live learning-mode rollout (SystemCallLog, decoded
+  seccomp records), `render` for the learning variant. Excluded on
+  purpose: greetd (every session inherits its restrictions),
+  NetworkManager and bluez (upstream-hardened), the bus and udev.

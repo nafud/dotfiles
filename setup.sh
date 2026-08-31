@@ -19,8 +19,12 @@
 #   system/   mirrors / and is installed there, file by file (root-owned
 #             copies, not links): the boot chain (GRUB and mkinitcpio
 #             drop-ins, plymouth and its theme, the plymouth-quit
-#             hand-off) and the login page (greetd, the greeter niri,
-#             monogreet) — what the desktop needs below the user
+#             hand-off), the login page (greetd, the greeter niri,
+#             monogreet) — what the desktop needs below the user — and
+#             the machine's policy as drop-ins, among them the service
+#             boundaries (systemd/system/*.service.d/hardening.conf):
+#             the scope each root daemon runs in, measured and rolled
+#             out with tools/sandbox-check
 #   templates/ mirrors ~/Templates (the XDG templates dir), copied file
 #             by file: what Files offers under "New Document"
 #   icons/    icon themes, each linked into ~/.local/share/icons: mono,
@@ -351,6 +355,23 @@ configure_system_services() {
     if system_changed_under /etc/bluetooth; then
         sudo systemctl restart bluetooth
     fi
+    # The service boundaries (systemd/system/*.service.d/hardening.conf)
+    # take effect on a restart. try-restart leaves a unit alone when it
+    # is not running, so a machine without Mullvad (installed by hand,
+    # not here) sees no error. wpa_supplicant and mullvad-daemon drop
+    # the connection for a moment while they come back. The early-boot
+    # blocker is deliberately not rerun: it installs the boot-time
+    # blocking ruleset, which mid-session would cut the live tunnel;
+    # its drop-in is read at the next boot. mullvad-net-cls.service is
+    # pulled in by the daemon's restart and its condition skips it
+    # while the hierarchy is already mounted.
+    local unit
+    for unit in wpa_supplicant mullvad-daemon thermald grub-btrfsd udisks2; do
+        if system_changed_under "/etc/systemd/system/$unit.service.d"; then
+            log "restarting $unit inside its boundary"
+            sudo systemctl try-restart "$unit"
+        fi
+    done
 }
 
 # -------------------------------------------------------------- 6. greeter ---

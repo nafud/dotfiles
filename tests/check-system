@@ -3,7 +3,10 @@
 # layer and the setup.sh glue that installs it: bootkeep (the kernel
 # pair keeper the pacman hooks call), the hooks themselves, and the
 # drop-ins for oomd, nftables, sshd, NetworkManager, resolved,
-# faillock, tlp and bluetooth — plus the polkit agent user unit.
+# faillock, tlp and bluetooth, the service boundaries (the
+# *.service.d/hardening.conf drop-ins and mullvad-net-cls.service,
+# scored offline by tools/sandbox-check against the vendored unit files
+# in tests/fixtures/units) — plus the polkit agent user unit.
 # tools/check proves these files parse; this suite proves they say
 # what the system needs them to say, and it proves it hermetically:
 # bootkeep runs against a fake /boot and /usr/lib/modules inside a
@@ -550,6 +553,166 @@ t_services_nothing() ( set -e
     [ -z "$log" ]
 )
 
+# --------------------------------------------------- service boundaries ---
+# The drop-ins are asserted as text on the lines that carry the
+# decisions (the ones a later "tidy-up" would be tempted to change):
+# each unit's capability set, its device nodes, the paths and socket
+# families it keeps, and the syscall set. The score row proves the
+# whole file, through systemd-analyze against the vendored unit files.
+LAYER="$REPO_DIR/system/etc/systemd/system"
+SANDBOX_CHECK="$REPO_DIR/tools/sandbox-check"
+boundary() { echo "$LAYER/$1.service.d/hardening.conf"; }
+# namespace_free FILE — no directive that would put the unit in a
+# private mount namespace (systemd.exec: mounts made inside never
+# reach the host), for the two units that mount for the host
+namespace_free() {
+    local key
+    for key in ProtectSystem ProtectHome PrivateTmp PrivateDevices PrivateMounts PrivateNetwork \
+               ProtectKernelTunables ProtectKernelModules ProtectKernelLogs ProtectControlGroups \
+               ProtectProc ProcSubset ReadWritePaths ReadOnlyPaths InaccessiblePaths BindPaths \
+               BindReadOnlyPaths TemporaryFileSystem RootDirectory MountAPIVFS; do
+        [ -z "$(ini_get "$1" Service "$key")" ] || return 1
+    done
+}
+
+t_boundary_wpa_supplicant() ( set -e
+    f="$(boundary wpa_supplicant)"
+    commented "$f"
+    ini_is "$f" Service CapabilityBoundingSet 'CAP_NET_ADMIN CAP_NET_RAW'
+    ini_is "$f" Service RuntimeDirectory wpa_supplicant
+    ini_is "$f" Service ProtectSystem strict
+    ini_is "$f" Service DevicePolicy closed
+    ini_is "$f" Service DeviceAllow '/dev/rfkill r'          # read-only: NetworkManager does the writes
+    ini_is "$f" Service ProtectKernelTunables yes
+    ini_is "$f" Service ReadWritePaths /proc/sys/net          # its own per-interface knobs
+    ini_is "$f" Service RestrictAddressFamilies 'AF_UNIX AF_NETLINK AF_PACKET AF_INET AF_INET6'
+    ini_is "$f" Service IPAddressDeny any                     # no IP traffic of its own
+    ini_is "$f" Service SystemCallFilter @system-service
+    [ -z "$(ini_get "$f" Service PrivateDevices)" ]           # would hide /dev/rfkill
+)
+
+t_boundary_mullvad_daemon() ( set -e
+    f="$(boundary mullvad-daemon)"
+    commented "$f"
+    ini_is "$f" Unit Wants mullvad-net-cls.service
+    ini_is "$f" Unit After mullvad-net-cls.service
+    ini_is "$f" Service CapabilityBoundingSet 'CAP_NET_ADMIN CAP_NET_RAW'   # no CAP_SYS_ADMIN: the oneshot mounts
+    ini_is "$f" Service ProtectSystem strict
+    ini_has "$f" Service ReadWritePaths '/etc/mullvad-vpn /var/log/mullvad-vpn /var/cache/mullvad-vpn /run'
+    ini_has "$f" Service ReadWritePaths /proc/sys/net
+    ini_has "$f" Service ReadWritePaths /sys/fs/cgroup/net_cls
+    ini_is "$f" Service ProtectControlGroups yes              # strict/private would lose the net_cls submount
+    ini_is "$f" Service DevicePolicy closed
+    ini_is "$f" Service DeviceAllow '/dev/net/tun rw'
+    ini_is "$f" Service RestrictAddressFamilies 'AF_UNIX AF_NETLINK AF_INET AF_INET6'
+    ini_is "$f" Service SystemCallFilter @system-service       # no @mount
+    ini_is "$f" Service SystemCallErrorNumber EPERM            # a miss must not become a restart loop
+)
+
+t_boundary_mullvad_early_boot() ( set -e
+    f="$(boundary mullvad-early-boot-blocking)"
+    commented "$f"
+    ini_is "$f" Service CapabilityBoundingSet CAP_NET_ADMIN
+    ini_is "$f" Service PrivateDevices yes
+    ini_is "$f" Service ProtectControlGroups strict
+    ini_is "$f" Service ReadWritePaths /var/log/mullvad-vpn   # the Blocked policy writes no sysctl
+    ini_is "$f" Service RestrictAddressFamilies 'AF_UNIX AF_NETLINK'
+    ini_is "$f" Service IPAddressDeny any
+    ini_is "$f" Service SystemCallFilter @system-service
+)
+
+t_boundary_net_cls_unit() ( set -e
+    f="$LAYER/mullvad-net-cls.service"
+    commented "$f"
+    ini_is "$f" Unit ConditionPathIsMountPoint '!/sys/fs/cgroup/net_cls'
+    ini_is "$f" Service Type oneshot
+    ini_is "$f" Service RemainAfterExit yes
+    ini_has "$f" Service ExecStart '/usr/bin/mkdir -p /sys/fs/cgroup/net_cls'
+    ini_has "$f" Service ExecStart '/usr/bin/mount -t cgroup -o net_cls net_cls /sys/fs/cgroup/net_cls'
+    ini_is "$f" Service CapabilityBoundingSet CAP_SYS_ADMIN
+    ini_is "$f" Service SystemCallFilter '@system-service @mount'
+    namespace_free "$f"                                        # its mount must reach the host
+    not grep -q '^\[Install\]' "$f"                            # pulled in by the daemon's Wants=, never enabled
+)
+
+t_boundary_thermald() ( set -e
+    f="$(boundary thermald)"
+    commented "$f"
+    ini_is "$f" Service CapabilityBoundingSet CAP_SYS_BOOT     # the CRITICAL-trip poweroff
+    ini_is "$f" Service SystemCallFilter '@system-service @reboot'
+    ini_is "$f" Service RuntimeDirectory thermald
+    ini_is "$f" Service RuntimeDirectoryPreserve yes
+    ini_is "$f" Service ProtectSystem strict
+    ini_is "$f" Service ReadOnlyPaths /proc/sys
+    [ -z "$(ini_get "$f" Service ProtectKernelTunables)" ]    # /sys must stay writable: that is its job
+    ini_is "$f" Service DevicePolicy closed
+    ini_has "$f" Service DeviceAllow '/dev/acpi_thermal_rel rw'
+    ini_has "$f" Service DeviceAllow 'char-input r'
+    ini_is "$f" Service RestrictAddressFamilies 'AF_UNIX AF_NETLINK'   # uevents, or it goes quiet
+    ini_is "$f" Service IPAddressDeny any
+)
+
+t_boundary_grub_btrfsd() ( set -e
+    f="$(boundary grub-btrfsd)"
+    commented "$f"
+    ini_is "$f" Service CapabilityBoundingSet CAP_SYS_ADMIN
+    ini_is "$f" Service ReadWritePaths /boot/grub
+    ini_is "$f" Service PrivateTmp yes                         # the script's mount point lives there
+    ini_is "$f" Service PrivateNetwork yes
+    ini_is "$f" Service DevicePolicy closed
+    ini_has "$f" Service DeviceAllow 'block-device-mapper r'
+    ini_has "$f" Service DeviceAllow 'block-blkext r'
+    ini_has "$f" Service DeviceAllow '/dev/mapper/control rw'  # grub-probe on a dm-crypt root
+    ini_is "$f" Service SystemCallFilter '@system-service @mount'
+)
+
+t_boundary_udisks2() ( set -e
+    f="$(boundary udisks2)"
+    commented "$f"
+    namespace_free "$f"                                        # it mounts for the desktop
+    [ -z "$(ini_get "$f" Service ProtectClock)" ]             # its implied DeviceAllow would cut the disks off
+    caps="$(ini_get "$f" Service CapabilityBoundingSet)"
+    grep -qw CAP_SYS_ADMIN <<<"$caps"
+    grep -qw CAP_SYS_MODULE <<<"$caps"
+    not grep -qw CAP_KILL <<<"$caps"
+    ini_is "$f" Service NoNewPrivileges yes
+    ini_is "$f" Service RestrictAddressFamilies 'AF_UNIX AF_NETLINK'
+    ini_is "$f" Service SystemCallFilter '@system-service @mount @module @swap'
+    ini_is "$f" Service SystemCallErrorNumber EPERM
+)
+
+t_boundary_scores() ( set -e
+    "$SANDBOX_CHECK" score
+)
+
+t_sandbox_render() ( set -e
+    # learning mode: the filter becomes a log of the same set, the
+    # errno goes, nothing else moves
+    rendered="$("$SANDBOX_CHECK" render udisks2)"
+    grep -qxF 'SystemCallLog=~@system-service @mount @module @swap' <<<"$rendered"
+    not grep -q '^SystemCallFilter=' <<<"$rendered"
+    not grep -q '^SystemCallErrorNumber=' <<<"$rendered"
+    diff <(grep -vE '^SystemCall(Filter|ErrorNumber)=' "$(boundary udisks2)") \
+         <(grep -v '^SystemCallLog=' <<<"$rendered")
+    not "$SANDBOX_CHECK" render mullvad-net-cls 2>/dev/null   # a whole unit has nothing to render
+)
+
+t_services_boundary_restart() ( set -e
+    log="$(services_after /etc/systemd/system/thermald.service.d/hardening.conf)"
+    grep -Eq '^systemctl daemon-reload$' <<<"$log"
+    grep -Eq '^systemctl try-restart thermald$' <<<"$log"
+    not grep -q wpa_supplicant <<<"$log"
+)
+
+t_services_boundary_boot_units() ( set -e
+    # the early blocker would cut the live tunnel if rerun; the oneshot
+    # is the daemon's to pull in: a reload, no restart
+    log="$(services_after /etc/systemd/system/mullvad-early-boot-blocking.service.d/hardening.conf \
+                          /etc/systemd/system/mullvad-net-cls.service)"
+    grep -Eq '^systemctl daemon-reload$' <<<"$log"
+    not grep -q restart <<<"$log"
+)
+
 # --------------------------------------------------------------- lint ---
 t_bootkeep_shellcheck() ( set -e
     shellcheck -x "$BOOTKEEP"
@@ -605,6 +768,24 @@ check "configure_system_services: nftables.conf"        t_services_nftables
 check "configure_system_services: resolved.conf.d"      t_services_resolved
 check "configure_system_services: tlp.d"                t_services_tlp
 check "configure_system_services: nothing changed"      t_services_nothing
+check "boundary: wpa_supplicant"                        t_boundary_wpa_supplicant
+check "boundary: mullvad-daemon"                        t_boundary_mullvad_daemon
+check "boundary: mullvad-early-boot-blocking"           t_boundary_mullvad_early_boot
+check "boundary: mullvad-net-cls unit"                  t_boundary_net_cls_unit
+check "boundary: thermald"                              t_boundary_thermald
+check "boundary: grub-btrfsd"                           t_boundary_grub_btrfsd
+check "boundary: udisks2"                               t_boundary_udisks2
+# --offline scoring wants a systemd-analyze that knows every directive
+# the drop-ins use (ProtectControlGroups=strict arrived in 257); an
+# older one would score them worse than the machine does
+if have systemd-analyze && [ "$(systemd-analyze --version | awk 'NR == 1 { print $2 }')" -ge 257 ] 2>/dev/null; then
+    check "boundary: offline scores within bounds"      t_boundary_scores
+else
+    skip "boundary: offline scores within bounds" "systemd-analyze 257+ not installed"
+fi
+check "sandbox-check render: filter becomes a log"      t_sandbox_render
+check "configure_system_services: a boundary restarts"  t_services_boundary_restart
+check "configure_system_services: boot units reload"    t_services_boundary_boot_units
 if have shellcheck; then
     check "bootkeep passes shellcheck"                  t_bootkeep_shellcheck
     check "setup.sh passes shellcheck"                  t_setup_shellcheck

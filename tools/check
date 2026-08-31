@@ -31,7 +31,7 @@ check() {   # check NAME COMMAND... — run (its stdout dropped, failures speak 
 # scripts sorted by interpreter from their shebang: tools/ and
 # system/usr/local/bin mix bash and python
 shell_scripts=() python_scripts=() unclassified=0
-for f in setup.sh bootstrap.sh bin/* tools/* tests/* config/waybar/*.sh system/usr/local/bin/*; do
+for f in setup.sh bootstrap.sh bin/* tools/* tests/check-* config/waybar/*.sh system/usr/local/bin/*; do
     [ -f "$f" ] || { echo "  not a file: $f" >&2; unclassified=1; continue; }
     case "$(head -n1 "$f")" in
         '#!'*bash*|'#!'*/sh) shell_scripts+=("$f") ;;
@@ -51,7 +51,7 @@ for path in sys.argv[1:]:
     with open(path, encoding="utf-8") as fh:
         compile(fh.read(), path, "exec")' "${python_scripts[@]}"
 check "scripts are executable" bash -c 'for f; do [ -x "$f" ] || { echo "    $f is not executable" >&2; exit 1; }; done' _ \
-    bootstrap.sh bin/* tools/* tests/* config/waybar/*.sh system/usr/local/bin/*
+    bootstrap.sh bin/* tools/* tests/check-* config/waybar/*.sh system/usr/local/bin/*
 check "waybar config is JSON" jq -e . config/waybar/config.jsonc
 check "TOML configs parse" python3 -c '
 import glob, tomllib

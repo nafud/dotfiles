@@ -18,10 +18,13 @@ jobs:
       - name: tools/check
         run: tools/check
 
-  # The niri config is the one file that can lock you out of a session,
-  # so it gets a real parse by the real binary on the platform these
-  # dotfiles target.
-  niri-validate:
+  # Two checks need the platform these dotfiles target: the niri config
+  # is the one file that can lock you out of a session, so it gets a
+  # real parse by the real binary; and the service boundaries are
+  # scored by the systemd-analyze the machine runs (the runner's own is
+  # too old for every directive they use, and tests/check-system skips
+  # the score row there).
+  arch:
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
@@ -32,3 +35,6 @@ jobs:
 
       - name: niri config validates
         run: niri validate --config config/niri/config.kdl
+
+      - name: tests/check-system (with systemd-analyze)
+        run: tests/check-system
