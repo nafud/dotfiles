@@ -724,10 +724,31 @@ t_services_tlp() ( set -e
     not grep -q resolved <<<"$log"
 )
 
+# what a quiet rerun still does: the two units run, and tailscaled
+# keeps its hands off the firewall (nftables.conf explains the outage)
+QUIET_RERUN='systemctl start sshd tailscaled
+tailscale set --netfilter-mode=off'
+
 t_services_nothing() ( set -e
-    # a quiet rerun still makes sure sshd and tailscaled run
     log="$(services_after)"
-    [ "$log" = 'systemctl start sshd tailscaled' ]
+    [ "$log" = "$QUIET_RERUN" ]
+)
+
+t_services_netfilter_mode() ( set -e
+    # the mode is set after the start, and a failed start does not
+    # skip it (the units may already have been running)
+    b="$(mkbox)"; mkdir "$b/bin"
+    shim "$b/bin" sudo 'printf "%s\n" "$*" >> "$SHIM_LOG"; [ "$1" = systemctl ] && [ "$2" = start ] && exit 1; exit 0'
+    PATH="$b/bin:$PATH" SHIM_LOG="$b/log" with_setup "$b" '
+        SYSTEM_CHANGED=()
+        configure_system_services' > /dev/null 2>&1
+    grep -Eq '^tailscale set --netfilter-mode=off$' "$b/log"
+    [ "$(grep -n 'systemctl start' "$b/log" | cut -d: -f1)" -lt "$(grep -n 'tailscale set' "$b/log" | cut -d: -f1)" ]
+    # and the login command in the docs carries the flag, because the
+    # first `tailscale up` rebuilds the preferences from its flags
+    grep -q 'tailscale up --netfilter-mode=off' "$SETUP"
+    grep -q 'tailscale up --netfilter-mode=off' "$REPO_DIR/CLAUDE.md"
+    not grep -Eq 'sudo tailscale up(`| *$)' "$SETUP" "$REPO_DIR/CLAUDE.md"
 )
 
 t_services_sysctl() ( set -e
@@ -769,7 +790,7 @@ t_services_tailscaled() ( set -e
 t_services_coredump_quiet() ( set -e
     # systemd-coredump reads its config at each crash: no trigger
     log="$(services_after /etc/systemd/coredump.conf.d/10-storage.conf)"
-    [ "$log" = 'systemctl start sshd tailscaled' ]
+    [ "$log" = "$QUIET_RERUN" ]
 )
 
 # --------------------------------------------------- service boundaries ---
@@ -1012,6 +1033,7 @@ check "configure_system_services: nftables.conf"        t_services_nftables
 check "configure_system_services: resolved.conf.d"      t_services_resolved
 check "configure_system_services: tlp.d"                t_services_tlp
 check "configure_system_services: nothing changed"      t_services_nothing
+check "configure_system_services: netfilter mode off"   t_services_netfilter_mode
 check "configure_system_services: sysctl.d"             t_services_sysctl
 check "configure_system_services: journald.conf.d"      t_services_journald
 check "configure_system_services: tmpfiles.d"           t_services_tmpfiles

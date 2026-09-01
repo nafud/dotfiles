@@ -204,7 +204,8 @@ install_herdr() {
 # from the tailnet alone. Enabled here, started by
 # configure_system_services once the firewall and sshd's drop-in are
 # on disk. A tailscaled that was never logged in stays idle until
-# `sudo tailscale up` (the browser login).
+# `sudo tailscale up --netfilter-mode=off` (the browser login; the
+# flag is explained at configure_system_services).
 enable_system_units() {
     sudo systemctl enable paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth sshd tailscaled 2>/dev/null \
         || warn "could not enable a system unit — systemctl status paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth sshd tailscaled"
@@ -364,6 +365,19 @@ configure_boot() {
 # nothing changed, so a rerun is quiet — except the start of sshd and
 # tailscaled, which enable alone (enable_system_units) would leave to
 # the next boot; starting a running unit does nothing.
+#
+# tailscaled must not manage the firewall: its default mode installs
+# an iptables-nft chain that drops every packet from 100.64.0.0/10
+# not arriving on tailscale0, which is where Mullvad's in-tunnel DNS
+# replies come from (nftables.conf has the rules it would add). The
+# mode is a preference in tailscaled's state, so it is set here on
+# every rollout — `tailscale set` is accepted while logged out and a
+# request sent right after the start waits for the backend. The
+# first `tailscale up` of a daemon that was never logged in (or was
+# logged out) rebuilds the preferences from its own flags, which is
+# why the login command carries --netfilter-mode=off too; a later
+# bare `tailscale up` changes nothing, and one with other flags
+# refuses unless the flag is repeated.
 configure_system_services() {
     if system_changed_under /etc/systemd/system; then
         sudo systemctl daemon-reload
@@ -424,6 +438,8 @@ configure_system_services() {
         fi
     done
     sudo systemctl start sshd tailscaled 2>/dev/null || warn "could not start sshd and tailscaled — systemctl status sshd tailscaled"
+    # prints "Warning: netfilter=off; configure iptables yourself." on success
+    sudo tailscale set --netfilter-mode=off 2>/dev/null || warn "could not set tailscaled's netfilter mode — tailscale set --netfilter-mode=off"
 }
 
 # -------------------------------------------------------------- 6. greeter ---

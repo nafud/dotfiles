@@ -220,13 +220,23 @@ colour — that is the configuration meaning "no change", not a leftover.
   fd7a:115c:a1e0::/48 and on what arrives from tailscale0; the IPv4
   interval starts at .64 because Mullvad's DNS blocker resolvers sit at
   100.64.0.1–63 inside the tunnel. tailscaled itself is not split off:
-  its WireGuard travels inside the Mullvad tunnel. Secure Boot is out of
-  scope by the user's decision (QEMU/KVM work). `setup.sh system`
-  restarts exactly the services whose files changed
+  its WireGuard travels inside the Mullvad tunnel. tailscaled runs with
+  netfilter mode off: its default iptables-nft `ts-input` chain drops
+  everything from 100.64.0.0/10 that did not arrive on tailscale0,
+  which killed those same resolvers' replies on wg0-mullvad (the
+  2026-09-01 outage, reproduced in namespaces before the fix);
+  `nftables.conf` is the only firewall for tailscale traffic and
+  already held what that chain opened. `setup.sh system` sets the mode
+  on every rollout (`tailscale set`, accepted while logged out), and
+  the login command must carry it because the first `tailscale up`
+  rebuilds the preferences from its flags. Secure Boot is out of scope
+  by the user's decision (QEMU/KVM work). `setup.sh system` restarts
+  exactly the services whose files changed
   (`configure_system_services`: sysctl re-applied, journald reloaded,
   sshd reloaded only after `sshd -t`, tmpfiles applied) and starts sshd
   and tailscaled last, after the firewall and drop-ins are on disk;
-  `sudo tailscale up` (browser login) is the one manual step.
+  `sudo tailscale up --netfilter-mode=off` (browser login) is the one
+  manual step.
 - Service boundaries: `system/etc/systemd/system/*.service.d/hardening.conf`
   gives each root daemon the machine runs (wpa_supplicant, the Mullvad
   units, thermald, grub-btrfsd, udisks2) an explicit scope — the
