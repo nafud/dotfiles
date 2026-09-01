@@ -2,10 +2,10 @@
 # check-system — acceptance tests for the system/ tree's hardening
 # layer and the setup.sh glue that installs it: bootkeep (the kernel
 # pair keeper the pacman hooks call), the hooks themselves, and the
-# drop-ins for oomd, nftables (the firewall and the tailnet marks),
-# sshd, NetworkManager, resolved, faillock, tlp, bluetooth, sysctl,
-# modprobe, coredump, journald, tmpfiles, sudoers and tailscaled's
-# environment, the service boundaries (the
+# drop-ins for oomd, nftables, sshd, NetworkManager, resolved,
+# faillock, tlp, bluetooth, sysctl, modprobe, coredump, journald,
+# tmpfiles, sudoers and tailscaled's environment (the daemon itself
+# is set aside: installed, not enabled), the service boundaries (the
 # *.service.d/hardening.conf drop-ins and mullvad-net-cls.service,
 # scored offline by tools/sandbox-check against the vendored unit files
 # in tests/fixtures/units) — plus the polkit agent user unit.
@@ -362,8 +362,10 @@ t_nft_shape() ( set -e
     not grep -q 'flush ruleset' "$f"
     grep -q '^destroy table inet filter' "$f"
     grep -q '^table inet filter' "$f"
+    # the retired tailnet marks table (7389cef) is destroyed, since a
+    # reload rebuilds only what the file names, and not rebuilt
     grep -q '^destroy table inet tailnet' "$f"
-    grep -q '^table inet tailnet' "$f"
+    not grep -q '^table inet tailnet' "$f"
     grep -Eq 'type filter hook input priority filter; *policy drop;' "$f"
     grep -Eq 'type filter hook forward priority filter; *policy drop;' "$f"
     grep -Eq 'ct state \{ *established, *related *\} accept' "$f"
@@ -379,10 +381,11 @@ t_nft_ssh_tailnet_only() ( set -e
     grep -E 'tcp dport (22|ssh)' "$f" | not grep -Eq -v 'iifname "tailscale0"'
     grep -Eq '^\s*iifname "tailscale0" tcp dport (22|ssh) accept' "$f"
     not grep -Eq 'saddr \{[^}]*(10\.0\.0\.0/8|192\.168\.0\.0/16|fc00::/7)' "$f"
-    # tailscaled's WireGuard listener, the port /etc/default/tailscaled names
+    # tailscaled is set aside (setup.sh, enable_system_units): the port
+    # /etc/default/tailscaled names is not open
     port="$(sed -n 's/^PORT="\([0-9]*\)"$/\1/p' "$REPO_DIR/system/etc/default/tailscaled")"
     [ -n "$port" ]
-    grep -Eq "^\s*udp dport $port accept" "$f"
+    not grep -Eq "^\s*udp dport $port accept" "$f"
 )
 
 t_nft_libvirt() ( set -e
@@ -395,25 +398,6 @@ t_nft_libvirt() ( set -e
     grep -Eq 'ct state \{ *established, *related *\} accept' <<<"$fwd"
     grep -Eq '^\s*iifname "virbr0" accept' <<<"$fwd"
     grep -Eq '^\s*oifname "virbr0" accept' <<<"$fwd"
-)
-
-t_nft_tailnet_marks() ( set -e
-    f="$NFT_CONF"
-    t="$(sed -n '/^table inet tailnet/,/^}/p' "$f")"
-    # Mullvad's own marks, set from a table of ours: the connection
-    # mark its filter chains accept, the packet mark its routing rule
-    # skips; the output chain in the -200..0 window Mullvad's guide
-    # gives, the input chain ahead of Mullvad's input chain at 0
-    grep -Eq 'type route hook output priority -100; *policy accept;' <<<"$t"
-    grep -Eq 'type filter hook input priority -100; *policy accept;' <<<"$t"
-    # the IPv4 interval starts past the Mullvad DNS blocker resolvers
-    # (100.64.0.1..63) and ends with the Tailscale range
-    grep -Eq '^\s*ip daddr 100\.64\.0\.64-100\.127\.255\.255 ct mark set 0xf41 meta mark set 0x6d6f6c65$' <<<"$t"
-    grep -Eq '^\s*ip6 daddr fd7a:115c:a1e0::/48 ct mark set 0xf41 meta mark set 0x6d6f6c65$' <<<"$t"
-    grep -Eq '^\s*iifname "tailscale0" ct mark set 0xf41 meta mark set 0x6d6f6c65$' <<<"$t"
-    # nothing else is marked: three rules, no wider prefix
-    [ "$(grep -c 'mark set' <<<"$t")" -eq 3 ]
-    not grep -q '100\.64\.0\.0/10' <<<"$t"
 )
 
 t_nft_syntax() ( set -e
@@ -631,13 +615,15 @@ t_setup_functions_exist() ( set -e
 t_setup_enable_units_text() ( set -e
     body="$(sed -n '/^enable_system_units()/,/^}/p' "$SETUP")"
     [ -n "$body" ]
-    for unit in systemd-oomd nftables systemd-resolved bluetooth thermald tlp paccache.timer sshd tailscaled; do
+    for unit in systemd-oomd nftables systemd-resolved bluetooth thermald tlp paccache.timer sshd; do
         grep -Eq "systemctl enable[^|]*\b$unit\b" <<<"$body"
     done
     not grep -Eq 'systemctl disable' <<<"$body"
-    # sshd and tailscaled start after the firewall and the drop-in are
-    # in place (configure_system_services), not here
-    not grep -Eq 'systemctl (start|enable --now)[^|]*\b(sshd|tailscaled)\b' <<<"$body"
+    # tailscaled is set aside: installed, neither enabled nor started
+    not grep -Eq '^[^#]*\btailscaled\b' <<<"$body"
+    # sshd starts after the firewall and the drop-in are in place
+    # (configure_system_services), not here
+    not grep -Eq 'systemctl (start|enable --now)[^|]*\bsshd\b' <<<"$body"
     # resolved's stub is the resolver: the symlink NetworkManager's
     # dns=systemd-resolved expects
     grep -Eq 'ln -sf? .*/run/systemd/resolve/stub-resolv.conf +/etc/resolv.conf' <<<"$body"
@@ -724,28 +710,23 @@ t_services_tlp() ( set -e
     not grep -q resolved <<<"$log"
 )
 
-# what a quiet rerun still does: the two units run, and tailscaled
-# keeps its hands off the firewall (nftables.conf explains the outage)
-QUIET_RERUN='systemctl start sshd tailscaled
-tailscale set --netfilter-mode=off'
+# what a quiet rerun still does: sshd runs
+QUIET_RERUN='systemctl start sshd'
 
 t_services_nothing() ( set -e
     log="$(services_after)"
     [ "$log" = "$QUIET_RERUN" ]
 )
 
-t_services_netfilter_mode() ( set -e
-    # the mode is set after the start, and a failed start does not
-    # skip it (the units may already have been running)
-    b="$(mkbox)"; mkdir "$b/bin"
-    shim "$b/bin" sudo 'printf "%s\n" "$*" >> "$SHIM_LOG"; [ "$1" = systemctl ] && [ "$2" = start ] && exit 1; exit 0'
-    PATH="$b/bin:$PATH" SHIM_LOG="$b/log" with_setup "$b" '
-        SYSTEM_CHANGED=()
-        configure_system_services' > /dev/null 2>&1
-    grep -Eq '^tailscale set --netfilter-mode=off$' "$b/log"
-    [ "$(grep -n 'systemctl start' "$b/log" | cut -d: -f1)" -lt "$(grep -n 'tailscale set' "$b/log" | cut -d: -f1)" ]
-    # and the login command in the docs carries the flag, because the
-    # first `tailscale up` rebuilds the preferences from its flags
+t_services_tailscaled_aside() ( set -e
+    # a rerun neither starts tailscaled nor touches its preferences,
+    # and no code line of setup.sh calls the tailscale CLI
+    log="$(services_after)"
+    not grep -q tailscale <<<"$log"
+    not grep -Eq '^[^#]*\btailscale (set|up|down|login|logout)\b' "$SETUP"
+    # the re-enable instructions keep the flag on the login command:
+    # the first `tailscale up` rebuilds the preferences from its flags
+    # (the 2026-09-01 outage), so a bare `sudo tailscale up` is wrong
     grep -q 'tailscale up --netfilter-mode=off' "$SETUP"
     grep -q 'tailscale up --netfilter-mode=off' "$REPO_DIR/CLAUDE.md"
     not grep -Eq 'sudo tailscale up(`| *$)' "$SETUP" "$REPO_DIR/CLAUDE.md"
@@ -783,7 +764,10 @@ t_services_sshd() ( set -e
 
 t_services_tailscaled() ( set -e
     log="$(services_after /etc/default/tailscaled)"
-    grep -Eq '^systemctl restart tailscaled$' <<<"$log"
+    # try-restart: a changed environment file reaches a running
+    # daemon, a disabled one stays down
+    grep -Eq '^systemctl try-restart tailscaled$' <<<"$log"
+    not grep -Eq '^systemctl restart tailscaled$' <<<"$log"
     not grep -q sshd_config <<<"$log"
 )
 
@@ -991,7 +975,6 @@ check "user.slice oomd drop-in"                         t_oomd_user_slice
 check "nftables.conf shape"                             t_nft_shape
 check "nftables.conf opens ssh to the tailnet only"     t_nft_ssh_tailnet_only
 check "nftables.conf admits the libvirt default network" t_nft_libvirt
-check "nftables.conf marks the tailnet for Mullvad"     t_nft_tailnet_marks
 # a runner may ship unshare yet forbid unprivileged user namespaces
 if have nft && unshare -rn true 2>/dev/null; then
     check "nftables.conf parses (nft -c)"               t_nft_syntax
@@ -1033,7 +1016,7 @@ check "configure_system_services: nftables.conf"        t_services_nftables
 check "configure_system_services: resolved.conf.d"      t_services_resolved
 check "configure_system_services: tlp.d"                t_services_tlp
 check "configure_system_services: nothing changed"      t_services_nothing
-check "configure_system_services: netfilter mode off"   t_services_netfilter_mode
+check "configure_system_services: tailscaled aside"     t_services_tailscaled_aside
 check "configure_system_services: sysctl.d"             t_services_sysctl
 check "configure_system_services: journald.conf.d"      t_services_journald
 check "configure_system_services: tmpfiles.d"           t_services_tmpfiles
