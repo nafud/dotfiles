@@ -2,8 +2,10 @@
 # check-system — acceptance tests for the system/ tree's hardening
 # layer and the setup.sh glue that installs it: bootkeep (the kernel
 # pair keeper the pacman hooks call), the hooks themselves, and the
-# drop-ins for oomd, nftables, sshd, NetworkManager, resolved,
-# faillock, tlp and bluetooth, the service boundaries (the
+# drop-ins for oomd, nftables (the firewall and the tailnet marks),
+# sshd, NetworkManager, resolved, faillock, tlp, bluetooth, sysctl,
+# modprobe, coredump, journald, tmpfiles, sudoers and tailscaled's
+# environment, the service boundaries (the
 # *.service.d/hardening.conf drop-ins and mullvad-net-cls.service,
 # scored offline by tools/sandbox-check against the vendored unit files
 # in tests/fixtures/units) — plus the polkit agent user unit.
@@ -360,6 +362,8 @@ t_nft_shape() ( set -e
     not grep -q 'flush ruleset' "$f"
     grep -q '^destroy table inet filter' "$f"
     grep -q '^table inet filter' "$f"
+    grep -q '^destroy table inet tailnet' "$f"
+    grep -q '^table inet tailnet' "$f"
     grep -Eq 'type filter hook input priority filter; *policy drop;' "$f"
     grep -Eq 'type filter hook forward priority filter; *policy drop;' "$f"
     grep -Eq 'ct state \{ *established, *related *\} accept' "$f"
@@ -368,19 +372,48 @@ t_nft_shape() ( set -e
     grep -Eq '(meta l4proto|meta nfproto ipv6 .*) ipv6-icmp|ipv6-icmp ' "$f"
 )
 
-t_nft_ssh_lan_only() ( set -e
+t_nft_ssh_tailnet_only() ( set -e
     f="$NFT_CONF"
-    # ssh opens only to the RFC1918 and link/unique-local ranges: every
-    # dport-22 rule carries a saddr set, none stands alone
-    grep -E 'tcp dport (22|ssh)' "$f" | not grep -Eq -v '\bsaddr\b'
-    grep -Eq 'ip saddr \{[^}]*10\.0\.0\.0/8[^}]*\}.*tcp dport (22|ssh).*accept' "$f"
-    grep -Eq 'ip saddr \{[^}]*172\.16\.0\.0/12[^}]*\}' "$f"
-    grep -Eq 'ip saddr \{[^}]*192\.168\.0\.0/16[^}]*\}' "$f"
-    grep -Eq 'ip6 saddr \{[^}]*fe80::/10[^}]*\}.*tcp dport (22|ssh).*accept' "$f"
-    grep -Eq 'ip6 saddr \{[^}]*fc00::/7[^}]*\}' "$f"
-    # no other public ranges sneak into the sets
-    not grep -Eq 'saddr \{[^}]*0\.0\.0\.0/0' "$f"
-    not grep -Eq 'saddr \{[^}]*::/0' "$f"
+    # ssh opens to tailscale0 alone: every dport-22 rule names the
+    # interface, none stands alone or admits a LAN range
+    grep -E 'tcp dport (22|ssh)' "$f" | not grep -Eq -v 'iifname "tailscale0"'
+    grep -Eq '^\s*iifname "tailscale0" tcp dport (22|ssh) accept' "$f"
+    not grep -Eq 'saddr \{[^}]*(10\.0\.0\.0/8|192\.168\.0\.0/16|fc00::/7)' "$f"
+    # tailscaled's WireGuard listener, the port /etc/default/tailscaled names
+    port="$(sed -n 's/^PORT="\([0-9]*\)"$/\1/p' "$REPO_DIR/system/etc/default/tailscaled")"
+    [ -n "$port" ]
+    grep -Eq "^\s*udp dport $port accept" "$f"
+)
+
+t_nft_libvirt() ( set -e
+    f="$NFT_CONF"
+    # the default network's dnsmasq (DHCP and DNS from the VMs) in
+    # input, the VMs' NAT both ways in forward: libvirt's own table
+    # adds no input rule and a packet must pass every table
+    grep -Eq '^\s*iifname "virbr0" meta l4proto \{ *tcp, *udp *\} th dport \{ *53, *67 *\} accept' "$f"
+    fwd="$(sed -n '/chain forward/,/^  }/p' "$f")"
+    grep -Eq 'ct state \{ *established, *related *\} accept' <<<"$fwd"
+    grep -Eq '^\s*iifname "virbr0" accept' <<<"$fwd"
+    grep -Eq '^\s*oifname "virbr0" accept' <<<"$fwd"
+)
+
+t_nft_tailnet_marks() ( set -e
+    f="$NFT_CONF"
+    t="$(sed -n '/^table inet tailnet/,/^}/p' "$f")"
+    # Mullvad's own marks, set from a table of ours: the connection
+    # mark its filter chains accept, the packet mark its routing rule
+    # skips; the output chain in the -200..0 window Mullvad's guide
+    # gives, the input chain ahead of Mullvad's input chain at 0
+    grep -Eq 'type route hook output priority -100; *policy accept;' <<<"$t"
+    grep -Eq 'type filter hook input priority -100; *policy accept;' <<<"$t"
+    # the IPv4 interval starts past the Mullvad DNS blocker resolvers
+    # (100.64.0.1..63) and ends with the Tailscale range
+    grep -Eq '^\s*ip daddr 100\.64\.0\.64-100\.127\.255\.255 ct mark set 0xf41 meta mark set 0x6d6f6c65$' <<<"$t"
+    grep -Eq '^\s*ip6 daddr fd7a:115c:a1e0::/48 ct mark set 0xf41 meta mark set 0x6d6f6c65$' <<<"$t"
+    grep -Eq '^\s*iifname "tailscale0" ct mark set 0xf41 meta mark set 0x6d6f6c65$' <<<"$t"
+    # nothing else is marked: three rules, no wider prefix
+    [ "$(grep -c 'mark set' <<<"$t")" -eq 3 ]
+    not grep -q '100\.64\.0\.0/10' <<<"$t"
 )
 
 t_nft_syntax() ( set -e
@@ -395,6 +428,8 @@ t_sshd_keys_only() ( set -e
     [ "$(head -c1 "$f")" = '#' ]
     grep -Eiq '^\s*PasswordAuthentication\s+no\s*$' "$f"
     grep -Eiq '^\s*PermitRootLogin\s+no\s*$' "$f"
+    grep -Eiq '^\s*AuthenticationMethods\s+publickey\s*$' "$f"
+    grep -Eiq '^\s*AllowGroups\s+wheel\s*$' "$f"
 )
 
 # ------------------------------------------------------- NetworkManager ---
@@ -407,6 +442,9 @@ t_nm_privacy() ( set -e
     ini_is "$f" connection ipv6.ip6-privacy 2
     ini_is "$f" connection connection.llmnr 0
     ini_is "$f" connection connection.mdns 0
+    ini_is "$f" connection ipv4.dhcp-send-hostname 0
+    ini_is "$f" connection ipv6.dhcp-send-hostname 0
+    ini_is "$f" connection ipv6.dhcp-duid stable-uuid
     ini_is "$f" device wifi.scan-rand-mac-address yes
 )
 
@@ -448,6 +486,106 @@ t_bluetooth() ( set -e
     f="$REPO_DIR/system/etc/bluetooth/main.conf"
     commented "$f"
     ini_is "$f" Policy AutoEnable false
+    ini_is "$f" General Privacy device
+)
+
+# -------------------------------------------------------------- sysctl ---
+t_sysctl() ( set -e
+    f="$REPO_DIR/system/etc/sysctl.d/50-hardening.conf"
+    [ "$(head -c1 "$f")" = '#' ]
+    is() { grep -Eq "^\s*$1\s*=\s*$2\s*$" "$f"; }
+    is kernel.kptr_restrict 1
+    is kernel.kexec_load_disabled 1
+    is dev.tty.ldisc_autoload 0
+    is fs.protected_fifos 2
+    is fs.protected_regular 2
+    is net.core.bpf_jit_harden 1
+    is vm.mmap_rnd_bits 32
+    is vm.mmap_rnd_compat_bits 16
+    is net.ipv4.tcp_rfc1337 1
+    # IPv4 redirects: all, default and every interface (the kernel
+    # ORs all with the interface); IPv6: default and the interfaces,
+    # all excluded (the kernel reads the interface alone) so a
+    # sysctl --system run stays clean of a key it would only ignore
+    for k in accept_redirects secure_redirects send_redirects; do
+        for scope in all default '\*'; do is "net\.ipv4\.conf\.$scope\.$k" 0; done
+    done
+    is 'net\.ipv6\.conf\.default\.accept_redirects' 0
+    is 'net\.ipv6\.conf\.\*\.accept_redirects' 0
+    grep -Eq '^-net\.ipv6\.conf\.all\.accept_redirects\s*$' "$f"
+    # what the header promises stays out
+    for k in kernel.unprivileged_userns_clone kernel.sysrq kernel.yama.ptrace_scope net.ipv4.tcp_timestamps log_martians rp_filter; do
+        not grep -Eq "^\s*[^#]*$k" "$f"
+    done
+)
+
+# ------------------------------------------------------------ modprobe ---
+t_modprobe() ( set -e
+    f="$REPO_DIR/system/etc/modprobe.d/hardening.conf"
+    [ "$(head -c1 "$f")" = '#' ]
+    # every directive is one of the two the header describes
+    grep -v '^#' "$f" | grep -v '^$' | not grep -Eqv '^(install [a-z0-9_-]+ /bin/false|blacklist [a-z0-9_-]+)$'
+    for m in sctp rds tipc n-hdlc atm can firewire-core floppy vivid gfs2 cramfs jffs2 hfs hfsplus; do
+        grep -Eq "^install $m /bin/false$" "$f"
+    done
+    for m in squashfs udf cifs nfs nfsv3 nfsv4; do
+        grep -Eq "^blacklist $m$" "$f"
+    done
+    # the modules in use here, and ksmbd, whose softdeps make an
+    # install rule a no-op (modprobe.d(5)), never appear as a directive
+    for m in thunderbolt bluetooth btusb usb_storage usb-storage uas ksmbd; do
+        not grep -Eq "^(install|blacklist) $m\b" "$f"
+    done
+)
+
+# ------------------------------------------------- coredump, journald ---
+t_coredump_storage() ( set -e
+    f="$REPO_DIR/system/etc/systemd/coredump.conf.d/10-storage.conf"
+    commented "$f"
+    ini_is "$f" Coredump Storage none
+    # the backtrace still needs the core to arrive
+    [ -z "$(ini_get "$f" Coredump ProcessSizeMax)" ]
+)
+
+t_journald_size() ( set -e
+    f="$REPO_DIR/system/etc/systemd/journald.conf.d/10-size.conf"
+    commented "$f"
+    ini_is "$f" Journal SystemMaxUse 1G
+)
+
+# ------------------------------------------------------------ tmpfiles ---
+t_tmpfiles_boot() ( set -e
+    f="$REPO_DIR/system/etc/tmpfiles.d/boot.conf"
+    [ "$(head -c1 "$f")" = '#' ]
+    # z adjusts what exists and creates nothing; 0700 root
+    grep -v '^#' "$f" | grep -v '^$' | not grep -Eqv '^z /boot 0700 root root -$'
+    grep -Eq '^z /boot 0700 root root -$' "$f"
+)
+
+# ------------------------------------------------------------- sudoers ---
+SUDOERS="$REPO_DIR/system/etc/sudoers.d/10-hardening"
+
+t_sudoers_editor() ( set -e
+    f="$SUDOERS"
+    [ "$(head -c1 "$f")" = '#' ]
+    grep -Eq '^Defaults\s+!env_editor\s*$' "$f"
+    grep -Eq '^Defaults\s+editor=/usr/bin/micro:/usr/bin/vim\s*$' "$f"
+    # a file sudo would skip (a dot or ~ in the name) is no policy at all
+    case "$(basename "$f")" in *.*|*~*) exit 1 ;; esac
+)
+
+t_sudoers_parses() ( set -e
+    visudo -cf "$SUDOERS" > /dev/null
+)
+
+# ----------------------------------------------------------- tailscaled ---
+t_tailscaled_default() ( set -e
+    f="$REPO_DIR/system/etc/default/tailscaled"
+    [ "$(head -c1 "$f")" = '#' ]
+    grep -Eq '^PORT="41641"$' "$f"
+    grep -Eq '^FLAGS="--no-logs-no-support"$' "$f"
+    # the unit reads it as an EnvironmentFile: two assignments, nothing else
+    [ "$(grep -cv '^#' "$f")" -eq 2 ]
 )
 
 # --------------------------------------------------------- polkit agent ---
@@ -476,7 +614,7 @@ t_setup_packages() ( set -e
     # the one pacman transaction: from `sudo pacman -Syu` to its first
     # blank line, every name the new layer needs
     pkgs="$(sed -n '/sudo pacman -Syu/,/^$/p' "$SETUP" | sed 's/\\$//' | tr -s ' \n' '\n')"
-    for p in thermald nftables polkit-gnome bluez bluez-utils bluetui \
+    for p in thermald nftables openssh tailscale polkit-gnome bluez bluez-utils bluetui \
              tesseract tesseract-data-eng gpu-screen-recorder; do
         grep -qxF "$p" <<<"$pkgs"
     done
@@ -493,10 +631,13 @@ t_setup_functions_exist() ( set -e
 t_setup_enable_units_text() ( set -e
     body="$(sed -n '/^enable_system_units()/,/^}/p' "$SETUP")"
     [ -n "$body" ]
-    for unit in systemd-oomd nftables systemd-resolved bluetooth thermald tlp paccache.timer; do
+    for unit in systemd-oomd nftables systemd-resolved bluetooth thermald tlp paccache.timer sshd tailscaled; do
         grep -Eq "systemctl enable[^|]*\b$unit\b" <<<"$body"
     done
-    grep -Eq 'systemctl disable[^|]*\bsshd\b' <<<"$body"
+    not grep -Eq 'systemctl disable' <<<"$body"
+    # sshd and tailscaled start after the firewall and the drop-in are
+    # in place (configure_system_services), not here
+    not grep -Eq 'systemctl (start|enable --now)[^|]*\b(sshd|tailscaled)\b' <<<"$body"
     # resolved's stub is the resolver: the symlink NetworkManager's
     # dns=systemd-resolved expects
     grep -Eq 'ln -sf? .*/run/systemd/resolve/stub-resolv.conf +/etc/resolv.conf' <<<"$body"
@@ -510,6 +651,40 @@ t_setup_configure_boot_text() ( set -e
     # a hook change regenerates grub.cfg so the kept pairs show as entries
     hooks_branch="$(sed -n '/system_changed_under \/etc\/pacman.d\/hooks/,/fi/p' <<<"$body")"
     grep -q 'grub-mkconfig -o /boot/grub/grub.cfg' <<<"$hooks_branch"
+    # a modprobe.d change is packed into the initramfs by the modconf hook
+    initramfs_branch="$(sed -n '/system_changed_under \/etc\/mkinitcpio.conf.d/,/fi/p' <<<"$body")"
+    grep -q 'system_changed_under /etc/modprobe.d' <<<"$initramfs_branch"
+    grep -q 'mkinitcpio -P' <<<"$initramfs_branch"
+)
+
+# install_system_files against the sudo shim: the log holds every
+# install call with its mode, so the mode table is proven on the
+# repo's own tree. A cmp shim that never matches keeps the real /etc
+# out of the decision: a file already installed here would otherwise
+# be skipped, and a runner has none of them
+t_setup_install_modes() ( set -e
+    b="$(mkbox)"; mkdir "$b/bin"
+    shim "$b/bin" sudo "$SUDO_SHIM"
+    shim "$b/bin" cmp 'exit 1'
+    log="$(PATH="$b/bin:$PATH" SHIM_LOG="$b/log" with_setup "$b" '
+        install_system_files > /dev/null' && cat "$b/log")"
+    grep -Eq '^install -D -m 440 .*/system/etc/sudoers.d/10-hardening /etc/sudoers.d/10-hardening$' <<<"$log"
+    grep -Eq '^install -D -m 644 .*/system/etc/sysctl.d/50-hardening.conf /etc/sysctl.d/50-hardening.conf$' <<<"$log"
+    grep -Eq '^install -D -m 755 .*/system/usr/local/bin/bootkeep /usr/local/bin/bootkeep$' <<<"$log"
+    not grep -Eq '^install -D -m (440|600) ' <<<"$(grep -v sudoers.d <<<"$log")"
+)
+
+t_setup_sudoers_gate() ( set -e
+    # an unparsable sudoers file is refused before install: the shim
+    # log must not show it, and the function must fail
+    b="$(mkbox)"; mkdir "$b/bin" "$b/repo"
+    shim "$b/bin" sudo "$SUDO_SHIM"
+    cp -r "$REPO_DIR/setup.sh" "$b/repo/"
+    mkdir -p "$b/repo/system/etc/sudoers.d"
+    printf 'Defaults editor=\n' > "$b/repo/system/etc/sudoers.d/10-broken"
+    not env PATH="$b/bin:$PATH" SHIM_LOG="$b/log" HOME="$b" \
+        bash -c 'source "$1/setup.sh" && install_system_files' check-system "$b/repo" 2>/dev/null
+    not grep -q sudoers.d "$b/log" 2>/dev/null
 )
 
 # the sudo shim logs its argv; configure_system_services must reach
@@ -550,8 +725,51 @@ t_services_tlp() ( set -e
 )
 
 t_services_nothing() ( set -e
+    # a quiet rerun still makes sure sshd and tailscaled run
     log="$(services_after)"
-    [ -z "$log" ]
+    [ "$log" = 'systemctl start sshd tailscaled' ]
+)
+
+t_services_sysctl() ( set -e
+    log="$(services_after /etc/sysctl.d/50-hardening.conf)"
+    grep -Eq '^systemctl restart systemd-sysctl$' <<<"$log"
+    not grep -q nftables <<<"$log"
+)
+
+t_services_journald() ( set -e
+    log="$(services_after /etc/systemd/journald.conf.d/10-size.conf)"
+    grep -Eq '^systemctl reload systemd-journald$' <<<"$log"
+    not grep -q 'restart systemd-journald' <<<"$log"
+)
+
+t_services_tmpfiles() ( set -e
+    log="$(services_after /etc/tmpfiles.d/boot.conf)"
+    grep -Eq '^systemd-tmpfiles --create /etc/tmpfiles.d/boot.conf$' <<<"$log"
+)
+
+t_services_sshd() ( set -e
+    # sshd -t stands before the reload, and a failed check stops it
+    log="$(services_after /etc/ssh/sshd_config.d/10-keys-only.conf)"
+    grep -Eq '^sshd -t$' <<<"$log"
+    grep -Eq '^systemctl reload-or-restart sshd$' <<<"$log"
+    [ "$(grep -n 'sshd -t' <<<"$log" | cut -d: -f1)" -lt "$(grep -n 'reload-or-restart sshd' <<<"$log" | cut -d: -f1)" ]
+    b="$(mkbox)"; mkdir "$b/bin"
+    shim "$b/bin" sudo 'printf "%s\n" "$*" >> "$SHIM_LOG"; [ "$1" = sshd ] && exit 1; exit 0'
+    not env PATH="$b/bin:$PATH" SHIM_LOG="$b/log" HOME="$b" \
+        bash -c 'source "$1/setup.sh" && SYSTEM_CHANGED=(/etc/ssh/sshd_config.d/10-keys-only.conf) && configure_system_services' check-system "$REPO_DIR" 2>/dev/null
+    not grep -q 'reload-or-restart sshd' "$b/log"
+)
+
+t_services_tailscaled() ( set -e
+    log="$(services_after /etc/default/tailscaled)"
+    grep -Eq '^systemctl restart tailscaled$' <<<"$log"
+    not grep -q sshd_config <<<"$log"
+)
+
+t_services_coredump_quiet() ( set -e
+    # systemd-coredump reads its config at each crash: no trigger
+    log="$(services_after /etc/systemd/coredump.conf.d/10-storage.conf)"
+    [ "$log" = 'systemctl start sshd tailscaled' ]
 )
 
 # --------------------------------------------------- service boundaries ---
@@ -750,7 +968,9 @@ check "hooks sort around snap-pac and mkinitcpio"       t_hook_order
 check "oomd pressure drop-in"                           t_oomd_conf
 check "user.slice oomd drop-in"                         t_oomd_user_slice
 check "nftables.conf shape"                             t_nft_shape
-check "nftables.conf opens ssh to the LAN only"         t_nft_ssh_lan_only
+check "nftables.conf opens ssh to the tailnet only"     t_nft_ssh_tailnet_only
+check "nftables.conf admits the libvirt default network" t_nft_libvirt
+check "nftables.conf marks the tailnet for Mullvad"     t_nft_tailnet_marks
 # a runner may ship unshare yet forbid unprivileged user namespaces
 if have nft && unshare -rn true 2>/dev/null; then
     check "nftables.conf parses (nft -c)"               t_nft_syntax
@@ -762,17 +982,42 @@ check "NetworkManager privacy drop-in"                  t_nm_privacy
 check "resolved drop-in"                                t_resolved_dns
 check "faillock.conf"                                   t_faillock
 check "tlp battery thresholds"                          t_tlp_battery
-check "bluetooth AutoEnable off"                        t_bluetooth
+check "bluetooth AutoEnable off, Privacy device"        t_bluetooth
+check "sysctl hardening drop-in"                        t_sysctl
+check "modprobe hardening drop-in"                      t_modprobe
+check "coredump Storage=none"                           t_coredump_storage
+check "journald size cap"                               t_journald_size
+check "tmpfiles: /boot 0700"                            t_tmpfiles_boot
+check "sudoers: visudo editor pinned"                   t_sudoers_editor
+if have visudo; then
+    check "sudoers file parses (visudo -cf)"            t_sudoers_parses
+else
+    skip "sudoers file parses (visudo -cf)" "visudo not installed"
+fi
+check "tailscaled environment file"                     t_tailscaled_default
 check "polkit-agent user unit"                          t_polkit_agent_unit
 check "setup.sh: SESSION_UNITS has polkit-agent"        t_setup_session_units
 check "setup.sh: pacman line lists the new packages"    t_setup_packages
 check "setup.sh: the system functions exist"            t_setup_functions_exist
 check "setup.sh: enable_system_units enables the set"   t_setup_enable_units_text
 check "setup.sh: configure_boot primes bootkeep"        t_setup_configure_boot_text
+if have visudo; then
+    check "setup.sh: install modes (sudoers.d 440)"     t_setup_install_modes
+    check "setup.sh: a broken sudoers file is refused"  t_setup_sudoers_gate
+else
+    skip "setup.sh: install modes (sudoers.d 440)" "visudo not installed"
+    skip "setup.sh: a broken sudoers file is refused" "visudo not installed"
+fi
 check "configure_system_services: nftables.conf"        t_services_nftables
 check "configure_system_services: resolved.conf.d"      t_services_resolved
 check "configure_system_services: tlp.d"                t_services_tlp
 check "configure_system_services: nothing changed"      t_services_nothing
+check "configure_system_services: sysctl.d"             t_services_sysctl
+check "configure_system_services: journald.conf.d"      t_services_journald
+check "configure_system_services: tmpfiles.d"           t_services_tmpfiles
+check "configure_system_services: sshd_config.d"        t_services_sshd
+check "configure_system_services: default/tailscaled"   t_services_tailscaled
+check "configure_system_services: coredump.conf.d"      t_services_coredump_quiet
 check "boundary: wpa_supplicant"                        t_boundary_wpa_supplicant
 check "boundary: mullvad-daemon"                        t_boundary_mullvad_daemon
 check "boundary: mullvad-early-boot-blocking"           t_boundary_mullvad_early_boot

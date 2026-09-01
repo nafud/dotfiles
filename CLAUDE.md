@@ -52,9 +52,12 @@ absent from setup.sh's one pacman transaction.
   the shell's config (`config/bash/`) applies to the next shell.
 - `system/` mirrors `/` and is **installed, not linked** — root-owned
   copies land only via `sudo bash setup.sh system`, which re-installs
-  on a content *or mode* change, rebuilds the initramfs when anything
-  under plymouth/mkinitcpio changed, and prunes files the repo dropped
-  from mirrored dirs (the plymouth theme dir). It runs no package
+  on a content *or mode* change (`SYSTEM_MODES` names the directories
+  whose readers insist on a stricter mode: `/etc/sudoers.d` 0440, its
+  files parsed by `visudo -cf` first), rebuilds the initramfs when
+  anything under plymouth/mkinitcpio/modprobe.d changed, and prunes
+  files the repo dropped from mirrored dirs (the plymouth theme dir).
+  It runs no package
   transaction and needs no network (that is `install`'s bootstrap
   step): a config fix must be able to land while a misconfigured
   daemon holds the network. Editing `system/…` does
@@ -188,17 +191,42 @@ colour — that is the configuration meaning "no change", not a leftover.
 - System policy lives in `system/etc` as drop-ins, one concern per
   file, the reason in its header: memory pressure
   (`systemd/oomd.conf.d`, `user.slice.d`), the firewall
-  (`nftables.conf` — only its own table is rebuilt; Mullvad's table
-  must survive a reload), DNS (`systemd/resolved.conf.d/10-dns.conf`:
+  (`nftables.conf` — only its own two tables are rebuilt; Mullvad's,
+  tailscaled's and libvirt's tables must survive a reload, and a packet
+  must pass every table on a hook, so the libvirt default network's
+  DHCP/DNS and NAT are admitted here too), DNS (`systemd/resolved.conf.d/10-dns.conf`:
   no global resolver — the tunnel's own resolver and firewall rule the
   connected state, the link's DHCP resolver the disconnected one; a
   global Mullvad DNS-over-TLS pin was dropped because an ISP that
   blackholes 853 turned "VPN off" into "no DNS"; FallbackDNS empty,
-  LLMNR and mDNS off), NetworkManager privacy defaults,
-  `faillock`, TLP's conservation-mode cap, bluez's `AutoEnable=false`.
-  sshd is disabled by `setup.sh` and admitted from private ranges only
-  when started by hand. `setup.sh system` restarts exactly the services
-  whose files changed (`configure_system_services`).
+  LLMNR and mDNS off), NetworkManager privacy defaults (random MAC,
+  IPv6 privacy, no LLMNR/mDNS, no DHCP hostname, stable-uuid DUID),
+  `faillock`, TLP's conservation-mode cap, bluez's `AutoEnable=false`
+  and `Privacy = device`, the kernel sysctls (`sysctl.d/50-hardening.conf`,
+  each absence explained in its header), the modules kept from loading
+  (`modprobe.d/hardening.conf`; ksmbd is deliberately absent — kmod
+  ignores an `install` rule for a module with softdeps, modprobe.d(5)),
+  `coredump.conf.d` (Storage=none, the backtrace kept),
+  `journald.conf.d` (1G cap), `tmpfiles.d/boot.conf` (/boot 0700),
+  `sudoers.d/10-hardening` (visudo's editor pinned), and tailscaled's
+  environment (`default/tailscaled`: `--no-logs-no-support`, port 41641).
+  Remote access: sshd and tailscaled are enabled by `setup.sh`; sshd is
+  key-only (`AuthenticationMethods publickey`, `AllowGroups wheel`) and
+  the firewall admits port 22 from `tailscale0` alone — the LAN never
+  sees it. The tailnet runs alongside Mullvad through the `inet tailnet`
+  table: Mullvad's own split-tunnel marks (ct mark 0xf41, packet mark
+  0x6d6f6c65, set from a table of one's own per Mullvad's advanced
+  split-tunnelling guide) on traffic to 100.64.0.64–100.127.255.255 and
+  fd7a:115c:a1e0::/48 and on what arrives from tailscale0; the IPv4
+  interval starts at .64 because Mullvad's DNS blocker resolvers sit at
+  100.64.0.1–63 inside the tunnel. tailscaled itself is not split off:
+  its WireGuard travels inside the Mullvad tunnel. Secure Boot is out of
+  scope by the user's decision (QEMU/KVM work). `setup.sh system`
+  restarts exactly the services whose files changed
+  (`configure_system_services`: sysctl re-applied, journald reloaded,
+  sshd reloaded only after `sshd -t`, tmpfiles applied) and starts sshd
+  and tailscaled last, after the firewall and drop-ins are on disk;
+  `sudo tailscale up` (browser login) is the one manual step.
 - Service boundaries: `system/etc/systemd/system/*.service.d/hardening.conf`
   gives each root daemon the machine runs (wpa_supplicant, the Mullvad
   units, thermald, grub-btrfsd, udisks2) an explicit scope — the

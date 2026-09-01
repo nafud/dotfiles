@@ -103,7 +103,7 @@ install_packages() {
         yazi zellij cliphist starship chafa micro btop \
         zathura zathura-pdf-poppler imv mpv \
         tlp thermald \
-        nftables polkit-gnome \
+        nftables openssh tailscale polkit-gnome \
         bluez bluez-utils bluetui \
         grim slurp ksnip imagemagick brightnessctl pulsemixer wtype \
         tesseract tesseract-data-eng gpu-screen-recorder \
@@ -198,15 +198,19 @@ install_herdr() {
 # systemd-oomd, nftables, systemd-resolved, bluetooth: the policies
 # under system/etc (oomd.conf.d, nftables.conf, resolved.conf.d,
 # bluetooth). resolved owns /etc/resolv.conf through its stub symlink —
-# the link is how NetworkManager and the Mullvad daemon detect it. sshd
-# is off: started by hand when needed (system/etc/ssh/sshd_config.d).
+# the link is how NetworkManager and the Mullvad daemon detect it.
+# sshd and tailscaled: remote access to this machine, sshd key-only
+# (system/etc/ssh/sshd_config.d) and, through the firewall, reachable
+# from the tailnet alone. Enabled here, started by
+# configure_system_services once the firewall and sshd's drop-in are
+# on disk. A tailscaled that was never logged in stays idle until
+# `sudo tailscale up` (the browser login).
 enable_system_units() {
-    sudo systemctl enable paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth 2>/dev/null \
-        || warn "could not enable a system unit — systemctl status paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth"
+    sudo systemctl enable paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth sshd tailscaled 2>/dev/null \
+        || warn "could not enable a system unit — systemctl status paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth sshd tailscaled"
     # thermald has no file under system/ to trigger a restart on, and
     # enable alone waits for the next boot: start it now
     sudo systemctl start thermald 2>/dev/null || warn "could not start thermald"
-    sudo systemctl disable --now sshd 2>/dev/null || true
     if [ "$(readlink /etc/resolv.conf)" != /run/systemd/resolve/stub-resolv.conf ]; then
         log "pointing /etc/resolv.conf at systemd-resolved's stub"
         sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
@@ -235,7 +239,12 @@ apply_nm_privacy() {
 # ---------------------------------------------------------- 4. system tree ---
 # system/ mirrors /: every file under it is installed to the same path,
 # root-owned, the way config/ mirrors ~/.config — one tree, one rule;
-# a file executable in the repo (monogreet) is executable in place.
+# a file executable in the repo (monogreet) is executable in place,
+# and the directories whose readers insist on a stricter mode get it
+# (SYSTEM_MODES: sudo refuses to run at all while a sudoers.d file is
+# not root-owned mode 0440, sudoers(5)). A sudoers file is parsed by
+# visudo before it is installed: an unparsable one would lock sudo,
+# and with it this script, out.
 # A file already in place with the repo's content and mode is left
 # alone, so a rerun is quiet — the mode is part of the comparison,
 # or a permission change alone (a script gaining its x bit) would
@@ -253,6 +262,7 @@ apply_nm_privacy() {
 # are removed there.
 SYSTEM_CHANGED=()
 SYSTEM_MIRRORED_DIRS=(/usr/share/plymouth/themes/mono)
+declare -A SYSTEM_MODES=([/etc/sudoers.d]=440)
 SYSTEM_RETIRED=(/etc/greetd/regreet.css                    # the regreet page's stylesheet
                 /etc/systemd/resolved.conf.d/10-mullvad.conf)  # the global DoT pin (see 10-dns.conf)
 
@@ -262,8 +272,14 @@ install_system_files() {
         dest="${src#"$REPO/system"}"
         mode=644
         [ -x "$src" ] && mode=755
+        for dir in "${!SYSTEM_MODES[@]}"; do
+            [[ $dest == "$dir"/* ]] && mode="${SYSTEM_MODES[$dir]}"
+        done
         if cmp -s "$src" "$dest" && [ "$(stat -c %a "$dest")" = "$mode" ]; then
             continue
+        fi
+        if [[ $dest == /etc/sudoers.d/* ]]; then
+            visudo -cf "$src" > /dev/null || die "$src does not parse (visudo -cf); not installed"
         fi
         log "installing $dest"
         sudo install -D -m "$mode" "$src" "$dest"
@@ -300,15 +316,17 @@ system_changed_under() {
 # the GRUB drop-in hides the menu and adds `splash`. Those files only
 # take effect inside the images they feed, so the initramfs is rebuilt
 # when anything plymouth or mkinitcpio changed (the theme and its font
-# are packed into it) and grub.cfg when the GRUB drop-in did. A fresh
+# are packed into it) or a modprobe.d file did (the modconf hook packs
+# the directory in), and grub.cfg when the GRUB drop-in did. A fresh
 # plymouth install is caught the same way: its drop-in is new then.
 # Should a splash ever misbehave, `plymouth.enable=0` on the kernel
 # line (Esc at boot, e on the entry) boots with the text prompt.
 configure_boot() {
     if system_changed_under /etc/mkinitcpio.conf.d \
         || system_changed_under /etc/plymouth \
-        || system_changed_under /usr/share/plymouth; then
-        log "rebuilding the initramfs (plymouth + theme)"
+        || system_changed_under /usr/share/plymouth \
+        || system_changed_under /etc/modprobe.d; then
+        log "rebuilding the initramfs (plymouth + theme, modprobe.d)"
         sudo mkinitcpio -P
     fi
     if system_changed_under /etc/default/grub.d; then
@@ -335,9 +353,17 @@ configure_boot() {
 # The services whose files changed pick them up now rather than at the
 # next boot: each of these rereads its config on restart (nftables and
 # resolved their drop-ins, oomd both its own and the slice's, tlp its
-# tlp.d, bluez its main.conf); NetworkManager only reloads its conf.d
-# and the existing profiles are updated in place. Nothing runs when
-# nothing changed, so a rerun is quiet.
+# tlp.d, bluez its main.conf, tailscaled its /etc/default file); the
+# sysctl.d keys are applied by systemd-sysctl's restart, journald
+# reloads its drop-in, sshd is reloaded once `sshd -t` has accepted
+# the merged config (a bad drop-in would take a running sshd down
+# with the session using it), the tmpfiles rule is applied by
+# systemd-tmpfiles; NetworkManager only reloads its conf.d and the
+# existing profiles are updated in place. The coredump drop-in needs
+# nothing: systemd-coredump reads it at each crash. Nothing runs when
+# nothing changed, so a rerun is quiet — except the start of sshd and
+# tailscaled, which enable alone (enable_system_units) would leave to
+# the next boot; starting a running unit does nothing.
 configure_system_services() {
     if system_changed_under /etc/systemd/system; then
         sudo systemctl daemon-reload
@@ -345,8 +371,27 @@ configure_system_services() {
     if system_changed_under /etc/nftables.conf; then
         sudo systemctl restart nftables
     fi
+    if system_changed_under /etc/sysctl.d; then
+        sudo systemctl restart systemd-sysctl
+    fi
+    if system_changed_under /etc/systemd/journald.conf.d; then
+        sudo systemctl reload systemd-journald
+    fi
+    local path
+    for path in "${SYSTEM_CHANGED[@]}"; do
+        if [[ $path == /etc/tmpfiles.d/* ]]; then
+            sudo systemd-tmpfiles --create "$path"
+        fi
+    done
     if system_changed_under /etc/systemd/resolved.conf.d; then
         sudo systemctl restart systemd-resolved
+    fi
+    if system_changed_under /etc/ssh/sshd_config.d; then
+        sudo sshd -t || die "sshd rejects the merged config (sshd -t); not reloaded"
+        sudo systemctl reload-or-restart sshd
+    fi
+    if system_changed_under /etc/default/tailscaled; then
+        sudo systemctl restart tailscaled
     fi
     if system_changed_under /etc/NetworkManager/conf.d; then
         sudo systemctl reload NetworkManager
@@ -378,6 +423,7 @@ configure_system_services() {
             sudo systemctl try-restart "$unit"
         fi
     done
+    sudo systemctl start sshd tailscaled 2>/dev/null || warn "could not start sshd and tailscaled — systemctl status sshd tailscaled"
 }
 
 # -------------------------------------------------------------- 6. greeter ---

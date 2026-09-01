@@ -1,0 +1,8 @@
+# sudo 1.9.17 already runs commands in a pseudo-terminal (use_pty is
+# on since 1.9.14) and already caches credentials for 5 minutes, so
+# neither is repeated here. What the default leaves open: Arch builds
+# sudo with env_editor, so visudo and sudoedit run whatever $EDITOR
+# names, chosen by the unprivileged caller. !env_editor pins them to
+# the list below (sudoers(5); Arch Wiki, Sudo: "Using visudo").
+Defaults !env_editor
+Defaults editor=/usr/bin/micro:/usr/bin/vim
