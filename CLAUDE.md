@@ -189,11 +189,12 @@ colour — that is the configuration meaning "no change", not a leftover.
   file, the reason in its header: memory pressure
   (`systemd/oomd.conf.d`, `user.slice.d`), the firewall
   (`nftables.conf` — only its own table is rebuilt; Mullvad's table
-  must survive a reload), DNS (`systemd/resolved.conf.d`: Mullvad's
-  DNS-over-TLS resolver as the global `~.` route, so the tunnel's own
-  resolver wins when up and nothing falls back to a network's DHCP one
-  when down; `netmenu`'s captive-portal row is the one deliberate,
-  self-reverting exception), NetworkManager privacy defaults,
+  must survive a reload), DNS (`systemd/resolved.conf.d/10-dns.conf`:
+  no global resolver — the tunnel's own resolver and firewall rule the
+  connected state, the link's DHCP resolver the disconnected one; a
+  global Mullvad DNS-over-TLS pin was dropped because an ISP that
+  blackholes 853 turned "VPN off" into "no DNS"; FallbackDNS empty,
+  LLMNR and mDNS off), NetworkManager privacy defaults,
   `faillock`, TLP's conservation-mode cap, bluez's `AutoEnable=false`.
   sshd is disabled by `setup.sh` and admitted from private ranges only
   when started by hand. `setup.sh system` restarts exactly the services

@@ -253,7 +253,8 @@ apply_nm_privacy() {
 # are removed there.
 SYSTEM_CHANGED=()
 SYSTEM_MIRRORED_DIRS=(/usr/share/plymouth/themes/mono)
-SYSTEM_RETIRED=(/etc/greetd/regreet.css)   # the regreet page's stylesheet
+SYSTEM_RETIRED=(/etc/greetd/regreet.css                    # the regreet page's stylesheet
+                /etc/systemd/resolved.conf.d/10-mullvad.conf)  # the global DoT pin (see 10-dns.conf)
 
 install_system_files() {
     local src dest mode dir file

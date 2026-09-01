@@ -5,10 +5,8 @@
 # accent. Picking a known network brings its profile up; a new secured
 # one asks for the password in a rofi entry; below the list: rescan,
 # Wi-Fi off/on, and the full editor (nmtui in its float). Results go
-# to a notification. A "captive portal login" row steers DNS around
-# the resolver policy for one browser visit (portal, below). Glyph
-# spans: tools/waybar-icon-span --px 14.67 --advance 1.1 (rofi's
-# 11 pt), one advance so names line up.
+# to a notification. Glyph spans: tools/waybar-icon-span --px 14.67
+# --advance 1.1 (rofi's 11 pt), one advance so names line up.
 set -euo pipefail
 
 ACCENT='#98b898'; MUTED='#666666'
@@ -16,7 +14,6 @@ ROFI=("$HOME/.local/bin/rofi-toggle" -dmenu -markup-rows -no-custom -format i -t
 bars=("<span size='94.8%' rise='214' letter_spacing='15959'>󰤟</span>" "<span size='94.8%' rise='214' letter_spacing='15959'>󰤢</span>" "<span size='94.8%' rise='214' letter_spacing='15959'>󰤥</span>" "<span size='94.8%' rise='214' letter_spacing='15959'>󰤨</span>")
 G_OFF="<span size='97.3%' letter_spacing='15503'>󰖪</span>"; G_ON="<span size='97.3%' letter_spacing='15503'>󰖩</span>"; G_SCAN="<span size='97.3%' letter_spacing='15503'>󰑓</span>"; G_EDIT="<span size='88.0%' rise='595' letter_spacing='17194'>󰒓</span>"; G_WIRED="<span size='97.3%' letter_spacing='15503'>󰈆</span>"
 G_LOCK="<span size='83.0%' rise='872'>󰌾</span>"
-G_PORTAL="<span size='88.0%' rise='595' letter_spacing='17194'>󰒃</span>"
 
 glyph() {
     local sig=$1
@@ -48,27 +45,6 @@ connect() {
     notify "$ssid: ${out##*: }"
 }
 
-# A captive portal's login page answers only through the network's own
-# resolver, which systemd-resolved never asks: the global "~." route
-# keeps every query on Mullvad's DNS-over-TLS server
-# (system/etc/systemd/resolved.conf.d/10-mullvad.conf). For the login
-# the connected Wi-Fi link gets "~." too and plain DNS, so the portal's
-# answers race the blocked TLS ones and win; the browser opens a
-# plain-http page the portal can hijack; when it closes, the link's
-# settings revert to what NetworkManager gave it.
-portal() {
-    local dev
-    dev="$(nmcli -t -f DEVICE,TYPE,STATE device status \
-        | awk -F: '$2=="wifi" && $3=="connected"{print $1; exit}')"
-    [ -n "$dev" ] || { notify "not connected to Wi-Fi"; return; }
-    resolvectl domain "$dev" '~.'
-    resolvectl dns-over-tls "$dev" no
-    notify "portal login on $dev — DNS reverts when the browser closes"
-    gtk-launch "$(xdg-settings get default-web-browser)" http://neverssl.com >/dev/null 2>&1 || true
-    resolvectl revert "$dev"
-    notify "portal login done, DNS restored"
-}
-
 main() {
     local rows=() act=() seen=() line sig sec inuse ssid s radio wired
     radio=$(nmcli -g WIFI general)
@@ -90,7 +66,6 @@ main() {
             rows+=("$line"); act+=("connect:$sec:$ssid")
         done < <(nmcli -t -f SIGNAL,SECURITY,IN-USE,SSID device wifi list | sort -t: -k1,1nr)
         rows+=("$G_SCAN rescan");    act+=("rescan")
-        rows+=("$G_PORTAL captive portal login"); act+=("portal")
         rows+=("$G_OFF wi-fi off");  act+=("off")
     else
         rows+=("$G_ON wi-fi on");    act+=("on")
@@ -104,7 +79,6 @@ main() {
         noop)    ;;
         rescan)  nmcli device wifi rescan 2>/dev/null || true; sleep 1; exec "$0" ;;
         off)     nmcli radio wifi off; notify "off" ;;
-        portal)  portal ;;
         on)      nmcli radio wifi on; sleep 2; exec "$0" ;;
         edit)    exec alacritty --class nmtui-float -e nmtui ;;
         connect:*) s=${act[$i]#connect:}; connect "${s%%:*}" "${s#*:}" ;;

@@ -411,18 +411,19 @@ t_nm_privacy() ( set -e
 )
 
 # ------------------------------------------------------------ resolved ---
-t_resolved_mullvad() ( set -e
-    f="$REPO_DIR/system/etc/systemd/resolved.conf.d/10-mullvad.conf"
+t_resolved_dns() ( set -e
+    f="$REPO_DIR/system/etc/systemd/resolved.conf.d/10-dns.conf"
     commented "$f"
-    dns="$(ini_get "$f" Resolve DNS)"
-    grep -qF '194.242.2.4#base.dns.mullvad.net' <<<"$dns"
-    grep -qF '2a07:e340::4#base.dns.mullvad.net' <<<"$dns"
     # an empty FallbackDNS= is the point: no silent drop to Cloudflare/Google
     grep -Eq '^\s*FallbackDNS\s*=\s*$' "$f"
-    ini_is "$f" Resolve Domains '~.'
-    ini_is "$f" Resolve DNSOverTLS yes
     ini_is "$f" Resolve MulticastDNS no
     ini_is "$f" Resolve LLMNR no
+    # no global resolver, no "~." route, no strict DoT: the tunnel's own
+    # resolver rules when up, the link's when down (an ISP that blackholes
+    # 853 made a global Mullvad pin mean "no DNS with the VPN off")
+    [ -z "$(ini_get "$f" Resolve DNS)" ]
+    [ -z "$(ini_get "$f" Resolve Domains)" ]
+    [ -z "$(ini_get "$f" Resolve DNSOverTLS)" ]
 )
 
 # ------------------------------------------------------------ faillock ---
@@ -535,7 +536,7 @@ t_services_nftables() ( set -e
 )
 
 t_services_resolved() ( set -e
-    log="$(services_after /etc/systemd/resolved.conf.d/10-mullvad.conf)"
+    log="$(services_after /etc/systemd/resolved.conf.d/10-dns.conf)"
     grep -Eq '^systemctl restart systemd-resolved$' <<<"$log"
     not grep -q nftables <<<"$log"
     not grep -q tlp <<<"$log"
@@ -758,7 +759,7 @@ else
 fi
 check "sshd keys-only drop-in"                          t_sshd_keys_only
 check "NetworkManager privacy drop-in"                  t_nm_privacy
-check "resolved mullvad drop-in"                        t_resolved_mullvad
+check "resolved drop-in"                                t_resolved_dns
 check "faillock.conf"                                   t_faillock
 check "tlp battery thresholds"                          t_tlp_battery
 check "bluetooth AutoEnable off"                        t_bluetooth

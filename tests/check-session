@@ -5,9 +5,7 @@
 # wl-copy, a notification with an action), record-toggle and the bar's
 # recording module (gpu-screen-recorder started detached and stopped
 # with SIGINT, waybar poked with RTMIN+9), webapp-install (a Chromium
-# --app launcher as a .desktop file), netmenu's captive-portal row
-# (resolvectl steering the connected Wi-Fi device's DNS around DoT for
-# the length of one browser visit), and the config that wires them in:
+# --app launcher as a .desktop file), and the config that wires them in:
 # the bar's bluetooth and recording entries, their CSS, the niri binds,
 # the tlp alias. Written before the features, as the acceptance
 # criteria: every row here is red until the script it names exists and
@@ -412,70 +410,6 @@ t_webapp_without_desktop_database() ( set -e
     [ -f "$b/home/.local/share/applications/webapp-notes.desktop" ]
 )
 
-# ------------------------------------------------ bin/netmenu: captive portal ---
-NETMENU="$REPO_DIR/bin/netmenu"
-
-# netmenu calls "$HOME/.local/bin/rofi-toggle" by path: the shim lives
-# there, dumps the rows it was offered to $BOX/rows and answers the
-# 0-based index of the first row matching $PICK (rofi's -format i)
-portal_shims() {
-    local d="$1" home="$2"
-    mkdir -p "$home/.local/bin"
-    shim "$home/.local/bin" rofi-toggle 'cat > "$BOX/rows"
-grep -n -- "$PICK" "$BOX/rows" | head -n 1 | cut -d: -f1 | awk "{print \$1-1}"'
-    shim "$d" nmcli 'case "$*" in
-    *"-g WIFI general"*)            echo "${RADIO:-enabled}" ;;
-    *"device wifi list"*)           echo "80:WPA2:*:angmar" ;;
-    *"-f DEVICE,TYPE,STATE"*)       echo "${DEVSTATE:-wlp0s20f3:wifi:connected}" ;;
-    *"-f TYPE,STATE"*)              echo "${DEVSTATE:-wlp0s20f3:wifi:connected}" | cut -d: -f2- ;;
-    *) exit 0 ;;
-esac'
-    shim "$d" resolvectl "$LOGGED"
-    shim "$d" gtk-launch "$LOGGED"
-    shim "$d" xdg-settings 'echo firefox.desktop'
-    shim "$d" notify-send 'printf "%s\n" "$*" >> "$BOX/notify"
-'"$LOGGED"
-}
-
-t_portal_row_listed() ( set -e
-    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; portal_shims "$b/bin" "$b/home"
-    # pick nothing (a row no menu has): the point is the rows offered
-    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" PICK='no such row' "$NETMENU"
-    grep -qi 'captive portal login' "$b/rows"
-    [ "$(grep -n 'rescan' "$b/rows" | cut -d: -f1)" -lt "$(grep -ni 'captive portal' "$b/rows" | cut -d: -f1)" ]
-)
-
-t_portal_row_absent_when_off() ( set -e
-    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; portal_shims "$b/bin" "$b/home"
-    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" PICK='no such row' RADIO=disabled "$NETMENU"
-    not grep -qi 'captive portal' "$b/rows"
-)
-
-t_portal_steers_dns_around_dot() ( set -e
-    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; portal_shims "$b/bin" "$b/home"
-    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" PICK='captive portal' "$NETMENU"
-    # the exact calls, in order: route every name to the link, drop
-    # DoT (a portal's DNS answers plain), open the browser, put it back
-    grep -v '^notify-send' "$b/log" > "$b/calls"
-    [ "$(cat "$b/calls")" = "resolvectl domain wlp0s20f3 ~.
-resolvectl dns-over-tls wlp0s20f3 no
-gtk-launch firefox.desktop http://neverssl.com
-resolvectl revert wlp0s20f3" ]
-    # a notification before the browser and one after the revert
-    [ "$(grep -c '^notify-send' "$b/log")" -ge 2 ]
-    [ "$(grep -n '^notify-send' "$b/log" | head -n 1 | cut -d: -f1)" -lt "$(grep -n '^gtk-launch' "$b/log" | cut -d: -f1)" ]
-    [ "$(grep -n '^notify-send' "$b/log" | tail -n 1 | cut -d: -f1)" -gt "$(grep -n 'resolvectl revert' "$b/log" | cut -d: -f1)" ]
-)
-
-t_portal_needs_wifi() ( set -e
-    b="$(mkbox)"; mkdir -p "$b/bin" "$b/home"; portal_shims "$b/bin" "$b/home"
-    HOME="$b/home" BOX="$b" SHIM_LOG="$b/log" PATH="$b/bin:$PATH" PICK='captive portal' \
-        DEVSTATE='wlp0s20f3:wifi:disconnected' "$NETMENU"
-    grep -qi 'not connected to Wi-Fi' "$b/notify"
-    not [ -e "$b/log" ] || not grep -q '^resolvectl' "$b/log"
-    not [ -e "$b/log" ] || not grep -q '^gtk-launch' "$b/log"
-)
-
 # ------------------------------------------------ config/waybar/config.jsonc ---
 t_waybar_modules() ( set -e
     strip_jsonc | python3 -c '
@@ -672,10 +606,6 @@ check "webapp-install: a bare URL is refused (2)"            t_webapp_bad_url
 check "webapp-install: no Chromium at all (1)"               t_webapp_no_browser
 check "webapp-install: --remove deletes the entry"           t_webapp_remove
 check "webapp-install: update-desktop-database optional"     t_webapp_without_desktop_database
-check "netmenu: captive portal row after rescan"             t_portal_row_listed
-check "netmenu: no portal row with Wi-Fi off"                t_portal_row_absent_when_off
-check "netmenu: portal steers DNS, browses, reverts"         t_portal_steers_dns_around_dot
-check "netmenu: portal needs a connected Wi-Fi device"       t_portal_needs_wifi
 check "waybar config: recording and bluetooth modules"       t_waybar_modules
 check "waybar css: recording and bluetooth styled"           t_waybar_css
 check "niri binds: bluetui, record-toggle, shot-ocr"         t_niri_binds
