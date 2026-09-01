@@ -213,9 +213,11 @@ colour — that is the configuration meaning "no change", not a leftover.
   systemd creates a missing one before the namespace, where a deleted
   ReadWritePaths target fails the unit at 226/NAMESPACE — and a path
   some other unit provides carries a leading dash so its absence
-  degrades the feature, never the start; and the cgroup2 root is mode
-  555, so a unit that mkdirs under /sys/fs/cgroup needs
-  CAP_DAC_OVERRIDE beside CAP_SYS_ADMIN. Deployment order is part of
+  degrades the feature, never the start; and the cgroup2 root and every
+  v1 hierarchy root are mode 555, so the one unit that mkdirs under
+  /sys/fs/cgroup (`mullvad-net-cls`, which also creates the daemon's
+  exclusions cgroup) needs CAP_DAC_OVERRIDE beside CAP_SYS_ADMIN and
+  the daemon does not. Deployment order is part of
   the boundary: the Mullvad package's post_install runs
   `systemctl enable --now mullvad-daemon`, so changed boundary files
   land (`setup.sh system`) *before* any install or start of the

@@ -4,12 +4,19 @@
 # the daemon creates and mounts that hierarchy at startup, the one thing
 # in its sandbox that would need CAP_SYS_ADMIN and mount(2); when the
 # hierarchy is already mounted it reuses it (talpid-cgroup finds it in
-# /proc/mounts) and never calls mount. This unit does the daemon's two
-# steps once per boot: the directory is a cgroup2 child that the mount
-# then covers, exactly as the daemon creates it. The cgroup2 root
-# directory is mode 555 and root bypasses file modes only through
-# CAP_DAC_OVERRIDE, so the mkdir needs that capability besides
-# CAP_SYS_ADMIN for the mount. systemd refuses a .mount unit for a
+# /proc/mounts) and never calls mount. This unit does the daemon's
+# three steps once per boot: the directory is a cgroup2 child that
+# the mount then covers, exactly as the daemon creates it, and the
+# mullvad-exclusions cgroup inside the hierarchy is the one the daemon
+# moves excluded processes into (talpid-cgroup's create_or_open_child:
+# mkdir, EEXIST accepted). Both the cgroup2 root and a v1 hierarchy
+# root are mode 555 and root bypasses file modes only through
+# CAP_DAC_OVERRIDE, so both mkdirs need that capability besides
+# CAP_SYS_ADMIN for the mount; the daemon, without it, then only
+# writes files it owns (net_cls.classid, cgroup.procs). Its condition
+# is the mount, so a mullvad-exclusions removed by hand while the
+# hierarchy stays mounted is recreated at the next boot, not the next
+# daemon start. systemd refuses a .mount unit for a
 # path under the API file system /sys/fs/cgroup, hence a oneshot;
 # mullvad-daemon pulls it in through Wants=/After= in its own drop-in,
 # so nothing has to be enabled. It carries no mount namespace option,
@@ -24,6 +31,7 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/bin/mkdir -p /sys/fs/cgroup/net_cls
 ExecStart=/usr/bin/mount -t cgroup -o net_cls net_cls /sys/fs/cgroup/net_cls
+ExecStart=/usr/bin/mkdir -p /sys/fs/cgroup/net_cls/mullvad-exclusions
 CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
 NoNewPrivileges=yes
 RestrictAddressFamilies=none
