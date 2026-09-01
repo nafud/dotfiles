@@ -597,6 +597,7 @@ t_boundary_mullvad_daemon() ( set -e
     ini_is "$f" Unit Wants mullvad-net-cls.service
     ini_is "$f" Unit After mullvad-net-cls.service
     ini_is "$f" Service CapabilityBoundingSet 'CAP_NET_ADMIN CAP_NET_RAW'   # no CAP_SYS_ADMIN: the oneshot mounts
+    ini_is "$f" Service ExecStartPre '+/usr/bin/mkdir -p /sys/fs/cgroup/net_cls/mullvad-exclusions'  # full privileges: the v1 root is 555 too
     ini_is "$f" Service ProtectSystem strict
     ini_is "$f" Service ConfigurationDirectory mullvad-vpn   # created before the namespace: a deleted
     ini_is "$f" Service LogsDirectory mullvad-vpn             # dir must not fail the start (the cgroup
@@ -632,7 +633,6 @@ t_boundary_net_cls_unit() ( set -e
     ini_is "$f" Service RemainAfterExit yes
     ini_has "$f" Service ExecStart '/usr/bin/mkdir -p /sys/fs/cgroup/net_cls'
     ini_has "$f" Service ExecStart '/usr/bin/mount -t cgroup -o net_cls net_cls /sys/fs/cgroup/net_cls'
-    ini_has "$f" Service ExecStart '/usr/bin/mkdir -p /sys/fs/cgroup/net_cls/mullvad-exclusions'  # the v1 root is 555 too
     ini_is "$f" Service CapabilityBoundingSet 'CAP_SYS_ADMIN CAP_DAC_OVERRIDE'  # the cgroup2 root is mode 555
     ini_is "$f" Service SystemCallFilter '@system-service @mount'
     namespace_free "$f"                                        # its mount must reach the host
