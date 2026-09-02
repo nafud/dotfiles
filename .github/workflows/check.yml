@@ -20,10 +20,8 @@ jobs:
 
   # Two checks need the platform these dotfiles target: the niri config
   # is the one file that can lock you out of a session, so it gets a
-  # real parse by the real binary; and the service boundaries are
-  # scored by the systemd-analyze the machine runs (the runner's own is
-  # too old for every directive they use, and tests/check-system skips
-  # the score row there).
+  # real parse by the real binary; and check-system sources setup.sh,
+  # exercised here on the Arch it targets.
   arch:
     runs-on: ubuntu-latest
     container: archlinux:latest
@@ -38,12 +36,8 @@ jobs:
 
       # the container is root and setup.sh refuses to be sourced as
       # root, the same guard that protects a desk run; the suite needs
-      # nothing more than a user that can read the checkout. No
-      # systemd runs here, so /run/systemd, which the analyzer expects
-      # of any booted system, is created for it.
-      - name: tests/check-system (with systemd-analyze)
+      # nothing more than a user that can read the checkout
+      - name: tests/check-system
         run: |
-          systemd-analyze --version | head -n1
-          install -d /run/systemd
           useradd -m check
           runuser -u check -- tests/check-system

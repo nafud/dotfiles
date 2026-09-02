@@ -1,27 +1,25 @@
 #!/bin/bash
-# check-system — acceptance tests for the system/ tree's hardening
-# layer and the setup.sh glue that installs it: bootkeep (the kernel
-# pair keeper the pacman hooks call), the hooks themselves, and the
-# drop-ins for oomd, nftables, NetworkManager, resolved,
-# faillock, tlp, bluetooth, sysctl, modprobe, coredump, journald,
-# tmpfiles and sudoers, the service boundaries (the
-# *.service.d/hardening.conf drop-ins and mullvad-net-cls.service,
-# scored offline by tools/sandbox-check against the vendored unit files
-# in tests/fixtures/units) — plus the polkit agent user unit.
-# tools/check proves these files parse; this suite proves they say
-# what the system needs them to say, and it proves it hermetically:
-# bootkeep runs against a fake /boot and /usr/lib/modules inside a
-# mktemp -d sandbox (removed by the trap below), the grub call and
-# setup.sh's sudo are PATH shims that record into the sandbox, and the
-# configs are read as text — no sudo, no network, no root filesystem
-# touched. setup.sh is sourced, not run: its closing BASH_SOURCE guard
-# exists precisely so enable_system_units, configure_boot and
-# configure_system_services can be exercised alone.
+# check-system — acceptance tests for the system/ tree, the desktop's
+# pieces below the user, and the setup.sh glue that installs it:
+# bootkeep (the kernel pair keeper the pacman hooks call), the hooks
+# themselves, the drop-ins for oomd and bluetooth — plus the polkit
+# agent user unit. The machine's own policy (the firewall, sysctls,
+# service boundaries and the rest) is not in this tree and not tested
+# here: it is applied by hand from the Kiln guide and recorded on the
+# machine by etckeeper, and one row below fails on a file that would
+# bring it back. tools/check proves these files parse; this suite
+# proves they say what the system needs them to say, and it proves it
+# hermetically: bootkeep runs against a fake /boot and /usr/lib/modules
+# inside a mktemp -d sandbox (removed by the trap below), the grub call
+# and setup.sh's sudo are PATH shims that record into the sandbox, and
+# the configs are read as text — no sudo, no network, no root
+# filesystem touched. setup.sh is sourced, not run: its closing
+# BASH_SOURCE guard exists precisely so enable_system_units,
+# configure_boot and configure_system_services can be exercised alone.
 #
 # Needs: bash, coreutils, grep, sed, awk. shellcheck (bootkeep's lint)
-# and nft + unshare (the ruleset syntax check, run unprivileged in a
-# user+net namespace) are optional: a test whose tool is absent prints
-# "skip", not "FAIL", so the suite passes on a bare Ubuntu runner.
+# is optional: a test whose tool is absent prints "skip", not "FAIL",
+# so the suite passes on a bare Ubuntu runner.
 # shellcheck disable=SC2016  # snippets handed to a fresh bash are meant literally
 # shellcheck disable=SC2329  # every t_* function is invoked indirectly, through check's "$@"
 # shellcheck disable=SC2317  # the same verdict as shellcheck <= 0.9 (CI's) hands down: per body line, before SC2329 existed
@@ -350,201 +348,12 @@ t_oomd_user_slice() ( set -e
     ini_is "$f" Slice ManagedOOMMemoryPressureLimit 50%
 )
 
-# ----------------------------------------------------------- nftables ---
-NFT_CONF="$REPO_DIR/system/etc/nftables.conf"
-
-t_nft_shape() ( set -e
-    f="$NFT_CONF"
-    [ "$(head -n1 "$f")" = '#!/usr/bin/nft -f' ]
-    # `flush ruleset` would take Mullvad's `inet mullvad` table down with
-    # ours on every reload; only our own table is rebuilt
-    not grep -q 'flush ruleset' "$f"
-    grep -q '^destroy table inet filter' "$f"
-    grep -q '^table inet filter' "$f"
-    grep -Eq 'type filter hook input priority filter; *policy drop;' "$f"
-    grep -Eq 'type filter hook forward priority filter; *policy drop;' "$f"
-    grep -Eq 'ct state \{ *established, *related *\} accept' "$f"
-    grep -Eq 'iif "?lo"? accept' "$f"
-    grep -Eq '(meta l4proto|ip protocol) icmp' "$f" || grep -Eq '^\s*icmp ' "$f"
-    grep -Eq '(meta l4proto|meta nfproto ipv6 .*) ipv6-icmp|ipv6-icmp ' "$f"
-)
-
-t_nft_no_service() ( set -e
-    f="$NFT_CONF"
-    # no remote access: no rule admits ssh or any other service from
-    # the network, by port or by address range, and nothing names the
-    # tailnet that once existed
-    not grep -Eq 'dport (22|ssh)' "$f"
-    not grep -Eiq 'tailscale|tailnet' "$f"
-    not grep -Eq 'saddr \{[^}]*(10\.0\.0\.0/8|192\.168\.0\.0/16|fc00::/7)' "$f"
-    # what the input chain admits is exactly: established, loopback,
-    # ICMP both families, DHCPv6 replies, the libvirt bridge
-    input="$(sed -n '/chain input/,/^  }/p' "$f" | grep -E '^\s*[^#].* accept')"
-    [ "$(wc -l <<<"$input")" -eq 6 ]
-)
-
-t_nft_libvirt() ( set -e
-    f="$NFT_CONF"
-    # the default network's dnsmasq (DHCP and DNS from the VMs) in
-    # input, the VMs' NAT both ways in forward: libvirt's own table
-    # adds no input rule and a packet must pass every table
-    grep -Eq '^\s*iifname "virbr0" meta l4proto \{ *tcp, *udp *\} th dport \{ *53, *67 *\} accept' "$f"
-    fwd="$(sed -n '/chain forward/,/^  }/p' "$f")"
-    grep -Eq 'ct state \{ *established, *related *\} accept' <<<"$fwd"
-    grep -Eq '^\s*iifname "virbr0" accept' <<<"$fwd"
-    grep -Eq '^\s*oifname "virbr0" accept' <<<"$fwd"
-)
-
-t_nft_syntax() ( set -e
-    # nft -c parses and resolves without touching any ruleset; inside a
-    # fresh user+net namespace it needs no privilege
-    unshare -rn nft -c -f "$NFT_CONF"
-)
-
-# ------------------------------------------------------- NetworkManager ---
-t_nm_privacy() ( set -e
-    f="$REPO_DIR/system/etc/NetworkManager/conf.d/10-privacy.conf"
-    commented "$f"
-    ini_is "$f" main dns systemd-resolved
-    ini_is "$f" connection wifi.cloned-mac-address stable
-    ini_is "$f" connection ethernet.cloned-mac-address stable
-    ini_is "$f" connection ipv6.ip6-privacy 2
-    ini_is "$f" connection connection.llmnr 0
-    ini_is "$f" connection connection.mdns 0
-    ini_is "$f" connection ipv4.dhcp-send-hostname 0
-    ini_is "$f" connection ipv6.dhcp-send-hostname 0
-    ini_is "$f" connection ipv6.dhcp-duid stable-uuid
-    ini_is "$f" device wifi.scan-rand-mac-address yes
-)
-
-# ------------------------------------------------------------ resolved ---
-t_resolved_dns() ( set -e
-    f="$REPO_DIR/system/etc/systemd/resolved.conf.d/10-dns.conf"
-    commented "$f"
-    # an empty FallbackDNS= is the point: no silent drop to Cloudflare/Google
-    grep -Eq '^\s*FallbackDNS\s*=\s*$' "$f"
-    ini_is "$f" Resolve MulticastDNS no
-    ini_is "$f" Resolve LLMNR no
-    # no global resolver, no "~." route, no strict DoT: the tunnel's own
-    # resolver rules when up, the link's when down (an ISP that blackholes
-    # 853 made a global Mullvad pin mean "no DNS with the VPN off")
-    [ -z "$(ini_get "$f" Resolve DNS)" ]
-    [ -z "$(ini_get "$f" Resolve Domains)" ]
-    [ -z "$(ini_get "$f" Resolve DNSOverTLS)" ]
-)
-
-# ------------------------------------------------------------ faillock ---
-t_faillock() ( set -e
-    f="$REPO_DIR/system/etc/security/faillock.conf"
-    [ "$(head -c1 "$f")" = '#' ]
-    grep -Eq '^\s*deny\s*=\s*5\s*$' "$f"
-    grep -Eq '^\s*fail_interval\s*=\s*900\s*$' "$f"
-    grep -Eq '^\s*unlock_time\s*=\s*120\s*$' "$f"
-)
-
-# ----------------------------------------------------------------- tlp ---
-t_tlp_battery() ( set -e
-    f="$REPO_DIR/system/etc/tlp.d/10-battery.conf"
-    [ "$(head -c1 "$f")" = '#' ]
-    grep -Eq '^\s*START_CHARGE_THRESH_BAT0\s*=\s*"?0"?\s*$' "$f"
-    grep -Eq '^\s*STOP_CHARGE_THRESH_BAT0\s*=\s*"?1"?\s*$' "$f"
-)
-
 # ----------------------------------------------------------- bluetooth ---
 t_bluetooth() ( set -e
     f="$REPO_DIR/system/etc/bluetooth/main.conf"
     commented "$f"
     ini_is "$f" Policy AutoEnable false
     ini_is "$f" General Privacy device
-)
-
-# -------------------------------------------------------------- sysctl ---
-t_sysctl() ( set -e
-    f="$REPO_DIR/system/etc/sysctl.d/50-hardening.conf"
-    [ "$(head -c1 "$f")" = '#' ]
-    is() { grep -Eq "^\s*$1\s*=\s*$2\s*$" "$f"; }
-    is kernel.kptr_restrict 1
-    is kernel.kexec_load_disabled 1
-    is dev.tty.ldisc_autoload 0
-    is fs.protected_fifos 2
-    is fs.protected_regular 2
-    is net.core.bpf_jit_harden 1
-    is vm.mmap_rnd_bits 32
-    is vm.mmap_rnd_compat_bits 16
-    is net.ipv4.tcp_rfc1337 1
-    # IPv4 redirects: all, default and every interface (the kernel
-    # ORs all with the interface); IPv6: default and the interfaces,
-    # all excluded (the kernel reads the interface alone) so a
-    # sysctl --system run stays clean of a key it would only ignore
-    for k in accept_redirects secure_redirects send_redirects; do
-        for scope in all default '\*'; do is "net\.ipv4\.conf\.$scope\.$k" 0; done
-    done
-    is 'net\.ipv6\.conf\.default\.accept_redirects' 0
-    is 'net\.ipv6\.conf\.\*\.accept_redirects' 0
-    grep -Eq '^-net\.ipv6\.conf\.all\.accept_redirects\s*$' "$f"
-    # what the header promises stays out
-    for k in kernel.unprivileged_userns_clone kernel.sysrq kernel.yama.ptrace_scope net.ipv4.tcp_timestamps log_martians rp_filter; do
-        not grep -Eq "^\s*[^#]*$k" "$f"
-    done
-)
-
-# ------------------------------------------------------------ modprobe ---
-t_modprobe() ( set -e
-    f="$REPO_DIR/system/etc/modprobe.d/hardening.conf"
-    [ "$(head -c1 "$f")" = '#' ]
-    # every directive is one of the two the header describes
-    grep -v '^#' "$f" | grep -v '^$' | not grep -Eqv '^(install [a-z0-9_-]+ /bin/false|blacklist [a-z0-9_-]+)$'
-    for m in sctp rds tipc n-hdlc atm can firewire-core floppy vivid gfs2 cramfs jffs2 hfs hfsplus; do
-        grep -Eq "^install $m /bin/false$" "$f"
-    done
-    for m in squashfs udf cifs nfs nfsv3 nfsv4; do
-        grep -Eq "^blacklist $m$" "$f"
-    done
-    # the modules in use here, and ksmbd, whose softdeps make an
-    # install rule a no-op (modprobe.d(5)), never appear as a directive
-    for m in thunderbolt bluetooth btusb usb_storage usb-storage uas ksmbd; do
-        not grep -Eq "^(install|blacklist) $m\b" "$f"
-    done
-)
-
-# ------------------------------------------------- coredump, journald ---
-t_coredump_storage() ( set -e
-    f="$REPO_DIR/system/etc/systemd/coredump.conf.d/10-storage.conf"
-    commented "$f"
-    ini_is "$f" Coredump Storage none
-    # the backtrace still needs the core to arrive
-    [ -z "$(ini_get "$f" Coredump ProcessSizeMax)" ]
-)
-
-t_journald_size() ( set -e
-    f="$REPO_DIR/system/etc/systemd/journald.conf.d/10-size.conf"
-    commented "$f"
-    ini_is "$f" Journal SystemMaxUse 1G
-)
-
-# ------------------------------------------------------------ tmpfiles ---
-t_tmpfiles_boot() ( set -e
-    f="$REPO_DIR/system/etc/tmpfiles.d/boot.conf"
-    [ "$(head -c1 "$f")" = '#' ]
-    # z adjusts what exists and creates nothing; 0700 root
-    grep -v '^#' "$f" | grep -v '^$' | not grep -Eqv '^z /boot 0700 root root -$'
-    grep -Eq '^z /boot 0700 root root -$' "$f"
-)
-
-# ------------------------------------------------------------- sudoers ---
-SUDOERS="$REPO_DIR/system/etc/sudoers.d/10-hardening"
-
-t_sudoers_editor() ( set -e
-    f="$SUDOERS"
-    [ "$(head -c1 "$f")" = '#' ]
-    grep -Eq '^Defaults\s+!env_editor\s*$' "$f"
-    grep -Eq '^Defaults\s+editor=/usr/bin/micro:/usr/bin/vim\s*$' "$f"
-    # a file sudo would skip (a dot or ~ in the name) is no policy at all
-    case "$(basename "$f")" in *.*|*~*) exit 1 ;; esac
-)
-
-t_sudoers_parses() ( set -e
-    visudo -cf "$SUDOERS" > /dev/null
 )
 
 # --------------------------------------------------------- polkit agent ---
@@ -560,6 +369,24 @@ t_polkit_agent_unit() ( set -e
     ini_is "$f" Install WantedBy graphical-session.target
 )
 
+# ---------------------------------------------------------- system tree ---
+# The line the four homes drew: system/ carries what the desktop needs
+# below the user and nothing of the machine's policy. A hardening file
+# (a sysctl, a firewall, a service boundary) landing here fails this
+# row; it belongs to the guide's chapters and to /etc under etckeeper.
+t_system_tree_scope() ( set -e
+    cd "$REPO_DIR"
+    find system -type f | not grep -Ev '^system/(etc/(greetd|plymouth|mkinitcpio\.conf\.d|default/grub\.d|systemd/system/plymouth-quit\.service\.d|systemd/oomd\.conf\.d|systemd/system/user\.slice\.d|bluetooth|pacman\.d/hooks)/|usr/local/bin/(bootkeep|monogreet)$|usr/share/plymouth/themes/mono/)'
+    # and the pieces it must carry are all there
+    for f in etc/greetd/config.toml etc/greetd/niri.kdl usr/local/bin/monogreet usr/local/bin/bootkeep \
+             etc/plymouth/plymouthd.conf etc/mkinitcpio.conf.d/plymouth.conf etc/default/grub.d/10-dotfiles.cfg \
+             etc/systemd/system/plymouth-quit.service.d/retain-splash.conf \
+             etc/systemd/oomd.conf.d/10-pressure.conf etc/systemd/system/user.slice.d/10-oomd.conf \
+             etc/bluetooth/main.conf usr/share/plymouth/themes/mono/mono.plymouth; do
+        [ -f "system/$f" ]
+    done
+)
+
 # ------------------------------------------------------------- setup.sh ---
 SETUP="$REPO_DIR/setup.sh"
 
@@ -571,35 +398,47 @@ t_setup_session_units() ( set -e
 
 t_setup_packages() ( set -e
     # the one pacman transaction: from `sudo pacman -Syu` to its first
-    # blank line, every name the new layer needs
+    # blank line, every name the desktop needs
     pkgs="$(sed -n '/sudo pacman -Syu/,/^$/p' "$SETUP" | sed 's/\\$//' | tr -s ' \n' '\n')"
-    for p in thermald nftables openssh polkit-gnome bluez bluez-utils bluetui \
+    for p in thermald tlp openssh polkit-gnome bluez bluez-utils bluetui plymouth greetd \
              tesseract tesseract-data-eng gpu-screen-recorder; do
         grep -qxF "$p" <<<"$pkgs"
     done
-    not grep -qxF tailscale <<<"$pkgs"
+    # the machine's policy is not the workspace's: no firewall, no
+    # remote access, no device control in the transaction
+    for p in nftables tailscale usbguard; do
+        not grep -qxF "$p" <<<"$pkgs"
+    done
 )
 
 t_setup_functions_exist() ( set -e
     b="$(mkbox)"
     with_setup "$b" '
         declare -F enable_system_units > /dev/null
-        declare -F apply_nm_privacy > /dev/null
-        declare -F configure_system_services > /dev/null'
+        declare -F install_system_files > /dev/null
+        declare -F configure_boot > /dev/null
+        declare -F configure_system_services > /dev/null
+        declare -F configure_greeter > /dev/null
+        declare -F seed_wallpaper > /dev/null
+        # the migrations of this repo'"'"'s own past are gone: desired
+        # state only, nothing that edits what exists on one machine
+        ! declare -F apply_nm_privacy > /dev/null
+        ! declare -F stop_legacy_daemons > /dev/null
+        [ -z "${SYSTEM_RETIRED+x}" ]
+        [ -z "${SYSTEM_MODES+x}" ]'
 )
 
 t_setup_enable_units_text() ( set -e
     body="$(sed -n '/^enable_system_units()/,/^}/p' "$SETUP")"
     [ -n "$body" ]
-    for unit in systemd-oomd nftables systemd-resolved bluetooth thermald tlp paccache.timer; do
-        grep -Eq "systemctl enable[^|]*\b$unit\b" <<<"$body"
+    for unit in systemd-oomd bluetooth thermald tlp paccache.timer; do
+        grep -Eq "systemctl enable[^|]*\\b$unit\\b" <<<"$body"
     done
     not grep -Eq 'systemctl disable' <<<"$body"
-    # no remote access: neither sshd nor tailscaled is enabled or started
-    not grep -Eq '^[^#]*\b(sshd|tailscaled)\b' <<<"$body"
-    # resolved's stub is the resolver: the symlink NetworkManager's
-    # dns=systemd-resolved expects
-    grep -Eq 'ln -sf? .*/run/systemd/resolve/stub-resolv.conf +/etc/resolv.conf' <<<"$body"
+    # the machine's policy units are the guide's to enable, there is
+    # no remote access, and the resolver is not this script's to point
+    not grep -Eq '^[^#]*\\b(nftables|systemd-resolved|sshd|tailscaled|usbguard)\\b' <<<"$body"
+    not grep -q resolv.conf <<<"$body"
 )
 
 t_setup_configure_boot_text() ( set -e
@@ -610,40 +449,31 @@ t_setup_configure_boot_text() ( set -e
     # a hook change regenerates grub.cfg so the kept pairs show as entries
     hooks_branch="$(sed -n '/system_changed_under \/etc\/pacman.d\/hooks/,/fi/p' <<<"$body")"
     grep -q 'grub-mkconfig -o /boot/grub/grub.cfg' <<<"$hooks_branch"
-    # a modprobe.d change is packed into the initramfs by the modconf hook
+    # the initramfs is rebuilt for plymouth and its theme; modprobe.d is
+    # the guide's, and no longer a trigger here
     initramfs_branch="$(sed -n '/system_changed_under \/etc\/mkinitcpio.conf.d/,/fi/p' <<<"$body")"
-    grep -q 'system_changed_under /etc/modprobe.d' <<<"$initramfs_branch"
     grep -q 'mkinitcpio -P' <<<"$initramfs_branch"
+    not grep -q modprobe <<<"$body"
 )
 
 # install_system_files against the sudo shim: the log holds every
-# install call with its mode, so the mode table is proven on the
-# repo's own tree. A cmp shim that never matches keeps the real /etc
-# out of the decision: a file already installed here would otherwise
-# be skipped, and a runner has none of them
+# install call with its mode, so the two modes are proven on the
+# repo's own tree, and so is the absence of any removal. A cmp shim
+# that never matches keeps the real /etc out of the decision: a file
+# already installed here would otherwise be skipped, and a runner has
+# none of them
 t_setup_install_modes() ( set -e
     b="$(mkbox)"; mkdir "$b/bin"
     shim "$b/bin" sudo "$SUDO_SHIM"
     shim "$b/bin" cmp 'exit 1'
     log="$(PATH="$b/bin:$PATH" SHIM_LOG="$b/log" with_setup "$b" '
         install_system_files > /dev/null' && cat "$b/log")"
-    grep -Eq '^install -D -m 440 .*/system/etc/sudoers.d/10-hardening /etc/sudoers.d/10-hardening$' <<<"$log"
-    grep -Eq '^install -D -m 644 .*/system/etc/sysctl.d/50-hardening.conf /etc/sysctl.d/50-hardening.conf$' <<<"$log"
     grep -Eq '^install -D -m 755 .*/system/usr/local/bin/bootkeep /usr/local/bin/bootkeep$' <<<"$log"
-    not grep -Eq '^install -D -m (440|600) ' <<<"$(grep -v sudoers.d <<<"$log")"
-)
-
-t_setup_sudoers_gate() ( set -e
-    # an unparsable sudoers file is refused before install: the shim
-    # log must not show it, and the function must fail
-    b="$(mkbox)"; mkdir "$b/bin" "$b/repo"
-    shim "$b/bin" sudo "$SUDO_SHIM"
-    cp -r "$REPO_DIR/setup.sh" "$b/repo/"
-    mkdir -p "$b/repo/system/etc/sudoers.d"
-    printf 'Defaults editor=\n' > "$b/repo/system/etc/sudoers.d/10-broken"
-    not env PATH="$b/bin:$PATH" SHIM_LOG="$b/log" HOME="$b" \
-        bash -c 'source "$1/setup.sh" && install_system_files' check-system "$b/repo" 2>/dev/null
-    not grep -q sudoers.d "$b/log" 2>/dev/null
+    grep -Eq '^install -D -m 755 .*/system/usr/local/bin/monogreet /usr/local/bin/monogreet$' <<<"$log"
+    grep -Eq '^install -D -m 644 .*/system/etc/greetd/config.toml /etc/greetd/config.toml$' <<<"$log"
+    not grep -Eq '^install -D -m (440|600) ' <<<"$log"
+    # nothing on the machine is removed by an install run
+    not grep -Eq '^rm ' <<<"$log"
 )
 
 # the sudo shim logs its argv; configure_system_services must reach
@@ -662,27 +492,6 @@ services_after() {
     cat "$b/log" 2>/dev/null || true
 }
 
-t_services_nftables() ( set -e
-    log="$(services_after /etc/nftables.conf)"
-    grep -Eq '^systemctl (restart|reload) nftables$' <<<"$log"
-    not grep -q resolved <<<"$log"
-    not grep -q tlp <<<"$log"
-)
-
-t_services_resolved() ( set -e
-    log="$(services_after /etc/systemd/resolved.conf.d/10-dns.conf)"
-    grep -Eq '^systemctl restart systemd-resolved$' <<<"$log"
-    not grep -q nftables <<<"$log"
-    not grep -q tlp <<<"$log"
-)
-
-t_services_tlp() ( set -e
-    log="$(services_after /etc/tlp.d/10-battery.conf)"
-    grep -Eq '^tlp start$' <<<"$log"
-    not grep -q nftables <<<"$log"
-    not grep -q resolved <<<"$log"
-)
-
 t_services_nothing() ( set -e
     # a rerun with nothing changed runs nothing
     log="$(services_after)"
@@ -692,194 +501,32 @@ t_services_nothing() ( set -e
 t_services_no_remote() ( set -e
     # no remote access: no code line of setup.sh names sshd or the
     # tailscale daemon and CLI, and the tree ships no file for them
-    not grep -Eq '^[^#]*\b(sshd|tailscaled?)\b' "$SETUP"
+    not grep -Eq '^[^#]*\\b(sshd|tailscaled?)\\b' "$SETUP"
     not [ -e "$REPO_DIR/system/etc/default/tailscaled" ]
     not [ -e "$REPO_DIR/system/etc/ssh" ]
 )
 
-t_services_sysctl() ( set -e
-    log="$(services_after /etc/sysctl.d/50-hardening.conf)"
-    grep -Eq '^systemctl restart systemd-sysctl$' <<<"$log"
-    not grep -q nftables <<<"$log"
-)
-
-t_services_journald() ( set -e
-    log="$(services_after /etc/systemd/journald.conf.d/10-size.conf)"
-    grep -Eq '^systemctl reload systemd-journald$' <<<"$log"
-    not grep -q 'restart systemd-journald' <<<"$log"
-)
-
-t_services_tmpfiles() ( set -e
-    log="$(services_after /etc/tmpfiles.d/boot.conf)"
-    grep -Eq '^systemd-tmpfiles --create /etc/tmpfiles.d/boot.conf$' <<<"$log"
-)
-
-t_services_coredump_quiet() ( set -e
-    # systemd-coredump reads its config at each crash: no trigger
-    log="$(services_after /etc/systemd/coredump.conf.d/10-storage.conf)"
-    [ -z "$log" ]
-)
-
-# --------------------------------------------------- service boundaries ---
-# The drop-ins are asserted as text on the lines that carry the
-# decisions (the ones a later "tidy-up" would be tempted to change):
-# each unit's capability set, its device nodes, the paths and socket
-# families it keeps, and the syscall set. The score row proves the
-# whole file, through systemd-analyze against the vendored unit files.
-LAYER="$REPO_DIR/system/etc/systemd/system"
-SANDBOX_CHECK="$REPO_DIR/tools/sandbox-check"
-boundary() { echo "$LAYER/$1.service.d/hardening.conf"; }
-# namespace_free FILE — no directive that would put the unit in a
-# private mount namespace (systemd.exec: mounts made inside never
-# reach the host), for the two units that mount for the host
-namespace_free() {
-    local key
-    for key in ProtectSystem ProtectHome PrivateTmp PrivateDevices PrivateMounts PrivateNetwork \
-               ProtectKernelTunables ProtectKernelModules ProtectKernelLogs ProtectControlGroups \
-               ProtectProc ProcSubset ReadWritePaths ReadOnlyPaths InaccessiblePaths BindPaths \
-               BindReadOnlyPaths TemporaryFileSystem RootDirectory MountAPIVFS; do
-        [ -z "$(ini_get "$1" Service "$key")" ] || return 1
-    done
-}
-
-t_boundary_wpa_supplicant() ( set -e
-    f="$(boundary wpa_supplicant)"
-    commented "$f"
-    ini_is "$f" Service CapabilityBoundingSet 'CAP_NET_ADMIN CAP_NET_RAW'
-    ini_is "$f" Service RuntimeDirectory wpa_supplicant
-    ini_is "$f" Service ProtectSystem strict
-    ini_is "$f" Service DevicePolicy closed
-    ini_is "$f" Service DeviceAllow '/dev/rfkill r'          # read-only: NetworkManager does the writes
-    ini_is "$f" Service ProtectKernelTunables yes
-    ini_is "$f" Service ReadWritePaths /proc/sys/net          # its own per-interface knobs
-    ini_is "$f" Service RestrictAddressFamilies 'AF_UNIX AF_NETLINK AF_PACKET AF_INET AF_INET6'
-    ini_is "$f" Service IPAddressDeny any                     # no IP traffic of its own
-    ini_is "$f" Service SystemCallFilter @system-service
-    [ -z "$(ini_get "$f" Service PrivateDevices)" ]           # would hide /dev/rfkill
-)
-
-t_boundary_mullvad_daemon() ( set -e
-    f="$(boundary mullvad-daemon)"
-    commented "$f"
-    ini_is "$f" Unit Wants mullvad-net-cls.service
-    ini_is "$f" Unit After mullvad-net-cls.service
-    ini_is "$f" Service CapabilityBoundingSet 'CAP_NET_ADMIN CAP_NET_RAW'   # no CAP_SYS_ADMIN: the oneshot mounts
-    ini_is "$f" Service ExecStartPre '+/usr/bin/mkdir -p /sys/fs/cgroup/net_cls/mullvad-exclusions'  # full privileges: the v1 root is 555 too
-    ini_is "$f" Service ProtectSystem strict
-    ini_is "$f" Service ConfigurationDirectory mullvad-vpn   # created before the namespace: a deleted
-    ini_is "$f" Service LogsDirectory mullvad-vpn             # dir must not fail the start (the cgroup
-    ini_is "$f" Service CacheDirectory mullvad-vpn            # path below says the same with its dash)
-    ini_has "$f" Service ReadWritePaths /run
-    ini_has "$f" Service ReadWritePaths /proc/sys/net
-    ini_has "$f" Service ReadWritePaths -/sys/fs/cgroup/net_cls  # dash: a missing hierarchy degrades split tunnelling, never the start
-    ini_is "$f" Service ProtectControlGroups yes              # strict/private would lose the net_cls submount
-    ini_is "$f" Service DevicePolicy closed
-    ini_is "$f" Service DeviceAllow '/dev/net/tun rw'
-    ini_is "$f" Service RestrictAddressFamilies 'AF_UNIX AF_NETLINK AF_INET AF_INET6'
-    ini_is "$f" Service SystemCallFilter @system-service       # no @mount
-    ini_is "$f" Service SystemCallErrorNumber EPERM            # a miss must not become a restart loop
-)
-
-t_boundary_mullvad_early_boot() ( set -e
-    f="$(boundary mullvad-early-boot-blocking)"
-    commented "$f"
-    ini_is "$f" Service CapabilityBoundingSet CAP_NET_ADMIN
-    ini_is "$f" Service PrivateDevices yes
-    ini_is "$f" Service ProtectControlGroups strict
-    ini_is "$f" Service LogsDirectory mullvad-vpn             # the Blocked policy writes no sysctl
-    ini_is "$f" Service RestrictAddressFamilies 'AF_UNIX AF_NETLINK'
-    ini_is "$f" Service IPAddressDeny any
-    ini_is "$f" Service SystemCallFilter @system-service
-)
-
-t_boundary_net_cls_unit() ( set -e
-    f="$LAYER/mullvad-net-cls.service"
-    commented "$f"
-    ini_is "$f" Unit ConditionPathIsMountPoint '!/sys/fs/cgroup/net_cls'
-    ini_is "$f" Service Type oneshot
-    ini_is "$f" Service RemainAfterExit yes
-    ini_has "$f" Service ExecStart '/usr/bin/mkdir -p /sys/fs/cgroup/net_cls'
-    ini_has "$f" Service ExecStart '/usr/bin/mount -t cgroup -o net_cls net_cls /sys/fs/cgroup/net_cls'
-    ini_is "$f" Service CapabilityBoundingSet 'CAP_SYS_ADMIN CAP_DAC_OVERRIDE'  # the cgroup2 root is mode 555
-    ini_is "$f" Service SystemCallFilter '@system-service @mount'
-    namespace_free "$f"                                        # its mount must reach the host
-    not grep -q '^\[Install\]' "$f"                            # pulled in by the daemon's Wants=, never enabled
-)
-
-t_boundary_thermald() ( set -e
-    f="$(boundary thermald)"
-    commented "$f"
-    ini_is "$f" Service CapabilityBoundingSet CAP_SYS_BOOT     # the CRITICAL-trip poweroff
-    ini_is "$f" Service SystemCallFilter '@system-service @reboot'
-    ini_is "$f" Service RuntimeDirectory thermald
-    ini_is "$f" Service RuntimeDirectoryPreserve yes
-    ini_is "$f" Service ProtectSystem strict
-    ini_is "$f" Service ReadOnlyPaths /proc/sys
-    [ -z "$(ini_get "$f" Service ProtectKernelTunables)" ]    # /sys must stay writable: that is its job
-    ini_is "$f" Service DevicePolicy closed
-    ini_has "$f" Service DeviceAllow '/dev/acpi_thermal_rel rw'
-    ini_has "$f" Service DeviceAllow 'char-input r'
-    ini_is "$f" Service RestrictAddressFamilies 'AF_UNIX AF_NETLINK'   # uevents, or it goes quiet
-    ini_is "$f" Service IPAddressDeny any
-)
-
-t_boundary_grub_btrfsd() ( set -e
-    f="$(boundary grub-btrfsd)"
-    commented "$f"
-    ini_is "$f" Service CapabilityBoundingSet CAP_SYS_ADMIN
-    ini_is "$f" Service ReadWritePaths /boot/grub
-    ini_is "$f" Service PrivateTmp yes                         # the script's mount point lives there
-    ini_is "$f" Service PrivateNetwork yes
-    ini_is "$f" Service DevicePolicy closed
-    ini_has "$f" Service DeviceAllow 'block-device-mapper r'
-    ini_has "$f" Service DeviceAllow 'block-blkext r'
-    ini_has "$f" Service DeviceAllow '/dev/mapper/control rw'  # grub-probe on a dm-crypt root
-    ini_is "$f" Service SystemCallFilter '@system-service @mount'
-)
-
-t_boundary_udisks2() ( set -e
-    f="$(boundary udisks2)"
-    commented "$f"
-    namespace_free "$f"                                        # it mounts for the desktop
-    [ -z "$(ini_get "$f" Service ProtectClock)" ]             # its implied DeviceAllow would cut the disks off
-    caps="$(ini_get "$f" Service CapabilityBoundingSet)"
-    grep -qw CAP_SYS_ADMIN <<<"$caps"
-    grep -qw CAP_SYS_MODULE <<<"$caps"
-    not grep -qw CAP_KILL <<<"$caps"
-    ini_is "$f" Service NoNewPrivileges yes
-    ini_is "$f" Service RestrictAddressFamilies 'AF_UNIX AF_NETLINK'
-    ini_is "$f" Service SystemCallFilter '@system-service @mount @module @swap'
-    ini_is "$f" Service SystemCallErrorNumber EPERM
-)
-
-t_boundary_scores() ( set -e
-    "$SANDBOX_CHECK" score
-)
-
-t_sandbox_render() ( set -e
-    # learning mode: the filter becomes a log of the same set, the
-    # errno goes, nothing else moves
-    rendered="$("$SANDBOX_CHECK" render udisks2)"
-    grep -qxF 'SystemCallLog=~@system-service @mount @module @swap' <<<"$rendered"
-    not grep -q '^SystemCallFilter=' <<<"$rendered"
-    not grep -q '^SystemCallErrorNumber=' <<<"$rendered"
-    diff <(grep -vE '^SystemCall(Filter|ErrorNumber)=' "$(boundary udisks2)") \
-         <(grep -v '^SystemCallLog=' <<<"$rendered")
-    not "$SANDBOX_CHECK" render mullvad-net-cls 2>/dev/null   # a whole unit has nothing to render
-)
-
-t_services_boundary_restart() ( set -e
-    log="$(services_after /etc/systemd/system/thermald.service.d/hardening.conf)"
+t_services_oomd() ( set -e
+    log="$(services_after /etc/systemd/oomd.conf.d/10-pressure.conf)"
+    grep -Eq '^systemctl restart systemd-oomd$' <<<"$log"
+    not grep -q bluetooth <<<"$log"
+    # the slice drop-in is a unit file: reloaded into the manager, then
+    # oomd restarted to reread it
+    log="$(services_after /etc/systemd/system/user.slice.d/10-oomd.conf)"
     grep -Eq '^systemctl daemon-reload$' <<<"$log"
-    grep -Eq '^systemctl try-restart thermald$' <<<"$log"
-    not grep -q wpa_supplicant <<<"$log"
+    grep -Eq '^systemctl restart systemd-oomd$' <<<"$log"
 )
 
-t_services_boundary_boot_units() ( set -e
-    # the early blocker would cut the live tunnel if rerun; the oneshot
-    # is the daemon's to pull in: a reload, no restart
-    log="$(services_after /etc/systemd/system/mullvad-early-boot-blocking.service.d/hardening.conf \
-                          /etc/systemd/system/mullvad-net-cls.service)"
+t_services_bluetooth() ( set -e
+    log="$(services_after /etc/bluetooth/main.conf)"
+    grep -Eq '^systemctl restart bluetooth$' <<<"$log"
+    not grep -q oomd <<<"$log"
+)
+
+t_services_unit_dropin() ( set -e
+    # plymouth-quit's drop-in is read at the next boot: a reload into
+    # the manager so `systemctl cat` shows it, no restart of anything
+    log="$(services_after /etc/systemd/system/plymouth-quit.service.d/retain-splash.conf)"
     grep -Eq '^systemctl daemon-reload$' <<<"$log"
     not grep -q restart <<<"$log"
 )
@@ -915,71 +562,20 @@ check "hook: zz-bootkeep-grub"                          t_hook_grub
 check "hooks sort around snap-pac and mkinitcpio"       t_hook_order
 check "oomd pressure drop-in"                           t_oomd_conf
 check "user.slice oomd drop-in"                         t_oomd_user_slice
-check "nftables.conf shape"                             t_nft_shape
-check "nftables.conf admits no service"                t_nft_no_service
-check "nftables.conf admits the libvirt default network" t_nft_libvirt
-# a runner may ship unshare yet forbid unprivileged user namespaces
-if have nft && unshare -rn true 2>/dev/null; then
-    check "nftables.conf parses (nft -c)"               t_nft_syntax
-else
-    skip "nftables.conf parses (nft -c)" "nft or an unprivileged user namespace unavailable"
-fi
-check "NetworkManager privacy drop-in"                  t_nm_privacy
-check "resolved drop-in"                                t_resolved_dns
-check "faillock.conf"                                   t_faillock
-check "tlp battery thresholds"                          t_tlp_battery
 check "bluetooth AutoEnable off, Privacy device"        t_bluetooth
-check "sysctl hardening drop-in"                        t_sysctl
-check "modprobe hardening drop-in"                      t_modprobe
-check "coredump Storage=none"                           t_coredump_storage
-check "journald size cap"                               t_journald_size
-check "tmpfiles: /boot 0700"                            t_tmpfiles_boot
-check "sudoers: visudo editor pinned"                   t_sudoers_editor
-if have visudo; then
-    check "sudoers file parses (visudo -cf)"            t_sudoers_parses
-else
-    skip "sudoers file parses (visudo -cf)" "visudo not installed"
-fi
 check "polkit-agent user unit"                          t_polkit_agent_unit
+check "system/ holds the desktop's pieces only"         t_system_tree_scope
 check "setup.sh: SESSION_UNITS has polkit-agent"        t_setup_session_units
-check "setup.sh: pacman line lists the new packages"    t_setup_packages
-check "setup.sh: the system functions exist"            t_setup_functions_exist
+check "setup.sh: pacman line lists the workspace packages" t_setup_packages
+check "setup.sh: the system functions exist, the migrations do not" t_setup_functions_exist
 check "setup.sh: enable_system_units enables the set"   t_setup_enable_units_text
 check "setup.sh: configure_boot primes bootkeep"        t_setup_configure_boot_text
-if have visudo; then
-    check "setup.sh: install modes (sudoers.d 440)"     t_setup_install_modes
-    check "setup.sh: a broken sudoers file is refused"  t_setup_sudoers_gate
-else
-    skip "setup.sh: install modes (sudoers.d 440)" "visudo not installed"
-    skip "setup.sh: a broken sudoers file is refused" "visudo not installed"
-fi
-check "configure_system_services: nftables.conf"        t_services_nftables
-check "configure_system_services: resolved.conf.d"      t_services_resolved
-check "configure_system_services: tlp.d"                t_services_tlp
+check "setup.sh: install modes (755 scripts, 644 files), no removal" t_setup_install_modes
 check "configure_system_services: nothing changed"      t_services_nothing
-check "configure_system_services: no remote access"    t_services_no_remote
-check "configure_system_services: sysctl.d"             t_services_sysctl
-check "configure_system_services: journald.conf.d"      t_services_journald
-check "configure_system_services: tmpfiles.d"           t_services_tmpfiles
-check "configure_system_services: coredump.conf.d"      t_services_coredump_quiet
-check "boundary: wpa_supplicant"                        t_boundary_wpa_supplicant
-check "boundary: mullvad-daemon"                        t_boundary_mullvad_daemon
-check "boundary: mullvad-early-boot-blocking"           t_boundary_mullvad_early_boot
-check "boundary: mullvad-net-cls unit"                  t_boundary_net_cls_unit
-check "boundary: thermald"                              t_boundary_thermald
-check "boundary: grub-btrfsd"                           t_boundary_grub_btrfsd
-check "boundary: udisks2"                               t_boundary_udisks2
-# --offline scoring wants a systemd-analyze that knows every directive
-# the drop-ins use (ProtectControlGroups=strict arrived in 257); an
-# older one would score them worse than the machine does
-if have systemd-analyze && [ "$(systemd-analyze --version | awk 'NR == 1 { print $2 }')" -ge 257 ] 2>/dev/null; then
-    check "boundary: offline scores within bounds"      t_boundary_scores
-else
-    skip "boundary: offline scores within bounds" "systemd-analyze 257+ not installed"
-fi
-check "sandbox-check render: filter becomes a log"      t_sandbox_render
-check "configure_system_services: a boundary restarts"  t_services_boundary_restart
-check "configure_system_services: boot units reload"    t_services_boundary_boot_units
+check "configure_system_services: no remote access"     t_services_no_remote
+check "configure_system_services: oomd drop-ins"        t_services_oomd
+check "configure_system_services: bluetooth"            t_services_bluetooth
+check "configure_system_services: a unit drop-in reloads" t_services_unit_dropin
 if have shellcheck; then
     check "bootkeep passes shellcheck"                  t_bootkeep_shellcheck
     check "setup.sh passes shellcheck"                  t_setup_shellcheck

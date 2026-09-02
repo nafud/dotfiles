@@ -17,14 +17,16 @@
 #             name these bare (units spell the path: they depend on
 #             nothing a login shell did or did not set)
 #   system/   mirrors / and is installed there, file by file (root-owned
-#             copies, not links): the boot chain (GRUB and mkinitcpio
-#             drop-ins, plymouth and its theme, the plymouth-quit
-#             hand-off), the login page (greetd, the greeter niri,
-#             monogreet) — what the desktop needs below the user — and
-#             the machine's policy as drop-ins, among them the service
-#             boundaries (systemd/system/*.service.d/hardening.conf):
-#             the scope each root daemon runs in, measured and rolled
-#             out with tools/sandbox-check
+#             copies, not links): what the desktop needs below the
+#             user — the boot chain (GRUB and mkinitcpio drop-ins,
+#             plymouth and its theme, the plymouth-quit hand-off), the
+#             login page (greetd, the greeter niri, monogreet), the
+#             kernel keeper for snapshot rollbacks (bootkeep and its
+#             pacman hooks), systemd-oomd on the user slice and bluez's
+#             adapter policy. The machine's own policy and hardening
+#             (firewall, sysctls, service boundaries and the rest) are
+#             not here: they are applied by hand from the Kiln guide's
+#             chapters and recorded on the machine by etckeeper
 #   templates/ mirrors ~/Templates (the XDG templates dir), copied file
 #             by file: what Files offers under "New Document"
 #   assets/   the default wallpaper (wallpaper.jpg), copied once to
@@ -107,7 +109,7 @@ install_packages() {
         yazi zellij cliphist starship chafa micro btop \
         zathura zathura-pdf-poppler imv mpv \
         tlp thermald \
-        nftables openssh polkit-gnome \
+        openssh polkit-gnome \
         bluez bluez-utils bluetui \
         grim slurp ksnip imagemagick brightnessctl pulsemixer wtype \
         tesseract tesseract-data-eng gpu-screen-recorder \
@@ -198,53 +200,24 @@ install_herdr() {
 # --------------------------------------------------------- 3. system units ---
 # paccache: bound the pacman cache (the @pkg subvolume is excluded from
 # snapshots but nothing else limits it). tlp + thermald: battery-side
-# runtime power tuning (system/etc/tlp.d) and Intel's thermal tables.
-# systemd-oomd, nftables, systemd-resolved, bluetooth: the policies
-# under system/etc (oomd.conf.d, nftables.conf, resolved.conf.d,
-# bluetooth). resolved owns /etc/resolv.conf through its stub symlink —
-# the link is how NetworkManager and the Mullvad daemon detect it.
-# No sshd: there is no remote access to the machine (the firewall
-# admits no service).
+# runtime power tuning and Intel's thermal tables, on their packages'
+# defaults. systemd-oomd and bluetooth: the two drop-ins under
+# system/etc (oomd.conf.d with user.slice.d, bluetooth/main.conf).
+# The machine's own policy units (the firewall, the resolver) are the
+# guide's to enable, not this script's.
 enable_system_units() {
-    sudo systemctl enable paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth 2>/dev/null \
-        || warn "could not enable a system unit — systemctl status paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth"
+    sudo systemctl enable paccache.timer tlp thermald systemd-oomd bluetooth 2>/dev/null \
+        || warn "could not enable a system unit — systemctl status paccache.timer tlp thermald systemd-oomd bluetooth"
     # thermald has no file under system/ to trigger a restart on, and
     # enable alone waits for the next boot: start it now
     sudo systemctl start thermald 2>/dev/null || warn "could not start thermald"
-    if [ "$(readlink /etc/resolv.conf)" != /run/systemd/resolve/stub-resolv.conf ]; then
-        log "pointing /etc/resolv.conf at systemd-resolved's stub"
-        sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-    fi
-}
-
-# the privacy defaults in system/etc/NetworkManager/conf.d apply to new
-# profiles; the Wi-Fi and wired ones that already exist are brought in
-# line once, here
-apply_nm_privacy() {
-    local uuid
-    while IFS=: read -r uuid type; do
-        case "$type" in
-            802-11-wireless) sudo nmcli connection modify "$uuid" \
-                802-11-wireless.cloned-mac-address stable ipv6.ip6-privacy 2 \
-                connection.llmnr 0 connection.mdns 0 2>/dev/null \
-                || warn "could not update Wi-Fi profile $uuid" ;;
-            802-3-ethernet) sudo nmcli connection modify "$uuid" \
-                802-3-ethernet.cloned-mac-address stable ipv6.ip6-privacy 2 \
-                connection.llmnr 0 connection.mdns 0 2>/dev/null \
-                || warn "could not update wired profile $uuid" ;;
-        esac
-    done < <(nmcli -g UUID,TYPE connection show 2>/dev/null)
 }
 
 # ---------------------------------------------------------- 4. system tree ---
 # system/ mirrors /: every file under it is installed to the same path,
 # root-owned, the way config/ mirrors ~/.config — one tree, one rule;
-# a file executable in the repo (monogreet) is executable in place,
-# and the directories whose readers insist on a stricter mode get it
-# (SYSTEM_MODES: sudo refuses to run at all while a sudoers.d file is
-# not root-owned mode 0440, sudoers(5)). A sudoers file is parsed by
-# visudo before it is installed: an unparsable one would lock sudo,
-# and with it this script, out.
+# a file executable in the repo (monogreet, bootkeep) is executable in
+# place, everything else is mode 644.
 # A file already in place with the repo's content and mode is left
 # alone, so a rerun is quiet — the mode is part of the comparison,
 # or a permission change alone (a script gaining its x bit) would
@@ -257,14 +230,12 @@ apply_nm_privacy() {
 # the case that matters — the theme and its images travel together
 # into the initramfs, and a redesign that drops an image (or, once, the
 # whole two-step image set) must take it off the disk too, or the
-# stale file is packed along. /etc/greetd and the drop-in dirs also carry files the packages
-# own; only named leftovers of this repo's own past (SYSTEM_RETIRED)
-# are removed there.
+# stale file is packed along. /etc/greetd and the drop-in dirs also
+# carry files the packages own, and nothing is removed there: a file
+# this repo no longer ships stays on the machine, where the guide's
+# chapters own it and etckeeper records it.
 SYSTEM_CHANGED=()
 SYSTEM_MIRRORED_DIRS=(/usr/share/plymouth/themes/mono)
-declare -A SYSTEM_MODES=([/etc/sudoers.d]=440)
-SYSTEM_RETIRED=(/etc/greetd/regreet.css                    # the regreet page's stylesheet
-                /etc/systemd/resolved.conf.d/10-mullvad.conf)  # the global DoT pin (see 10-dns.conf)
 
 install_system_files() {
     local src dest mode dir file
@@ -272,14 +243,8 @@ install_system_files() {
         dest="${src#"$REPO/system"}"
         mode=644
         [ -x "$src" ] && mode=755
-        for dir in "${!SYSTEM_MODES[@]}"; do
-            [[ $dest == "$dir"/* ]] && mode="${SYSTEM_MODES[$dir]}"
-        done
         if cmp -s "$src" "$dest" && [ "$(stat -c %a "$dest")" = "$mode" ]; then
             continue
-        fi
-        if [[ $dest == /etc/sudoers.d/* ]]; then
-            visudo -cf "$src" > /dev/null || die "$src does not parse (visudo -cf); not installed"
         fi
         log "installing $dest"
         sudo install -D -m "$mode" "$src" "$dest"
@@ -293,12 +258,6 @@ install_system_files() {
             sudo rm -f "$file"
             SYSTEM_CHANGED+=("$file")
         done < <(find "$dir" -type f -print0 | sort -z)
-    done
-    for file in "${SYSTEM_RETIRED[@]}"; do
-        [ -e "$file" ] || continue
-        log "removing retired $file"
-        sudo rm -f "$file"
-        SYSTEM_CHANGED+=("$file")
     done
 }
 
@@ -316,17 +275,15 @@ system_changed_under() {
 # the GRUB drop-in hides the menu and adds `splash`. Those files only
 # take effect inside the images they feed, so the initramfs is rebuilt
 # when anything plymouth or mkinitcpio changed (the theme and its font
-# are packed into it) or a modprobe.d file did (the modconf hook packs
-# the directory in), and grub.cfg when the GRUB drop-in did. A fresh
+# are packed into it), and grub.cfg when the GRUB drop-in did. A fresh
 # plymouth install is caught the same way: its drop-in is new then.
 # Should a splash ever misbehave, `plymouth.enable=0` on the kernel
 # line (Esc at boot, e on the entry) boots with the text prompt.
 configure_boot() {
     if system_changed_under /etc/mkinitcpio.conf.d \
         || system_changed_under /etc/plymouth \
-        || system_changed_under /usr/share/plymouth \
-        || system_changed_under /etc/modprobe.d; then
-        log "rebuilding the initramfs (plymouth + theme, modprobe.d)"
+        || system_changed_under /usr/share/plymouth; then
+        log "rebuilding the initramfs (plymouth + theme)"
         sudo mkinitcpio -P
     fi
     if system_changed_under /etc/default/grub.d; then
@@ -351,66 +308,20 @@ configure_boot() {
 }
 
 # The services whose files changed pick them up now rather than at the
-# next boot: each of these rereads its config on restart (nftables and
-# resolved their drop-ins, oomd both its own and the slice's, tlp its
-# tlp.d, bluez its main.conf); the sysctl.d keys are applied by
-# systemd-sysctl's restart, journald reloads its drop-in, the
-# tmpfiles rule is applied by systemd-tmpfiles; NetworkManager only
-# reloads its conf.d and the existing profiles are updated in place.
-# The coredump drop-in needs nothing: systemd-coredump reads it at
-# each crash. Nothing runs when nothing changed, so a rerun is quiet.
+# next boot: oomd rereads both its own drop-in and the slice's on
+# restart, bluez its main.conf; a changed unit drop-in (plymouth-quit,
+# user.slice) is reloaded into the manager and read at the next boot
+# or restart. Nothing runs when nothing changed, so a rerun is quiet.
 configure_system_services() {
     if system_changed_under /etc/systemd/system; then
         sudo systemctl daemon-reload
     fi
-    if system_changed_under /etc/nftables.conf; then
-        sudo systemctl restart nftables
-    fi
-    if system_changed_under /etc/sysctl.d; then
-        sudo systemctl restart systemd-sysctl
-    fi
-    if system_changed_under /etc/systemd/journald.conf.d; then
-        sudo systemctl reload systemd-journald
-    fi
-    local path
-    for path in "${SYSTEM_CHANGED[@]}"; do
-        if [[ $path == /etc/tmpfiles.d/* ]]; then
-            sudo systemd-tmpfiles --create "$path"
-        fi
-    done
-    if system_changed_under /etc/systemd/resolved.conf.d; then
-        sudo systemctl restart systemd-resolved
-    fi
-    if system_changed_under /etc/NetworkManager/conf.d; then
-        sudo systemctl reload NetworkManager
-        apply_nm_privacy
-    fi
     if system_changed_under /etc/systemd/oomd.conf.d || system_changed_under /etc/systemd/system/user.slice.d; then
         sudo systemctl restart systemd-oomd
-    fi
-    if system_changed_under /etc/tlp.d; then
-        sudo tlp start > /dev/null
     fi
     if system_changed_under /etc/bluetooth; then
         sudo systemctl restart bluetooth
     fi
-    # The service boundaries (systemd/system/*.service.d/hardening.conf)
-    # take effect on a restart. try-restart leaves a unit alone when it
-    # is not running, so a machine without Mullvad (installed by hand,
-    # not here) sees no error. wpa_supplicant and mullvad-daemon drop
-    # the connection for a moment while they come back. The early-boot
-    # blocker is deliberately not rerun: it installs the boot-time
-    # blocking ruleset, which mid-session would cut the live tunnel;
-    # its drop-in is read at the next boot. mullvad-net-cls.service is
-    # pulled in by the daemon's restart and its condition skips it
-    # while the hierarchy is already mounted.
-    local unit
-    for unit in wpa_supplicant mullvad-daemon thermald grub-btrfsd udisks2; do
-        if system_changed_under "/etc/systemd/system/$unit.service.d"; then
-            log "restarting $unit inside its boundary"
-            sudo systemctl try-restart "$unit"
-        fi
-    done
 }
 
 # -------------------------------------------------------------- 6. greeter ---
@@ -610,7 +521,7 @@ enable_units() {
     systemctl --user start waybar-updates.path gcr-ssh-agent.socket 2>/dev/null || true
 }
 
-# ---------------------------------------------------------- 9. shell setup ---
+# --------------------------------------------------------- 10. shell setup ---
 # The shell's configuration is config/bash/ — profile for login shells
 # (PATH, EDITOR: the environment niri-session imports for the whole
 # session), bashrc for interactive ones — linked with the rest of
@@ -711,7 +622,7 @@ configure_sublime() {
     link_one "$REPO/config/sublime-text/User" "$user"
 }
 
-# ------------------------------------------------------------- 10. desktop ---
+# ------------------------------------------------------------- 11. desktop ---
 apply_desktop_prefs() {
     # the desktop is dark throughout (the 0d0d0d ground of every surface),
     # and the settings portal hands this preference to every toolkit —
@@ -750,7 +661,7 @@ apply_desktop_prefs() {
     done
 }
 
-# -------------------------------------------------------------- 11. reload ---
+# -------------------------------------------------------------- 12. reload ---
 # niri reloads its own config on save and starship re-reads per prompt;
 # the daemons are units. The ones that hold config in memory — a git
 # pull can change their files without any link changing — are reloaded
@@ -762,7 +673,6 @@ apply_desktop_prefs() {
 # shell too; with no session up there is nothing to do.
 reload_session() {
     systemctl --user -q is-active graphical-session.target 2>/dev/null || return 0
-    stop_legacy_daemons
     log "restarting the session units"
     systemctl --user restart waybar.service swayidle.service 2>/dev/null \
         || warn "a session unit did not restart — journalctl --user -u waybar -u swayidle"
@@ -772,28 +682,6 @@ reload_session() {
         || warn "a session unit did not start — systemctl --user status ${SESSION_UNITS[*]}"
     session_env_current \
         || warn "this session started before config/bash/profile reached it: the binds that name a bin/ script bare (launcher, lock, power and network menus, clipboard, annotate) find nothing until the next login — log out and in"
-}
-
-# A session that began under the previous design still runs the daemons
-# as niri's children: spawn-at-startup put each in an app-niri-<argv0>-
-# <pid>.scope — sh for the three wrapper scripts (the bar, the wallpaper,
-# the battery watch), mako, swayidle, wl-paste. A config reload does not
-# end them, and beside the units they would be a second bar, a second
-# wallpaper, and a mako holding the notification name the unit needs.
-# Each such scope is stopped once, before the units take over: the
-# daemon's name and a legacy scope name together pick them out, so a
-# terminal scope that merely contains a swaybg run by hand is left alone.
-stop_legacy_daemons() {
-    local pid cgroup scopes=()
-    for pid in $(pgrep -u "$(id -u)" -x 'waybar|mako|swaybg|swayidle|wl-paste|battwatch.sh'); do
-        cgroup="$(cut -d: -f3 "/proc/$pid/cgroup" 2>/dev/null)"
-        if [[ $cgroup =~ /(app-niri-(sh|mako|swayidle|wl\\x2dpaste)-[0-9]+\.scope)$ ]]; then
-            scopes+=("${BASH_REMATCH[1]}")
-        fi
-    done
-    [ "${#scopes[@]}" -gt 0 ] || return 0
-    log "stopping the daemons the previous config spawned (the units take over)"
-    systemctl --user stop "${scopes[@]}" 2>/dev/null || true
 }
 
 # The session environment is imported at login; a running niri keeps the
@@ -807,7 +695,7 @@ session_env_current() {
         | grep -qE "^PATH=(.*:)?$HOME/\.local/bin(:.*)?$"
 }
 
-# ------------------------------------------------------------- 12. summary ---
+# ------------------------------------------------------------- 13. summary ---
 portals_ok() {
     pacman -Qq xdg-desktop-portal-gtk >/dev/null 2>&1 \
         && pacman -Qq xdg-desktop-portal-gnome >/dev/null 2>&1
@@ -884,7 +772,7 @@ print_summary() {
     printf '\n'
 }
 
-# ---------------------------------------------------------------- 13. main ---
+# ---------------------------------------------------------------- 14. main ---
 # The system half needs sudo and a reboot to show; the user half links,
 # enables and reloads and is live at once. `install` is packages, then
 # both halves, in order.

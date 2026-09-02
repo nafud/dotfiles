@@ -30,7 +30,8 @@ alias cat='bat --style=plain --paging=never'
 alias grep='grep --color=auto'
 alias diff='diff --color=auto'
 alias ip='ip -c'
-# lift the battery's conservation-mode cap until the next boot (system/etc/tlp.d)
+# lift the battery's conservation-mode cap until the next boot (the cap is
+# TLP's, set on the machine in /etc/tlp.d; harmless where none is set)
 alias fullcharge='sudo tlp fullcharge'
 
 # shellcheck source=/dev/null

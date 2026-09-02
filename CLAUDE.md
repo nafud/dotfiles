@@ -9,10 +9,26 @@ precisely. Read it first.
 
 The base system is Arch per the Kiln guide (linked in the README):
 GRUB on an encrypted btrfs root, snapper snapshots with grub-btrfs
-entries, the LTS kernel as the fallback. That layer — partitioning,
-crypttab, snapper — belongs to the guide, **not** this repo; this repo
-owns everything under `system/` and everything in the user's session.
-paru is bootstrapped from source (the prebuilt paru-bin links a libalpm
+entries, the LTS kernel as the fallback. Four things have four homes,
+and this repository is exactly one of them:
+
+- **The workspace** — this repository: `config/`, `bin/`, `icons/`,
+  `templates/`, `assets/`, and under `system/` only what the desktop
+  needs below the user (the boot chain, the login page, bootkeep for
+  snapshot rollbacks, oomd on the user slice, bluez's adapter policy).
+  Machine-neutral, installable on a fresh Arch in one command.
+- **The base system and its policy** — the guide's chapters:
+  partitioning, crypttab, snapper, and every hardening step (the
+  firewall, sysctls, module rules, service boundaries, journald,
+  sudoers, the network privacy settings). Applied by hand on the
+  machine, never through this repository.
+- **The record** — etckeeper on the machine: a git repository in
+  `/etc`, root only, never pushed, that pacman commits to.
+- **The knowledge** — the guide's prose, where the reasoning behind
+  each step lives.
+
+A policy or hardening file does not belong under `system/`, and
+`tests/check-system` fails on one. paru is bootstrapped from source (the prebuilt paru-bin links a libalpm
 soname that lags pacman's bumps — `install_paru` in setup.sh carries
 the whole story) but nothing here installs from the AUR; herdr is the
 one release-binary download. End-user applications (browser, VPN,
@@ -52,12 +68,11 @@ absent from setup.sh's one pacman transaction.
   the shell's config (`config/bash/`) applies to the next shell.
 - `system/` mirrors `/` and is **installed, not linked** — root-owned
   copies land only via `sudo bash setup.sh system`, which re-installs
-  on a content *or mode* change (`SYSTEM_MODES` names the directories
-  whose readers insist on a stricter mode: `/etc/sudoers.d` 0440, its
-  files parsed by `visudo -cf` first), rebuilds the initramfs when
-  anything under plymouth/mkinitcpio/modprobe.d changed, and prunes
-  files the repo dropped from mirrored dirs (the plymouth theme dir).
-  It runs no package
+  on a content *or mode* change (755 for a script, 644 otherwise),
+  rebuilds the initramfs when anything under plymouth/mkinitcpio
+  changed, and prunes files the repo dropped from mirrored dirs (the
+  plymouth theme dir) and nowhere else: a file the repo stops shipping
+  stays on the machine. It runs no package
   transaction and needs no network (that is `install`'s bootstrap
   step): a config fix must be able to land while a misconfigured
   daemon holds the network. Editing `system/…` does
@@ -147,8 +162,8 @@ colour — that is the configuration meaning "no change", not a leftover.
   hermetic suites run — `tests/check-shell` (setup.sh's functions,
   bin/lock-line, the waybar scripts against PATH shims, all in
   sandboxes, no sudo), `tests/check-system` (bootkeep against a fake
-  /boot, the pacman hooks, every `system/etc` drop-in read as text,
-  `nft -c` in a user namespace, setup.sh's service decisions through a
+  /boot, the pacman hooks, the oomd and bluez drop-ins read as text,
+  the line around `system/`, setup.sh's service decisions through a
   sudo shim), `tests/check-session` (the capture, recording, web-app
   and netmenu scripts against PATH shims, the bar and bind config) and
   `tests/check-python` (monogreet's pure layer
@@ -193,61 +208,17 @@ colour — that is the configuration meaning "no change", not a leftover.
   generators pair (`vmlinuz-linux-<kver>` / `initramfs-linux-<kver>.img`)
   and mirror `/boot` into `/.bootbackup` ahead of each snapshot.
   Rolling back = the snapshot entry + the kernel with its version.
-- System policy lives in `system/etc` as drop-ins, one concern per
-  file, the reason in its header: memory pressure
-  (`systemd/oomd.conf.d`, `user.slice.d`), the firewall
-  (`nftables.conf` — only its own table is rebuilt; Mullvad's and
-  libvirt's tables must survive a reload, and a packet must pass every
-  table on a hook, so the libvirt default network's DHCP/DNS and NAT
-  are admitted here too; no service is admitted from the network,
-  there is no remote access), DNS (`systemd/resolved.conf.d/10-dns.conf`:
-  no global resolver — the tunnel's own resolver and firewall rule the
-  connected state, the link's DHCP resolver the disconnected one; a
-  global Mullvad DNS-over-TLS pin was dropped because an ISP that
-  blackholes 853 turned "VPN off" into "no DNS"; FallbackDNS empty,
-  LLMNR and mDNS off), NetworkManager privacy defaults (random MAC,
-  IPv6 privacy, no LLMNR/mDNS, no DHCP hostname, stable-uuid DUID),
-  `faillock`, TLP's conservation-mode cap, bluez's `AutoEnable=false`
-  and `Privacy = device`, the kernel sysctls (`sysctl.d/50-hardening.conf`,
-  each absence explained in its header), the modules kept from loading
-  (`modprobe.d/hardening.conf`; ksmbd is deliberately absent — kmod
-  ignores an `install` rule for a module with softdeps, modprobe.d(5)),
-  `coredump.conf.d` (Storage=none, the backtrace kept),
-  `journald.conf.d` (1G cap), `tmpfiles.d/boot.conf` (/boot 0700),
-  and `sudoers.d/10-hardening` (visudo's editor pinned). There is no
-  remote access to the machine: no sshd, no tailscale, by decision;
-  Secure Boot is out of scope by the same (QEMU/KVM work). `setup.sh
-  system` restarts exactly the services whose files changed
-  (`configure_system_services`: sysctl re-applied, journald reloaded,
-  tmpfiles applied).
-- Service boundaries: `system/etc/systemd/system/*.service.d/hardening.conf`
-  gives each root daemon the machine runs (wpa_supplicant, the Mullvad
-  units, thermald, grub-btrfsd, udisks2) an explicit scope — the
-  capabilities, paths, devices, socket families and syscalls it
-  actually uses, derived from its footprint and source, the reasoning
-  in each header. Four rules shaped them and must survive edits: any
-  mount-namespace directive (ProtectSystem, PrivateTmp, ReadWritePaths,
-  the Protect* family, PrivateNetwork) hides the unit's own mounts from
-  the host, so udisks2 and `mullvad-net-cls.service` carry none; a
-  `DeviceAllow` (also the one `ProtectClock` implies) switches the
-  device policy to an allow-list; a directory the daemon itself owns is
-  granted as ConfigurationDirectory/LogsDirectory/CacheDirectory —
-  systemd creates a missing one before the namespace, where a deleted
-  ReadWritePaths target fails the unit at 226/NAMESPACE — and a path
-  some other unit provides carries a leading dash so its absence
-  degrades the feature, never the start; and the cgroup2 root and every
-  v1 hierarchy root are mode 555, so a mkdir under /sys/fs/cgroup
-  needs CAP_DAC_OVERRIDE — `mullvad-net-cls` carries it for the
-  hierarchy, and the daemon's exclusions cgroup comes from an
-  `ExecStartPre=+` (full privileges, outside the namespace) in its own
-  drop-in, so the daemon itself never does. Deployment order is part of
-  the boundary: the Mullvad package's post_install runs
-  `systemctl enable --now mullvad-daemon`, so changed boundary files
-  land (`setup.sh system`) *before* any install or start of the
-  package — a daemon started against stale boundaries firewalled the
-  machine off its own mirrors once. `tools/sandbox-check` measures them:
-  `score` offline against the vendored unit files (a CI row), `learn` +
-  `report` for the live learning-mode rollout (SystemCallLog, decoded
-  seccomp records), `render` for the learning variant. Excluded on
-  purpose: greetd (every session inherits its restrictions),
-  NetworkManager and bluez (upstream-hardened), the bus and udev.
+- System policy is not this repo's. The firewall, DNS and network
+  privacy, faillock, the kernel sysctls and module rules, core dumps,
+  the journal cap, `/boot`'s mode, sudoers and the service boundaries
+  of the root daemons are chapters of the Kiln guide, applied by hand
+  and recorded by etckeeper on the machine; a change to them is a
+  change on the machine, never a file here. `system/etc` carries the
+  desktop's own two drop-ins only: memory pressure
+  (`systemd/oomd.conf.d`, `user.slice.d`) and bluez's `AutoEnable=false`
+  with `Privacy = device`. There is no remote access to the machine
+  (no sshd, no tailscale) and Secure Boot is out of scope, both by
+  decision. `setup.sh system` restarts exactly the services whose
+  files changed (`configure_system_services`: oomd, bluetooth, a
+  daemon-reload for a unit drop-in) and removes nothing from the
+  machine.
