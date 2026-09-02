@@ -103,7 +103,7 @@ install_packages() {
         yazi zellij cliphist starship chafa micro btop \
         zathura zathura-pdf-poppler imv mpv \
         tlp thermald \
-        nftables openssh tailscale polkit-gnome \
+        nftables openssh polkit-gnome \
         bluez bluez-utils bluetui \
         grim slurp ksnip imagemagick brightnessctl pulsemixer wtype \
         tesseract tesseract-data-eng gpu-screen-recorder \
@@ -199,26 +199,11 @@ install_herdr() {
 # under system/etc (oomd.conf.d, nftables.conf, resolved.conf.d,
 # bluetooth). resolved owns /etc/resolv.conf through its stub symlink —
 # the link is how NetworkManager and the Mullvad daemon detect it.
-# sshd: key-only (system/etc/ssh/sshd_config.d) and, through the
-# firewall, reachable from tailscale0 alone. Enabled here, started by
-# configure_system_services once the firewall and its drop-in are on
-# disk. tailscaled is installed (its /etc/default file too) but not
-# enabled: remote access is set aside for now, so sshd is reachable
-# from nowhere until it returns. When it does, it must
-# run with netfilter mode off — its default mode installs an
-# iptables-nft chain that drops every packet from 100.64.0.0/10 not
-# arriving on tailscale0, which is where Mullvad's in-tunnel DNS
-# replies come from (the 2026-09-01 outage; nftables.conf has the
-# rest). The mode is a preference in tailscaled's state: `tailscale
-# set --netfilter-mode=off` is accepted while logged out, and the
-# first `tailscale up` of a daemon that was never logged in (or was
-# logged out) rebuilds the preferences from its own flags, so the
-# login is `sudo tailscale up --netfilter-mode=off`; a later bare
-# `tailscale up` changes nothing, one with other flags refuses unless
-# the flag is repeated. Commit 5cb5ca5 carried this in setup.sh.
+# No sshd: there is no remote access to the machine (the firewall
+# admits no service).
 enable_system_units() {
-    sudo systemctl enable paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth sshd 2>/dev/null \
-        || warn "could not enable a system unit — systemctl status paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth sshd"
+    sudo systemctl enable paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth 2>/dev/null \
+        || warn "could not enable a system unit — systemctl status paccache.timer tlp thermald systemd-oomd nftables systemd-resolved bluetooth"
     # thermald has no file under system/ to trigger a restart on, and
     # enable alone waits for the next boot: start it now
     sudo systemctl start thermald 2>/dev/null || warn "could not start thermald"
@@ -364,18 +349,12 @@ configure_boot() {
 # The services whose files changed pick them up now rather than at the
 # next boot: each of these rereads its config on restart (nftables and
 # resolved their drop-ins, oomd both its own and the slice's, tlp its
-# tlp.d, bluez its main.conf, tailscaled its /etc/default file — a
-# try-restart, so the disabled daemon stays down); the
-# sysctl.d keys are applied by systemd-sysctl's restart, journald
-# reloads its drop-in, sshd is reloaded once `sshd -t` has accepted
-# the merged config (a bad drop-in would take a running sshd down
-# with the session using it), the tmpfiles rule is applied by
-# systemd-tmpfiles; NetworkManager only reloads its conf.d and the
-# existing profiles are updated in place. The coredump drop-in needs
-# nothing: systemd-coredump reads it at each crash. Nothing runs when
-# nothing changed, so a rerun is quiet — except the start of sshd,
-# which enable alone (enable_system_units) would leave to the next
-# boot; starting a running unit does nothing.
+# tlp.d, bluez its main.conf); the sysctl.d keys are applied by
+# systemd-sysctl's restart, journald reloads its drop-in, the
+# tmpfiles rule is applied by systemd-tmpfiles; NetworkManager only
+# reloads its conf.d and the existing profiles are updated in place.
+# The coredump drop-in needs nothing: systemd-coredump reads it at
+# each crash. Nothing runs when nothing changed, so a rerun is quiet.
 configure_system_services() {
     if system_changed_under /etc/systemd/system; then
         sudo systemctl daemon-reload
@@ -397,13 +376,6 @@ configure_system_services() {
     done
     if system_changed_under /etc/systemd/resolved.conf.d; then
         sudo systemctl restart systemd-resolved
-    fi
-    if system_changed_under /etc/ssh/sshd_config.d; then
-        sudo sshd -t || die "sshd rejects the merged config (sshd -t); not reloaded"
-        sudo systemctl reload-or-restart sshd
-    fi
-    if system_changed_under /etc/default/tailscaled; then
-        sudo systemctl try-restart tailscaled
     fi
     if system_changed_under /etc/NetworkManager/conf.d; then
         sudo systemctl reload NetworkManager
@@ -435,7 +407,6 @@ configure_system_services() {
             sudo systemctl try-restart "$unit"
         fi
     done
-    sudo systemctl start sshd 2>/dev/null || warn "could not start sshd — systemctl status sshd"
 }
 
 # -------------------------------------------------------------- 6. greeter ---

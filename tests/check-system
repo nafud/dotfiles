@@ -2,10 +2,9 @@
 # check-system — acceptance tests for the system/ tree's hardening
 # layer and the setup.sh glue that installs it: bootkeep (the kernel
 # pair keeper the pacman hooks call), the hooks themselves, and the
-# drop-ins for oomd, nftables, sshd, NetworkManager, resolved,
+# drop-ins for oomd, nftables, NetworkManager, resolved,
 # faillock, tlp, bluetooth, sysctl, modprobe, coredump, journald,
-# tmpfiles, sudoers and tailscaled's environment (the daemon itself
-# is set aside: installed, not enabled), the service boundaries (the
+# tmpfiles and sudoers, the service boundaries (the
 # *.service.d/hardening.conf drop-ins and mullvad-net-cls.service,
 # scored offline by tools/sandbox-check against the vendored unit files
 # in tests/fixtures/units) — plus the polkit agent user unit.
@@ -362,10 +361,6 @@ t_nft_shape() ( set -e
     not grep -q 'flush ruleset' "$f"
     grep -q '^destroy table inet filter' "$f"
     grep -q '^table inet filter' "$f"
-    # the retired tailnet marks table (7389cef) is destroyed, since a
-    # reload rebuilds only what the file names, and not rebuilt
-    grep -q '^destroy table inet tailnet' "$f"
-    not grep -q '^table inet tailnet' "$f"
     grep -Eq 'type filter hook input priority filter; *policy drop;' "$f"
     grep -Eq 'type filter hook forward priority filter; *policy drop;' "$f"
     grep -Eq 'ct state \{ *established, *related *\} accept' "$f"
@@ -374,18 +369,18 @@ t_nft_shape() ( set -e
     grep -Eq '(meta l4proto|meta nfproto ipv6 .*) ipv6-icmp|ipv6-icmp ' "$f"
 )
 
-t_nft_ssh_tailnet_only() ( set -e
+t_nft_no_service() ( set -e
     f="$NFT_CONF"
-    # ssh opens to tailscale0 alone: every dport-22 rule names the
-    # interface, none stands alone or admits a LAN range
-    grep -E 'tcp dport (22|ssh)' "$f" | not grep -Eq -v 'iifname "tailscale0"'
-    grep -Eq '^\s*iifname "tailscale0" tcp dport (22|ssh) accept' "$f"
+    # no remote access: no rule admits ssh or any other service from
+    # the network, by port or by address range, and nothing names the
+    # tailnet that once existed
+    not grep -Eq 'dport (22|ssh)' "$f"
+    not grep -Eiq 'tailscale|tailnet' "$f"
     not grep -Eq 'saddr \{[^}]*(10\.0\.0\.0/8|192\.168\.0\.0/16|fc00::/7)' "$f"
-    # tailscaled is set aside (setup.sh, enable_system_units): the port
-    # /etc/default/tailscaled names is not open
-    port="$(sed -n 's/^PORT="\([0-9]*\)"$/\1/p' "$REPO_DIR/system/etc/default/tailscaled")"
-    [ -n "$port" ]
-    not grep -Eq "^\s*udp dport $port accept" "$f"
+    # what the input chain admits is exactly: established, loopback,
+    # ICMP both families, DHCPv6 replies, the libvirt bridge
+    input="$(sed -n '/chain input/,/^  }/p' "$f" | grep -E '^\s*[^#].* accept')"
+    [ "$(wc -l <<<"$input")" -eq 6 ]
 )
 
 t_nft_libvirt() ( set -e
@@ -404,16 +399,6 @@ t_nft_syntax() ( set -e
     # nft -c parses and resolves without touching any ruleset; inside a
     # fresh user+net namespace it needs no privilege
     unshare -rn nft -c -f "$NFT_CONF"
-)
-
-# ---------------------------------------------------------------- sshd ---
-t_sshd_keys_only() ( set -e
-    f="$REPO_DIR/system/etc/ssh/sshd_config.d/10-keys-only.conf"
-    [ "$(head -c1 "$f")" = '#' ]
-    grep -Eiq '^\s*PasswordAuthentication\s+no\s*$' "$f"
-    grep -Eiq '^\s*PermitRootLogin\s+no\s*$' "$f"
-    grep -Eiq '^\s*AuthenticationMethods\s+publickey\s*$' "$f"
-    grep -Eiq '^\s*AllowGroups\s+wheel\s*$' "$f"
 )
 
 # ------------------------------------------------------- NetworkManager ---
@@ -562,16 +547,6 @@ t_sudoers_parses() ( set -e
     visudo -cf "$SUDOERS" > /dev/null
 )
 
-# ----------------------------------------------------------- tailscaled ---
-t_tailscaled_default() ( set -e
-    f="$REPO_DIR/system/etc/default/tailscaled"
-    [ "$(head -c1 "$f")" = '#' ]
-    grep -Eq '^PORT="41641"$' "$f"
-    grep -Eq '^FLAGS="--no-logs-no-support"$' "$f"
-    # the unit reads it as an EnvironmentFile: two assignments, nothing else
-    [ "$(grep -cv '^#' "$f")" -eq 2 ]
-)
-
 # --------------------------------------------------------- polkit agent ---
 t_polkit_agent_unit() ( set -e
     f="$REPO_DIR/config/systemd/user/polkit-agent.service"
@@ -598,10 +573,11 @@ t_setup_packages() ( set -e
     # the one pacman transaction: from `sudo pacman -Syu` to its first
     # blank line, every name the new layer needs
     pkgs="$(sed -n '/sudo pacman -Syu/,/^$/p' "$SETUP" | sed 's/\\$//' | tr -s ' \n' '\n')"
-    for p in thermald nftables openssh tailscale polkit-gnome bluez bluez-utils bluetui \
+    for p in thermald nftables openssh polkit-gnome bluez bluez-utils bluetui \
              tesseract tesseract-data-eng gpu-screen-recorder; do
         grep -qxF "$p" <<<"$pkgs"
     done
+    not grep -qxF tailscale <<<"$pkgs"
 )
 
 t_setup_functions_exist() ( set -e
@@ -615,15 +591,12 @@ t_setup_functions_exist() ( set -e
 t_setup_enable_units_text() ( set -e
     body="$(sed -n '/^enable_system_units()/,/^}/p' "$SETUP")"
     [ -n "$body" ]
-    for unit in systemd-oomd nftables systemd-resolved bluetooth thermald tlp paccache.timer sshd; do
+    for unit in systemd-oomd nftables systemd-resolved bluetooth thermald tlp paccache.timer; do
         grep -Eq "systemctl enable[^|]*\b$unit\b" <<<"$body"
     done
     not grep -Eq 'systemctl disable' <<<"$body"
-    # tailscaled is set aside: installed, neither enabled nor started
-    not grep -Eq '^[^#]*\btailscaled\b' <<<"$body"
-    # sshd starts after the firewall and the drop-in are in place
-    # (configure_system_services), not here
-    not grep -Eq 'systemctl (start|enable --now)[^|]*\bsshd\b' <<<"$body"
+    # no remote access: neither sshd nor tailscaled is enabled or started
+    not grep -Eq '^[^#]*\b(sshd|tailscaled)\b' <<<"$body"
     # resolved's stub is the resolver: the symlink NetworkManager's
     # dns=systemd-resolved expects
     grep -Eq 'ln -sf? .*/run/systemd/resolve/stub-resolv.conf +/etc/resolv.conf' <<<"$body"
@@ -710,26 +683,18 @@ t_services_tlp() ( set -e
     not grep -q resolved <<<"$log"
 )
 
-# what a quiet rerun still does: sshd runs
-QUIET_RERUN='systemctl start sshd'
-
 t_services_nothing() ( set -e
+    # a rerun with nothing changed runs nothing
     log="$(services_after)"
-    [ "$log" = "$QUIET_RERUN" ]
+    [ -z "$log" ]
 )
 
-t_services_tailscaled_aside() ( set -e
-    # a rerun neither starts tailscaled nor touches its preferences,
-    # and no code line of setup.sh calls the tailscale CLI
-    log="$(services_after)"
-    not grep -q tailscale <<<"$log"
-    not grep -Eq '^[^#]*\btailscale (set|up|down|login|logout)\b' "$SETUP"
-    # the re-enable instructions keep the flag on the login command:
-    # the first `tailscale up` rebuilds the preferences from its flags
-    # (the 2026-09-01 outage), so a bare `sudo tailscale up` is wrong
-    grep -q 'tailscale up --netfilter-mode=off' "$SETUP"
-    grep -q 'tailscale up --netfilter-mode=off' "$REPO_DIR/CLAUDE.md"
-    not grep -Eq 'sudo tailscale up(`| *$)' "$SETUP" "$REPO_DIR/CLAUDE.md"
+t_services_no_remote() ( set -e
+    # no remote access: no code line of setup.sh names sshd or the
+    # tailscale daemon and CLI, and the tree ships no file for them
+    not grep -Eq '^[^#]*\b(sshd|tailscaled?)\b' "$SETUP"
+    not [ -e "$REPO_DIR/system/etc/default/tailscaled" ]
+    not [ -e "$REPO_DIR/system/etc/ssh" ]
 )
 
 t_services_sysctl() ( set -e
@@ -749,32 +714,10 @@ t_services_tmpfiles() ( set -e
     grep -Eq '^systemd-tmpfiles --create /etc/tmpfiles.d/boot.conf$' <<<"$log"
 )
 
-t_services_sshd() ( set -e
-    # sshd -t stands before the reload, and a failed check stops it
-    log="$(services_after /etc/ssh/sshd_config.d/10-keys-only.conf)"
-    grep -Eq '^sshd -t$' <<<"$log"
-    grep -Eq '^systemctl reload-or-restart sshd$' <<<"$log"
-    [ "$(grep -n 'sshd -t' <<<"$log" | cut -d: -f1)" -lt "$(grep -n 'reload-or-restart sshd' <<<"$log" | cut -d: -f1)" ]
-    b="$(mkbox)"; mkdir "$b/bin"
-    shim "$b/bin" sudo 'printf "%s\n" "$*" >> "$SHIM_LOG"; [ "$1" = sshd ] && exit 1; exit 0'
-    not env PATH="$b/bin:$PATH" SHIM_LOG="$b/log" HOME="$b" \
-        bash -c 'source "$1/setup.sh" && SYSTEM_CHANGED=(/etc/ssh/sshd_config.d/10-keys-only.conf) && configure_system_services' check-system "$REPO_DIR" 2>/dev/null
-    not grep -q 'reload-or-restart sshd' "$b/log"
-)
-
-t_services_tailscaled() ( set -e
-    log="$(services_after /etc/default/tailscaled)"
-    # try-restart: a changed environment file reaches a running
-    # daemon, a disabled one stays down
-    grep -Eq '^systemctl try-restart tailscaled$' <<<"$log"
-    not grep -Eq '^systemctl restart tailscaled$' <<<"$log"
-    not grep -q sshd_config <<<"$log"
-)
-
 t_services_coredump_quiet() ( set -e
     # systemd-coredump reads its config at each crash: no trigger
     log="$(services_after /etc/systemd/coredump.conf.d/10-storage.conf)"
-    [ "$log" = "$QUIET_RERUN" ]
+    [ -z "$log" ]
 )
 
 # --------------------------------------------------- service boundaries ---
@@ -973,7 +916,7 @@ check "hooks sort around snap-pac and mkinitcpio"       t_hook_order
 check "oomd pressure drop-in"                           t_oomd_conf
 check "user.slice oomd drop-in"                         t_oomd_user_slice
 check "nftables.conf shape"                             t_nft_shape
-check "nftables.conf opens ssh to the tailnet only"     t_nft_ssh_tailnet_only
+check "nftables.conf admits no service"                t_nft_no_service
 check "nftables.conf admits the libvirt default network" t_nft_libvirt
 # a runner may ship unshare yet forbid unprivileged user namespaces
 if have nft && unshare -rn true 2>/dev/null; then
@@ -981,7 +924,6 @@ if have nft && unshare -rn true 2>/dev/null; then
 else
     skip "nftables.conf parses (nft -c)" "nft or an unprivileged user namespace unavailable"
 fi
-check "sshd keys-only drop-in"                          t_sshd_keys_only
 check "NetworkManager privacy drop-in"                  t_nm_privacy
 check "resolved drop-in"                                t_resolved_dns
 check "faillock.conf"                                   t_faillock
@@ -998,7 +940,6 @@ if have visudo; then
 else
     skip "sudoers file parses (visudo -cf)" "visudo not installed"
 fi
-check "tailscaled environment file"                     t_tailscaled_default
 check "polkit-agent user unit"                          t_polkit_agent_unit
 check "setup.sh: SESSION_UNITS has polkit-agent"        t_setup_session_units
 check "setup.sh: pacman line lists the new packages"    t_setup_packages
@@ -1016,12 +957,10 @@ check "configure_system_services: nftables.conf"        t_services_nftables
 check "configure_system_services: resolved.conf.d"      t_services_resolved
 check "configure_system_services: tlp.d"                t_services_tlp
 check "configure_system_services: nothing changed"      t_services_nothing
-check "configure_system_services: tailscaled aside"     t_services_tailscaled_aside
+check "configure_system_services: no remote access"    t_services_no_remote
 check "configure_system_services: sysctl.d"             t_services_sysctl
 check "configure_system_services: journald.conf.d"      t_services_journald
 check "configure_system_services: tmpfiles.d"           t_services_tmpfiles
-check "configure_system_services: sshd_config.d"        t_services_sshd
-check "configure_system_services: default/tailscaled"   t_services_tailscaled
 check "configure_system_services: coredump.conf.d"      t_services_coredump_quiet
 check "boundary: wpa_supplicant"                        t_boundary_wpa_supplicant
 check "boundary: mullvad-daemon"                        t_boundary_mullvad_daemon

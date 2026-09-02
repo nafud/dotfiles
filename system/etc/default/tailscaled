@@ -1,8 +1,0 @@
-# tailscaled's environment (the package's file with the logging
-# opt-out added; the package keeps this file across upgrades as a
-# pacman backup file). PORT is the WireGuard listener the firewall
-# opens. --no-logs-no-support stops the node from streaming its logs
-# to Tailscale's log service (Arch Wiki, Tailscale: "Usage"); the
-# tailnet works the same, Tailscale support would lack the logs.
-PORT="41641"
-FLAGS="--no-logs-no-support"

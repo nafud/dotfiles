@@ -191,11 +191,11 @@ colour — that is the configuration meaning "no change", not a leftover.
 - System policy lives in `system/etc` as drop-ins, one concern per
   file, the reason in its header: memory pressure
   (`systemd/oomd.conf.d`, `user.slice.d`), the firewall
-  (`nftables.conf` — only its own table is rebuilt; Mullvad's,
-  libvirt's and, when it is back, tailscaled's tables must survive a
-  reload, and a packet must pass every table on a hook, so the libvirt
-  default network's
-  DHCP/DNS and NAT are admitted here too), DNS (`systemd/resolved.conf.d/10-dns.conf`:
+  (`nftables.conf` — only its own table is rebuilt; Mullvad's and
+  libvirt's tables must survive a reload, and a packet must pass every
+  table on a hook, so the libvirt default network's DHCP/DNS and NAT
+  are admitted here too; no service is admitted from the network,
+  there is no remote access), DNS (`systemd/resolved.conf.d/10-dns.conf`:
   no global resolver — the tunnel's own resolver and firewall rule the
   connected state, the link's DHCP resolver the disconnected one; a
   global Mullvad DNS-over-TLS pin was dropped because an ISP that
@@ -209,38 +209,12 @@ colour — that is the configuration meaning "no change", not a leftover.
   ignores an `install` rule for a module with softdeps, modprobe.d(5)),
   `coredump.conf.d` (Storage=none, the backtrace kept),
   `journald.conf.d` (1G cap), `tmpfiles.d/boot.conf` (/boot 0700),
-  `sudoers.d/10-hardening` (visudo's editor pinned), and tailscaled's
-  environment (`default/tailscaled`: `--no-logs-no-support`, port 41641).
-  Remote access is set aside for now (2026-09-02): sshd is enabled by
-  `setup.sh`, key-only (`AuthenticationMethods publickey`, `AllowGroups
-  wheel`), and the firewall admits port 22 from `tailscale0` alone —
-  the LAN never sees it and, with tailscaled installed but not
-  enabled, nobody does. Bringing it back is a revert of the set-aside
-  commit onto 5cb5ca5's state: enable and start tailscaled and set its
-  netfilter mode in `setup.sh`, open 41641/udp and restore the
-  `inet tailnet` marks table in `nftables.conf` (Mullvad's own
-  split-tunnel marks, ct 0xf41 and packet 0x6d6f6c65, on traffic to
-  100.64.0.64–100.127.255.255 and fd7a:115c:a1e0::/48 and on what
-  arrives from tailscale0; the interval starts at .64 because Mullvad's
-  DNS blocker resolvers sit at 100.64.0.1–63 inside the tunnel), then
-  test with Mullvad connected before the handover. The one rule that
-  must not be lost: tailscaled runs with netfilter mode off. Its
-  default iptables-nft `ts-input` chain drops everything from
-  100.64.0.0/10 that did not arrive on tailscale0, which killed those
-  resolvers' replies on wg0-mullvad (the 2026-09-01 outage, reproduced
-  in namespaces before the fix); `nftables.conf` is the only firewall
-  for tailscale traffic. The mode is a preference (`tailscale set
-  --netfilter-mode=off`, accepted while logged out) that the first
-  `tailscale up` of a never-logged-in daemon resets from its own
-  flags, so the login is `sudo tailscale up --netfilter-mode=off`;
-  the command without the flag turns the drop rule back on.
-  rebuilds the preferences from its flags. Secure Boot is out of scope
-  by the user's decision (QEMU/KVM work). `setup.sh system` restarts
-  exactly the services whose files changed
+  and `sudoers.d/10-hardening` (visudo's editor pinned). There is no
+  remote access to the machine: no sshd, no tailscale, by decision;
+  Secure Boot is out of scope by the same (QEMU/KVM work). `setup.sh
+  system` restarts exactly the services whose files changed
   (`configure_system_services`: sysctl re-applied, journald reloaded,
-  sshd reloaded only after `sshd -t`, tmpfiles applied,
-  `default/tailscaled` try-restarted) and starts sshd last, after the
-  firewall and drop-ins are on disk.
+  tmpfiles applied).
 - Service boundaries: `system/etc/systemd/system/*.service.d/hardening.conf`
   gives each root daemon the machine runs (wpa_supplicant, the Mullvad
   units, thermald, grub-btrfsd, udisks2) an explicit scope — the
