@@ -118,7 +118,7 @@ t_seed_wallpaper_fresh() ( set -e
     b="$(mkbox)"
     # no wallpaper recorded: the repository's default lands, mode 644
     with_setup "$b" 'seed_wallpaper > /dev/null'
-    cmp -s "$REPO_DIR/assets/wallpaper.jpg" "$b/Pictures/wallpaper.jpg"
+    cmp -s "$REPO_DIR/assets/wallpaper.png" "$b/Pictures/wallpaper.jpg"
     [ "$(stat -c %a "$b/Pictures/wallpaper.jpg")" = 644 ]
 )
 

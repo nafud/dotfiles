@@ -400,13 +400,14 @@ t_setup_packages() ( set -e
     # the one pacman transaction: from `sudo pacman -Syu` to its first
     # blank line, every name the desktop needs
     pkgs="$(sed -n '/sudo pacman -Syu/,/^$/p' "$SETUP" | sed 's/\\$//' | tr -s ' \n' '\n')"
-    for p in thermald tlp openssh polkit-gnome bluez bluez-utils bluetui plymouth greetd \
+    for p in tlp openssh polkit-gnome bluez bluez-utils bluetui plymouth greetd \
              tesseract tesseract-data-eng gpu-screen-recorder; do
         grep -qxF "$p" <<<"$pkgs"
     done
     # the machine's policy is not the workspace's: no firewall, no
-    # remote access, no device control in the transaction
-    for p in nftables tailscale usbguard; do
+    # remote access, no device control in the transaction; and no
+    # thermal daemon, by decision
+    for p in nftables tailscale usbguard thermald; do
         not grep -qxF "$p" <<<"$pkgs"
     done
 )
@@ -431,13 +432,14 @@ t_setup_functions_exist() ( set -e
 t_setup_enable_units_text() ( set -e
     body="$(sed -n '/^enable_system_units()/,/^}/p' "$SETUP")"
     [ -n "$body" ]
-    for unit in systemd-oomd bluetooth thermald tlp paccache.timer; do
+    for unit in systemd-oomd bluetooth tlp paccache.timer; do
         grep -Eq "systemctl enable[^|]*\\b$unit\\b" <<<"$body"
     done
     not grep -Eq 'systemctl disable' <<<"$body"
     # the machine's policy units are the guide's to enable, there is
-    # no remote access, and the resolver is not this script's to point
-    not grep -Eq '^[^#]*\\b(nftables|systemd-resolved|sshd|tailscaled|usbguard)\\b' <<<"$body"
+    # no remote access, no thermal daemon, and the resolver is not
+    # this script's to point
+    not grep -Eq '^[^#]*\\b(nftables|systemd-resolved|sshd|tailscaled|usbguard|thermald)\\b' <<<"$body"
     not grep -q resolv.conf <<<"$body"
 )
 
