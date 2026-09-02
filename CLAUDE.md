@@ -80,10 +80,12 @@ absent from setup.sh's one pacman transaction.
   you finish such a change.
 - `bash setup.sh link` = the user half (links, units, MIME, shell hooks,
   `niri validate`, session reload). Both halves are idempotent.
-- The wallpaper is state, not configuration: `~/Pictures/wallpaper.jpg`
-  is what `bin/wallpaper` draws, `bin/wallset` records and
-  `configure_greeter` renders the login background from.
-  `assets/wallpaper.jpg` is the default, copied there once by
+- The wallpaper is state, not configuration: `~/Pictures/wallpaper.png`
+  is what `bin/wallpaper` draws, `bin/wallset` records (a PNG whatever
+  it was given, converted by magick when needed) and
+  `configure_greeter` renders the login background from (as
+  `/usr/share/backgrounds/greeter.jpg`, a rendered copy).
+  `assets/wallpaper.png` is the default, copied there once by
   `seed_wallpaper` when nothing is recorded, never again.
 - btop and micro are deliberately part-linked (`PARTIALLY_LINKED` in
   setup.sh): they write live state beside their config. Do not link

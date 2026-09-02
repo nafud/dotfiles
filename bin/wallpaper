@@ -3,8 +3,8 @@
 # knows how. Run by wallpaper.service (config/systemd/user) for the
 # session's whole life, restarted by wallset after it records a new
 # image — so the wallpaper persists across logins by construction.
-if [ -f "$HOME/Pictures/wallpaper.jpg" ]; then
-    exec swaybg -i "$HOME/Pictures/wallpaper.jpg" -m fill
+if [ -f "$HOME/Pictures/wallpaper.png" ]; then
+    exec swaybg -i "$HOME/Pictures/wallpaper.png" -m fill
 else
     exec swaybg -c '#0d0d0d'
 fi

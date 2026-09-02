@@ -118,16 +118,16 @@ t_seed_wallpaper_fresh() ( set -e
     b="$(mkbox)"
     # no wallpaper recorded: the repository's default lands, mode 644
     with_setup "$b" 'seed_wallpaper > /dev/null'
-    cmp -s "$REPO_DIR/assets/wallpaper.png" "$b/Pictures/wallpaper.jpg"
-    [ "$(stat -c %a "$b/Pictures/wallpaper.jpg")" = 644 ]
+    cmp -s "$REPO_DIR/assets/wallpaper.png" "$b/Pictures/wallpaper.png"
+    [ "$(stat -c %a "$b/Pictures/wallpaper.png")" = 644 ]
 )
 
 t_seed_wallpaper_keeps() ( set -e
     b="$(mkbox)"; mkdir -p "$b/Pictures"
     # one recorded (by wallset, or by hand): left exactly as it is
-    printf 'the user'"'"'s own image' > "$b/Pictures/wallpaper.jpg"
+    printf 'the user'"'"'s own image' > "$b/Pictures/wallpaper.png"
     with_setup "$b" 'seed_wallpaper > /dev/null'
-    [ "$(cat "$b/Pictures/wallpaper.jpg")" = "the user's own image" ]
+    [ "$(cat "$b/Pictures/wallpaper.png")" = "the user's own image" ]
 )
 
 # ------------------------------------------------------ setup.sh: link_one ---
@@ -399,23 +399,34 @@ exit 0'
 
 t_wallset_active_session() ( set -e
     b="$(mkbox)"; mkdir -p "$b/home" "$b/bin"
-    printf 'jpeg bytes stand-in' > "$b/img"
+    printf '\x89PNG\r\n\x1a\nstand-in' > "$b/img"    # a PNG by its signature: copied as is
     shim "$b/bin" systemctl "$SYSTEMCTL_SHIM"
     HOME="$b/home" PATH="$b/bin:$PATH" SHIM_LOG="$b/log" SHIM_RC=0 \
         "$REPO_DIR/bin/wallset" "$b/img" > /dev/null
-    cmp -s "$b/img" "$b/home/Pictures/wallpaper.jpg"
+    cmp -s "$b/img" "$b/home/Pictures/wallpaper.png"
     grep -qxF -- '--user restart wallpaper.service' "$b/log"
 )
 
 t_wallset_no_session() ( set -e
     b="$(mkbox)"; mkdir -p "$b/home" "$b/bin"
-    printf 'jpeg bytes stand-in' > "$b/img"
+    printf '\x89PNG\r\n\x1a\nstand-in' > "$b/img"    # a PNG by its signature: copied as is
     shim "$b/bin" systemctl "$SYSTEMCTL_SHIM"
     HOME="$b/home" PATH="$b/bin:$PATH" SHIM_LOG="$b/log" SHIM_RC=1 \
         "$REPO_DIR/bin/wallset" "$b/img" > /dev/null
-    cmp -s "$b/img" "$b/home/Pictures/wallpaper.jpg"
+    cmp -s "$b/img" "$b/home/Pictures/wallpaper.png"
     grep -q 'is-active' "$b/log"      # it did ask whether a session is up
     ! grep -q 'restart' "$b/log"      # and touched no unit when none was
+)
+
+t_wallset_converts() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/home" "$b/bin"
+    # not a PNG: converted, so the recorded file is what its name says
+    magick -size 4x4 xc:'#336699' "$b/img.jpg"
+    shim "$b/bin" systemctl "$SYSTEMCTL_SHIM"
+    HOME="$b/home" PATH="$b/bin:$PATH" SHIM_LOG="$b/log" SHIM_RC=1 \
+        "$REPO_DIR/bin/wallset" "$b/img.jpg" > /dev/null
+    [ "$(head -c 8 "$b/home/Pictures/wallpaper.png" | od -An -tx1 | tr -d ' \n')" = 89504e470d0a1a0a ]
+    [ "$(magick identify -format %m "$b/home/Pictures/wallpaper.png")" = PNG ]
 )
 
 # --------------------------------------------------------------- bin/glass ---
@@ -613,8 +624,10 @@ check "wallset records and restarts in a session"    t_wallset_active_session
 check "wallset skips the restart without a session"  t_wallset_no_session
 if have magick; then
     check "glass renders the greeter background"     t_glass_renders
+    check "wallset converts a non-PNG to PNG"        t_wallset_converts
 else
     skip "glass renders the greeter background" "magick not installed"
+    skip "wallset converts a non-PNG to PNG" "magick not installed"
 fi
 
 exit "$failed"

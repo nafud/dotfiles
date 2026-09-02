@@ -1,14 +1,25 @@
 #!/bin/bash
 # wallset IMAGE — change the wallpaper, once. Records the image as
-# ~/Pictures/wallpaper.jpg (the state bin/wallpaper draws at every
+# ~/Pictures/wallpaper.png (the state bin/wallpaper draws at every
 # login, so the change persists) and re-applies live when a session
-# is up, by restarting the unit that draws it.
+# is up, by restarting the unit that draws it. The recorded file is a
+# PNG whatever it is given: an image that already is one (by its
+# signature, not its name) is copied, any other format is converted
+# by magick (imagemagick is in the workspace's package set), so the
+# name never lies about the content.
 set -euo pipefail
 
 img="${1:?usage: wallset IMAGE}"
+dest="$HOME/Pictures/wallpaper.png"
 
 mkdir -p "$HOME/Pictures"
-cp -- "$img" "$HOME/Pictures/wallpaper.jpg"
+if [ "$(head -c 8 -- "$img" | od -An -tx1 | tr -d ' \n')" = 89504e470d0a1a0a ]; then
+    cp -- "$img" "$dest"
+else
+    command -v magick > /dev/null \
+        || { echo "wallset: $img is not a PNG and magick is not installed to convert it" >&2; exit 1; }
+    magick "$img" "PNG:$dest"
+fi
 
 # the lock screen blurs the file itself on the next lock; the login
 # page's copy is rendered by setup.sh, which has the privilege to place it
