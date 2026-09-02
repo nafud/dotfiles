@@ -113,6 +113,23 @@ comma_locale() {
     return 1
 }
 
+# ------------------------------------------------- setup.sh: seed_wallpaper ---
+t_seed_wallpaper_fresh() ( set -e
+    b="$(mkbox)"
+    # no wallpaper recorded: the repository's default lands, mode 644
+    with_setup "$b" 'seed_wallpaper > /dev/null'
+    cmp -s "$REPO_DIR/assets/wallpaper.jpg" "$b/Pictures/wallpaper.jpg"
+    [ "$(stat -c %a "$b/Pictures/wallpaper.jpg")" = 644 ]
+)
+
+t_seed_wallpaper_keeps() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/Pictures"
+    # one recorded (by wallset, or by hand): left exactly as it is
+    printf 'the user'"'"'s own image' > "$b/Pictures/wallpaper.jpg"
+    with_setup "$b" 'seed_wallpaper > /dev/null'
+    [ "$(cat "$b/Pictures/wallpaper.jpg")" = "the user's own image" ]
+)
+
 # ------------------------------------------------------ setup.sh: link_one ---
 t_link_fresh() ( set -e
     b="$(mkbox)"
@@ -545,6 +562,8 @@ assert v.ran == ["copy"], v.ran
 assert list(v.sel()) == [R(5, 5)], list(v.sel())'
 )
 
+check "seed_wallpaper places the default once"       t_seed_wallpaper_fresh
+check "seed_wallpaper keeps a recorded wallpaper"    t_seed_wallpaper_keeps
 check "link_one creates a fresh symlink"             t_link_fresh
 check "link_one is a no-op on the correct link"      t_link_noop
 check "link_one moves a real file aside"             t_link_moves_aside
