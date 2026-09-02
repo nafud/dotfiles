@@ -7,7 +7,7 @@
     "margin-right": 5,
     "modules-left": ["niri/workspaces"],
     "modules-center": ["clock"],
-    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "custom/recording", "temperature", "bluetooth", "group/levels", "network", "custom/mullvad", "niri/language"],
+    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "custom/recording", "bluetooth", "group/levels", "network", "custom/mullvad", "niri/language"],
 
     "custom/updates": {
         "exec": "~/.config/waybar/updates.sh",
@@ -71,9 +71,6 @@
     },
 
     "group/levels": { "orientation": "inherit", "modules": ["memory", "pulseaudio", "battery"] },
-    "temperature": { "hwmon-path-abs": ["/sys/devices/platform/coretemp.0/hwmon", "/sys/devices/pci0000:00/0000:00:18.3/hwmon"],
-                     "input-filename": "temp1_input", "critical-threshold": 80, "interval": 5,
-                     "format": "", "format-critical": "<span size='79.3%' rise='878' letter_spacing='695'></span> {temperatureC}°C" },
     "memory": { "format": "<span letter_spacing='12288'></span> {percentage:>2}%", "interval": 5,
                 "on-click": "alacritty --class btop-float -e btop" },
     "pulseaudio": {

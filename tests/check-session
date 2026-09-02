@@ -416,10 +416,10 @@ t_waybar_modules() ( set -e
 import json, re, sys
 cfg = json.load(sys.stdin)
 right = cfg["modules-right"]
-for m in ("custom/recording", "temperature", "bluetooth", "group/levels"):
+for m in ("custom/recording", "bluetooth", "group/levels"):
     assert m in right, f"modules-right lacks {m}"
-assert right.index("custom/recording") < right.index("temperature"), "custom/recording must precede temperature"
-assert right.index("temperature") < right.index("bluetooth") < right.index("group/levels"), "bluetooth sits between temperature and group/levels"
+assert "temperature" not in right and "temperature" not in cfg, "no temperature readout on the bar, by decision"
+assert right.index("custom/recording") < right.index("bluetooth") < right.index("group/levels"), "bluetooth sits between recording and group/levels"
 
 rec = cfg["custom/recording"]
 assert rec["exec"] == "~/.config/waybar/recording.sh", rec.get("exec")
@@ -462,9 +462,10 @@ def rule_with(prop):
     assert hits, f"no rule with {prop}"
     return hits
 pad = rule_with(r"padding:\s*0\s+8px")
-assert any({"#bluetooth", "#custom-recording", "#temperature"} <= h for h in pad), "shared padding rule lacks bluetooth/recording"
+assert any({"#bluetooth", "#custom-recording"} <= h for h in pad), "shared padding rule lacks bluetooth/recording"
+assert not any("#temperature" in s for h in pad for s in h), "no temperature selector left"
 left = rule_with(r"padding-left:\s*9px")
-assert any({"#bluetooth", "#custom-recording", "#temperature"} <= h for h in left), "padding-left 9px rule lacks bluetooth/recording"
+assert any({"#bluetooth", "#custom-recording"} <= h for h in left), "padding-left 9px rule lacks bluetooth/recording"
 amber = rule_with(r"color:\s*#b0a06a")
 assert any({"#custom-recording.recording", "#custom-updates.updates"} <= h for h in amber), "recording is not amber alongside updates"'
 )

@@ -143,7 +143,7 @@ colour — that is the configuration meaning "no change", not a leftover.
   the tool rather than editing pixels. The PNGs are written without date
   chunks, so an unchanged rerun is byte-identical.
 - Condition modules on the bar (updates, privacy, failed units,
-  temperature, bluetooth, recording) render empty when there is nothing
+  bluetooth, recording) render empty when there is nothing
   to say and the bar collapses them; a new one follows the same rule,
   its icon span measured by `tools/waybar-icon-span`.
 - `bin/` scripts are called bare from niri binds (the login shell puts
