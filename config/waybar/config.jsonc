@@ -6,8 +6,7 @@
     "margin-left": 5,
     "margin-right": 5,
     "modules-left": ["niri/workspaces"],
-    "modules-center": ["clock"],
-    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "custom/recording", "bluetooth", "group/levels", "network", "custom/mullvad", "niri/language"],
+    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "custom/recording", "bluetooth", "group/levels", "network", "custom/mullvad", "niri/language", "clock"],
 
     "custom/updates": {
         "exec": "~/.config/waybar/updates.sh",
