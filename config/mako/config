@@ -6,11 +6,12 @@
 # cards get no blur, see the note in niri/decorations.kdl, so the
 # alpha alone carries legibility), radius 8 and nothing else: no
 # borders, the workspace's no-chips discipline. The card's top-right
-# corner lands on the tiled window's top-right corner — margin 6 (the
-# layout gap) above, 7 on the right, because the window's geometry
-# snaps one physical column inward from the gap arithmetic at 1.25
-# scale (both edges measured onto the same column, 2026-08-30); 10 px
-# between cards. Summary in the strip's hover white over body grey.
+# corner lands on the tiled window's border corner, not the focus
+# ring's — margin 7 above and 7 on the right (the layout gap plus
+# one), because at the 1.25 scale the window's border lands one
+# physical row below and one column inward of the gap arithmetic
+# (card and border both measured onto row 45 and column 1910 of the
+# 1920 px panel, 2026-09-05); 10 px between cards. Summary in the strip's hover white over body grey.
 # Duplicates group by app and summary instead of stacking. Text only —
 # icons stay out. Mod+Shift+D dismisses all from the keyboard
 # (config/niri/binds.kdl); a right click on a card does the same.
@@ -21,7 +22,7 @@ border-size=0
 border-radius=8
 width=361
 padding=10
-margin=6,7
+margin=7,7
 default-timeout=5000
 layer=top
 icons=0

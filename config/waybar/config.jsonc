@@ -3,8 +3,8 @@
     "position": "top",
     "height": 24,
     "margin-top": 5,
-    "margin-left": 5,
-    "margin-right": 5,
+    "margin-left": 6,
+    "margin-right": 8,
     "modules-left": ["niri/workspaces"],
     "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "custom/recording", "bluetooth", "group/levels", "network", "custom/mullvad", "niri/language", "clock"],
 

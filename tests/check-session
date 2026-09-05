@@ -416,6 +416,12 @@ t_waybar_modules() ( set -e
 import json, re, sys
 cfg = json.load(sys.stdin)
 right = cfg["modules-right"]
+# the strip is as wide as an unfocused full window: its edges sit on
+# the window border, not the focus ring (physical columns 8 and 1910
+# on the 1920 px panel at the 1.25 scale, measured 2026-09-05), which
+# the integer margins 6 and 8 reach after rounding
+assert (cfg["margin-left"], cfg["margin-right"]) == (6, 8), (cfg["margin-left"], cfg["margin-right"])
+assert right[-1] == "clock", "the clock closes the right group"
 for m in ("custom/recording", "bluetooth", "group/levels"):
     assert m in right, f"modules-right lacks {m}"
 assert "temperature" not in right and "temperature" not in cfg, "no temperature readout on the bar, by decision"
@@ -520,9 +526,11 @@ assert "rules" not in cfg["open"], "prepend_rules must extend the defaults, not 
 # the cards along or goes red here. The glass stays the strip's, a
 # shade firmer (0.88 — no blur behind cards, the alpha alone carries
 # legibility), and the card's top-right corner sits on the tiled
-# window's: top margin equals the layout gap, right margin gap+1 (the
-# window snaps one physical column inward at the 1.25 scale, measured
-# 2026-08-30). And no blur rule: niri paints
+# window's border corner, not the focus ring's: both margins are
+# gap+1, because at the 1.25 scale the window's border lands one
+# physical row below and one column inward of the gap arithmetic
+# (top row 45, right column 1910 on the 1920 px panel, measured
+# 2026-09-05). And no blur rule: niri paints
 # blur over the surface's whole rectangle plus a rim, a hazy box
 # around a floating card.
 t_mako_matches_bar() ( set -e
@@ -548,7 +556,7 @@ assert opt("width") == str(int(menuw) + 1), (opt("width"), menuw)
 assert opt("background-color") == "#0d0d0dE0", "card glass alpha drifted"
 kdl_layout = open("config/niri/layout.kdl").read()
 gaps = int(re.search(r"^\s*gaps (\d+)$", kdl_layout, re.M).group(1))
-assert opt("margin") == "%d,%d" % (gaps, gaps + 1), (opt("margin"), gaps)
+assert opt("margin") == "%d,%d" % (gaps + 1, gaps + 1), (opt("margin"), gaps)
 assert opt("icons") == "0"
 assert opt("border-size") == "0", "cards are borderless by decision"
 assert "border-color" not in mako, "no border colors, urgency included"
