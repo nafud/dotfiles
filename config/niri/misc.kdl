@@ -13,3 +13,9 @@ prefer-no-csd
 // same user manager.
 // XDG autostart needs no spawns either: systemd's xdg-autostart-generator
 // runs /etc/xdg/autostart under this session.
+
+// No "Important Hotkeys" pop-up at login. The overlay itself stays a
+// keypress away (binds.kdl, Mod+Shift+Slash).
+hotkey-overlay {
+    skip-at-startup
+}

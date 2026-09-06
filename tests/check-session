@@ -488,6 +488,19 @@ t_niri_validate() ( set -e
     niri validate -c "$REPO_DIR/config/niri/config.kdl" > /dev/null 2>&1
 )
 
+# The "Important Hotkeys" pop-up does not open at login; the overlay
+# stays bound to Mod+Shift+Slash.
+t_niri_hotkey_overlay() ( set -e
+    python3 - "$REPO_DIR" <<'PY'
+import re, sys
+kdl = open(sys.argv[1] + "/config/niri/misc.kdl").read()
+m = re.search(r"^hotkey-overlay\s*\{([^}]*)\}", kdl, re.M)
+assert m and re.search(r"^\s*skip-at-startup\s*$", m.group(1), re.M), "hotkey-overlay lacks skip-at-startup"
+binds = open(sys.argv[1] + "/config/niri/binds.kdl").read()
+assert re.search(r"^\s*Mod\+Shift\+Slash\s*\{\s*show-hotkey-overlay;", binds, re.M), "overlay bind missing"
+PY
+)
+
 # ------------------------------------------------------- config/yazi/yazi.toml ---
 # Opening a text or code file from yazi lands in Sublime Text, detached
 # (orphan: yazi neither blocks nor takes the window down), with micro
@@ -618,6 +631,7 @@ check "webapp-install: update-desktop-database optional"     t_webapp_without_de
 check "waybar config: recording and bluetooth modules"       t_waybar_modules
 check "waybar css: recording and bluetooth styled"           t_waybar_css
 check "niri binds: bluetui, record-toggle, shot-ocr"         t_niri_binds
+check "niri: hotkey overlay skipped at startup, still bound"  t_niri_hotkey_overlay
 if have niri; then
     check "niri validate"                                    t_niri_validate
 else
