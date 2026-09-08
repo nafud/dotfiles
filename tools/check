@@ -121,6 +121,16 @@ else:
     if len(marks) != len(session):
         sys.exit(f"    hyprlock.conf lists {len(marks)} marks {marks} for {len(session)} layouts {session}")'
 
+# The README carries setup.sh's closing summary, every row lit, as the
+# one list of what a run installs. It is generated text, so it is
+# compared against the real thing: `setup.sh summary` probes this
+# machine, the states are normalised to [ + ], and the block between
+# the README's fences must be exactly that.
+check "README carries setup.sh's summary" bash -c '
+expected="$(bash setup.sh summary 2>/dev/null | sed "s/\x1b\[[0-9;]*m//g; s/\[ - \]/[ + ]/; /^$/d")"
+actual="$(awk "/^\[setup\] installed components/,/^\x60\x60\x60/" README.md | sed "\$d")"
+[ "$expected" = "$actual" ] || { diff <(echo "$expected") <(echo "$actual") >&2; exit 1; }'
+
 # The hermetic suites (tests/) — sandboxed, no sudo, no session, no
 # display, tools they cannot find skipped with a note — speak row by
 # row as this script does, so they run direct rather than through
