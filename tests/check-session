@@ -6,8 +6,8 @@
 # recording module (gpu-screen-recorder started detached and stopped
 # with SIGINT, waybar poked with RTMIN+9), webapp-install (a Chromium
 # --app launcher as a .desktop file), and the config that wires them in:
-# the bar's bluetooth and recording entries, their CSS, the niri binds,
-# the tlp alias. Written before the features, as the acceptance
+# the bar's bluetooth and recording entries, their CSS, the niri binds.
+# Written before the features, as the acceptance
 # criteria: every row here is red until the script it names exists and
 # behaves as its comment will claim.
 #
@@ -417,10 +417,10 @@ import json, re, sys
 cfg = json.load(sys.stdin)
 right = cfg["modules-right"]
 # the strip is as wide as an unfocused full window: its edges sit on
-# the window border, not the focus ring (physical columns 8 and 1910
-# on the 1920 px panel at the 1.25 scale, measured 2026-09-05), which
-# the integer margins 6 and 8 reach after rounding
-assert (cfg["margin-left"], cfg["margin-right"]) == (6, 8), (cfg["margin-left"], cfg["margin-right"])
+# the window border, not the focus ring — the margins are the layout
+# gap, whole pixels at any quarter scale (t_edges_whole_at_quarter_scales)
+gaps = int(re.search(r"^\s*gaps (\d+)$", open("config/niri/layout.kdl").read(), re.M).group(1))
+assert (cfg["margin-left"], cfg["margin-right"]) == (gaps, gaps), (cfg["margin-left"], cfg["margin-right"], gaps)
 assert right[-1] == "clock", "the clock closes the right group"
 for m in ("custom/recording", "bluetooth", "group/levels"):
     assert m in right, f"modules-right lacks {m}"
@@ -565,6 +565,32 @@ t_nvim_init_loads() ( set -e
     fi
 )
 
+# ---------------------------------------------------- the edges, at any scale ---
+# Every length that meets a screen edge or another surface is a
+# multiple of 4 logical px, so it is a whole number of physical pixels
+# at every quarter scale (1, 1.25, 1.5, 1.75, 2) and nothing rounds:
+# the layout gap, the bar's height and three margins, the cards'
+# margins and width. The bar's exclusive zone plus the gap is where a
+# window's top border sits, and the cards' top margin from that zone
+# is the same gap, so the card's corner and the border's corner share
+# a pixel (at 1.25: the bar and the border both span columns 10 to
+# 1909 of a 1920 px panel, the card and the border both start on row 45).
+t_edges_whole_at_quarter_scales() ( set -e
+    strip_jsonc | python3 -c '
+import json, re, sys
+bar = json.load(sys.stdin)
+mako = open("config/mako/config").read()
+gaps = int(re.search(r"^\s*gaps (\d+)$", open("config/niri/layout.kdl").read(), re.M).group(1))
+lengths = {"gaps": gaps, "bar height": bar["height"], "bar margin-top": bar["margin-top"],
+           "bar margin-left": bar["margin-left"], "bar margin-right": bar["margin-right"],
+           "card width": int(re.search(r"^width=(\d+)$", mako, re.M).group(1))}
+for i, m in enumerate(re.search(r"^margin=(\d+),(\d+)$", mako, re.M).groups()):
+    lengths["card margin %d" % i] = int(m)
+for name, n in lengths.items():
+    assert n % 4 == 0, "%s is %d, not a multiple of 4" % (name, n)
+assert "margin-bottom" not in bar, "a bottom margin would move the exclusive zone off the grid"'
+)
+
 # ------------------------------------------------------------- config/mako/config ---
 # A notification is a floating content surface and dresses like the
 # others: the terminal's face size and padding, the floating menu's
@@ -596,13 +622,11 @@ termpad = re.search(r"padding = \{ x = (\d+), y = \d+ \}", term).group(1)
 assert opt("padding") == termpad, (opt("padding"), termpad)
 menu = open("config/rofi/themes/menu.rasi").read()
 menuw = re.search(r"width: (\d+)px", menu).group(1)
-# one wider than the menu: the odd width is what lands the card and
-# the bar right edges on the same physical column at the 1.25 scale
-assert opt("width") == str(int(menuw) + 1), (opt("width"), menuw)
+assert opt("width") == menuw, (opt("width"), menuw)
 assert opt("background-color") == "#0d0d0dE0", "card glass alpha drifted"
 kdl_layout = open("config/niri/layout.kdl").read()
 gaps = int(re.search(r"^\s*gaps (\d+)$", kdl_layout, re.M).group(1))
-assert opt("margin") == "%d,%d" % (gaps + 1, gaps + 1), (opt("margin"), gaps)
+assert opt("margin") == "%d,%d" % (gaps, gaps), (opt("margin"), gaps)
 assert opt("icons") == "0"
 assert opt("border-size") == "0", "cards are borderless by decision"
 assert "border-color" not in mako, "no border colors, urgency included"
@@ -611,9 +635,6 @@ assert "notifications" not in kdl or "blur true" not in kdl.split("notifications
 )
 
 # ---------------------------------------------------------- config/bash/bashrc ---
-t_bashrc_fullcharge() ( set -e
-    grep -qxF "alias fullcharge='sudo tlp fullcharge'" "$REPO_DIR/config/bash/bashrc"
-)
 
 # ------------------------------------------------------------------ lint ---
 SESSION_SCRIPTS=(bin/shot-annotate bin/shot-ocr bin/record-toggle bin/webapp-install bin/netmenu config/waybar/recording.sh)
@@ -677,8 +698,8 @@ if have nvim || have luajit; then
 else
     skip "nvim init.lua loads" "neither nvim nor luajit installed"
 fi
+check "edges are whole pixels at any quarter scale"          t_edges_whole_at_quarter_scales
 check "mako: cards follow the surface conventions"       t_mako_matches_bar
-check "bashrc: fullcharge alias"                             t_bashrc_fullcharge
 check "session scripts exist and are executable"             t_scripts_present_executable
 check "session scripts parse"                                t_scripts_parse
 if have shellcheck; then

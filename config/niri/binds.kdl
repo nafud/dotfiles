@@ -10,12 +10,10 @@ binds {
     Mod+D { spawn "rofi-toggle" "-show" "drun"; }
     // the default browser, whichever xdg-settings names (firefox here)
     Mod+B { spawn-sh "gtk-launch \"$(xdg-settings get default-web-browser)\""; }
-    Mod+M { spawn "flatpak" "run" "net.mullvad.MullvadBrowser"; }
     Mod+Shift+B { spawn "alacritty" "--class" "btop-float" "-e" "btop"; }
     // Dedicated yazi terminal. The cwd-following y() wrapper is for
     // interactive shells; here the shell would die with the window anyway.
     Mod+Y { spawn "alacritty" "-e" "yazi"; }
-    Mod+Shift+T { spawn "Telegram"; }
     // the files session: attached if it exists, created on the files layout otherwise
     Mod+W { spawn "alacritty" "-e" "zellij" "-l" "files" "attach" "-c" "files"; }
     Mod+V { spawn "clip-pick"; }

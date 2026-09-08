@@ -14,7 +14,7 @@ prefer-no-csd
 input {
     keyboard {
         xkb {
-            layout "us,ru,az"
+            layout "us"
             options "grp:alt_shift_toggle"
         }
         numlock

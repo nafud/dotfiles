@@ -300,7 +300,7 @@ class Nested:
         self.config.write_text(
             "hotkey-overlay {\n    skip-at-startup\n}\n"
             "prefer-no-csd\n"
-            "input {\n    keyboard {\n        xkb {\n            layout \"us,ru,az\"\n"
+            "input {\n    keyboard {\n        xkb {\n            layout \"us\"\n"
             "            options \"grp:alt_shift_toggle\"\n        }\n    }\n}\n"
             "layout {\n    focus-ring {\n        off\n    }\n    border {\n        off\n    }\n}\n"
             "window-rule {\n    open-fullscreen true\n}\n"

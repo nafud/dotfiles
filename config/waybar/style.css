@@ -63,7 +63,7 @@ window#waybar {
 }
 
 #memory, #pulseaudio, #battery, #bluetooth,
-#custom-updates, #custom-recording, #systemd-failed-units, #network, #custom-mullvad,
+#custom-updates, #custom-recording, #systemd-failed-units, #network,
 #language, #clock {
     color: #c0c0c0;
     padding: 0 8px;
@@ -75,7 +75,7 @@ window#waybar {
    letter's would be (the right side is handled by the span's
    letter_spacing, see tools/waybar-icon-span) */
 #memory, #pulseaudio, #battery, #bluetooth,
-#custom-updates, #custom-recording, #systemd-failed-units, #network, #custom-mullvad {
+#custom-updates, #custom-recording, #systemd-failed-units, #network {
     padding-left: 9px;
 }
 
@@ -91,7 +91,7 @@ window#waybar {
 }
 
 #memory:hover, #pulseaudio:hover, #bluetooth:hover, #custom-recording:hover,
-#custom-updates:hover, #custom-mullvad:hover, #language:hover {
+#custom-updates:hover, #language:hover {
     color: #e8e8e8;
 }
 
@@ -111,15 +111,11 @@ window#waybar {
     color: #ff5555;
 }
 
-#battery.charging, #battery.plugged, #battery.full, #custom-mullvad.connected {
+#battery.charging, #battery.plugged, #battery.full {
     color: #98b898;
 }
 
-#custom-mullvad.connecting {
-    color: #b0a06a;
-}
-
-#battery.critical:not(.charging), #custom-mullvad.error {
+#battery.critical:not(.charging) {
     color: #ff5555;
 }
 

@@ -2,11 +2,11 @@
     "layer": "top",
     "position": "top",
     "height": 24,
-    "margin-top": 5,
-    "margin-left": 6,
+    "margin-top": 4,
+    "margin-left": 8,
     "margin-right": 8,
     "modules-left": ["niri/workspaces"],
-    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "custom/recording", "bluetooth", "group/levels", "network", "custom/mullvad", "niri/language", "clock"],
+    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "custom/recording", "bluetooth", "group/levels", "network", "niri/language", "clock"],
 
     "custom/updates": {
         "exec": "~/.config/waybar/updates.sh",
@@ -35,15 +35,6 @@
         "format-connected": "<span size='88.0%' rise='486' letter_spacing='4717'>󰂱</span> {num_connections}",
         "tooltip-format-connected": "{device_enumerate}",
         "on-click": "alacritty --class bluetui-float -e bluetui"
-    },
-
-    "custom/mullvad": {
-        "exec": "~/.config/waybar/mullvad.sh",
-        "return-type": "json",
-        "restart-interval": 3,
-        "format": "{}",
-        "on-click": "~/.config/waybar/mullvad.sh gui",
-        "on-click-right": "~/.config/waybar/mullvad.sh toggle"
     },
 
     "niri/language": {

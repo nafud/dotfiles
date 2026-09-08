@@ -10,7 +10,7 @@ input {
             // (config/hypr/hyprlock.conf), and the login page's greeter
             // niri carries the same list (system/etc/greetd/niri.kdl) —
             // tools/check holds the three together.
-            layout "us,ru,az"
+            layout "us"
             options "grp:alt_shift_toggle"
         }
         repeat-delay 500

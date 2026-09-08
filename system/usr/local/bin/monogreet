@@ -77,7 +77,7 @@ MUTED = (0x66 / 255, 0x66 / 255, 0x66 / 255)
 # The lock's units. Every length here is in the output's own pixels, as
 # on the lock and the boot splash: hyprlock draws its widgets in the lock
 # surface's buffer pixels whatever the compositor's scale (a 294 + 3 ring
-# is 300 physical px on a 1920x1080 panel at scale 1.25, not 375), and
+# is 300 physical px at scale 1.25 as at 1, never 300 scaled up), and
 # plymouth paints the framebuffer. The page undoes the scale GTK would
 # apply (do_snapshot) so the three rings are one size on the same panel.
 # Text sizes are hyprlock's font_size numbers, which pango reads as

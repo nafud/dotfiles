@@ -56,8 +56,7 @@
 # apps are installed by hand afterwards). paru is bootstrapped as the
 # tool for those later AUR installs, and the bar's updates module
 # upgrades through it, but this script installs nothing from the AUR.
-# No other third-party builds, and one release-binary download: herdr,
-# the agent workspace manager, through its official installer (2b).
+# No other third-party builds, no downloads outside pacman.
 # Changes to the session environment (config/bash/profile,
 # config/environment.d) reach a running session on the next login; a
 # run says so.
@@ -112,7 +111,6 @@ install_packages() {
         alacritty waybar mako swaybg swayidle hyprlock rofi \
         yazi zellij cliphist starship chafa neovim btop \
         zathura zathura-pdf-poppler imv mpv \
-        tlp \
         openssh polkit-gnome \
         bluez bluez-utils bluetui \
         grim slurp ksnip imagemagick brightnessctl pulsemixer wtype \
@@ -178,41 +176,17 @@ install_paru() {
     paru_ok || die "paru bootstrap failed"
 }
 
-# --------------------------------------------------------------- 2b. herdr ---
-# herdr (herdr.dev) — terminal workspace manager for coding agents,
-# alongside zellij. It is the one release-binary download here: no repo
-# package, and the AUR herdr-bin would land in /usr/bin where herdr's
-# own updater (`herdr update`) cannot write and refuses to run. The
-# official installer fetches the release manifest, verifies the asset's
-# SHA-256, and drops the static binary in ~/.local/bin (on PATH through
-# config/bash/profile). From then on `herdr update` keeps it current, so
-# an existing binary is left alone — this step is install-once.
-HERDR_INSTALLER="https://herdr.dev/install.sh"
-
-install_herdr() {
-    have herdr && return 0
-    log "installing herdr (agent workspace manager) into ~/.local/bin"
-    mkdir -p "$HOME/.local/bin"
-    # fetched to a file first: a truncated download must not run half a script
-    curl -fsSL --retry 3 --connect-timeout 10 --max-time 30 \
-        "$HERDR_INSTALLER" -o "$WORK/herdr-install.sh" \
-        || die "can't fetch $HERDR_INSTALLER"
-    HERDR_INSTALL_DIR="$HOME/.local/bin" sh "$WORK/herdr-install.sh"
-    [ -x "$HOME/.local/bin/herdr" ] || die "herdr install failed"
-}
-
 # --------------------------------------------------------- 3. system units ---
 # paccache: bound the pacman cache (the @pkg subvolume is excluded from
-# snapshots but nothing else limits it). tlp: battery-side runtime
-# power tuning on the package's defaults (the kernel's own thermal
-# management is enough for the laptop; no thermal daemon). systemd-oomd
-# and bluetooth: the two drop-ins under system/etc (oomd.conf.d with
-# user.slice.d, bluetooth/main.conf). The machine's own policy units
-# (the firewall, the resolver) are the guide's to enable, not this
-# script's.
+# snapshots but nothing else limits it). systemd-oomd and bluetooth:
+# the two drop-ins under system/etc (oomd.conf.d with user.slice.d,
+# bluetooth/main.conf). No power daemon: the kernel's own management
+# is the workspace's choice on a laptop and a desktop alike. The
+# machine's own policy units (the firewall, the resolver) are the
+# guide's to enable, not this script's.
 enable_system_units() {
-    sudo systemctl enable paccache.timer tlp systemd-oomd bluetooth 2>/dev/null \
-        || warn "could not enable a system unit — systemctl status paccache.timer tlp systemd-oomd bluetooth"
+    sudo systemctl enable paccache.timer systemd-oomd bluetooth 2>/dev/null \
+        || warn "could not enable a system unit — systemctl status paccache.timer systemd-oomd bluetooth"
 }
 
 # ---------------------------------------------------------- 4. system tree ---
@@ -516,7 +490,7 @@ install_templates() {
 # The session runs on systemd user units: the packages' waybar.service
 # and mako.service, and the repo's (config/systemd/user — linked into
 # place by link_configs like any other entry) for the wallpaper, idle
-# management, clipboard history and the battery watch. All are bound to
+# management and clipboard history. All are bound to
 # graphical-session.target, which niri.service reaches once the
 # compositor is up, so they start with the session, stop with it, and
 # restart, reload and log like any unit. Enabling them is the glue only
@@ -527,11 +501,17 @@ install_templates() {
 # agent (gnome-keyring, which once carried it, is not part of this
 # desktop) — its socket unit exports SSH_AUTH_SOCK into the session.
 SESSION_UNITS=(waybar.service mako.service wallpaper.service swayidle.service
-               battwatch.service polkit-agent.service udiskie.service
+               polkit-agent.service udiskie.service
                cliphist@text.service cliphist@image.service)
 
 enable_units() {
-    local out
+    local out link
+    # a unit the repo stopped shipping leaves its wants link dangling
+    # in the linked dir (the enablement state, gitignored); dropped so
+    # the manager stops naming a unit that is gone
+    for link in "$REPO/config/systemd/user"/*.wants/*; do
+        [ -L "$link" ] && [ ! -e "$link" ] && rm "$link" && log "pruned stale wants link $link"
+    done
     systemctl --user daemon-reload 2>/dev/null || true
     out="$(systemctl --user enable "${SESSION_UNITS[@]}" waybar-updates.path gcr-ssh-agent.socket 2>&1)" \
         || warn "could not enable the user units: $out"
@@ -725,7 +705,6 @@ print_summary() {
     summary_row "Swayidle"      "idle manager"                           have swayidle
     summary_row "Yazi"          "terminal file manager (+ ya)"           have yazi
     summary_row "Zellij"        "terminal multiplexer"                   have zellij
-    summary_row "Herdr"         "agent workspace manager (herdr.dev)"    have herdr
     summary_row "Cliphist"      "clipboard history"                      have cliphist
     summary_row "Udiskie"       "removable-media automount"              have udiskie
     summary_row "Starship"      "shell prompt"                           have starship
@@ -737,7 +716,6 @@ print_summary() {
     summary_row "Imv"           "image viewer"                           have imv-wayland
     summary_row "Mpv"           "media player"                           have mpv
     summary_row "Paru"          "AUR helper (manual installs, updates)"  paru_ok
-    summary_row "TLP"           "battery power tuning"                   have tlp
     summary_row "Chafa"         "terminal image renderer (yazi preview)" have chafa
     summary_row "Fzf"           "fuzzy finder"                           have fzf
     summary_row "Zoxide"        "directory jumper"                       have zoxide
@@ -793,7 +771,6 @@ main() {
             seed_wallpaper
             system_half
             install_paru
-            install_herdr
             user_half
             print_summary
             log "wallpaper: the default is in place; wallset IMAGE records another"

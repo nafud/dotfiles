@@ -30,8 +30,8 @@ and this repository is exactly one of them:
 A policy or hardening file does not belong under `system/`, and
 `tests/check-system` fails on one. paru is bootstrapped from source (the prebuilt paru-bin links a libalpm
 soname that lags pacman's bumps — `install_paru` in setup.sh carries
-the whole story) but nothing here installs from the AUR; herdr is the
-one release-binary download. End-user applications (browser, VPN,
+the whole story) but nothing here installs from the AUR and nothing
+downloads outside pacman. End-user applications (browser, VPN,
 messengers, media) are installed by hand afterwards and deliberately
 absent from setup.sh's one pacman transaction.
 
@@ -53,7 +53,7 @@ absent from setup.sh's one pacman transaction.
    the greeter exits, and greetd starts the chosen session.
 4. **The session** — niri (`config/niri/`, one `config.kdl` including
    six topic files). No spawns in the compositor config: the daemons
-   (waybar, mako, swaybg, swayidle, cliphist×2, battwatch) are systemd
+   (waybar, mako, swaybg, swayidle, cliphist×2) are systemd
    user units bound to `graphical-session.target`. The environment
    flows one way: `config/bash/profile` (PATH with `~/.local/bin`,
    EDITOR) is imported whole by niri-session into the user manager;
@@ -200,8 +200,8 @@ colour — that is the configuration meaning "no change", not a leftover.
   (`config/hypr/hyprlock.conf`, `bin/glass`, …). Keep them in step with
   the code; a stale sentence is a bug here.
 - Don't add packages outside setup.sh's one pacman transaction (AUR is
-  bootstrapped for later manual installs only; herdr is the one
-  release-binary download).
+  bootstrapped for later manual installs only; nothing downloads
+  outside pacman).
 - Robustness at the gates: the greeter, the lock and the splash are the
   screens that must never die on bad input — a malformed .desktop file,
   a missing LED, an absent wallpaper are all "skip and carry on with a

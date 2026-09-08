@@ -12,9 +12,11 @@
 # does not get in its way.
 set -euo pipefail
 
+# a fork changes the one name here (and the URL in the README)
+GITHUB_USER=nafud
 REPO_DIR="$HOME/dotfiles"
-REPO_HTTPS="https://github.com/nafud/dotfiles.git"
-REPO_SSH="git@github.com:nafud/dotfiles.git"
+REPO_HTTPS="https://github.com/$GITHUB_USER/dotfiles.git"
+REPO_SSH="git@github.com:$GITHUB_USER/dotfiles.git"
 
 [ "$(id -u)" -eq 0 ] && { echo "run as your user, not root" >&2; exit 1; }
 command -v git >/dev/null || sudo pacman -S --needed --noconfirm git

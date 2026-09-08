@@ -16,5 +16,12 @@ layout {
         proportion 0.5
         proportion 0.66667
     }
-    gaps 6
+    // Every length that meets a screen edge or another surface — this
+    // gap, the bar's height and margins, the cards' margin and width
+    // (config/waybar/config.jsonc, config/mako/config) — is a multiple
+    // of 4 logical px: whole in physical pixels at every quarter scale
+    // (1, 1.25, 1.5, 1.75, 2), so nothing rounds and the bar's edges,
+    // the cards' corner and the windows' border meet on the same pixel
+    // column on any panel. tests/check-session holds the rule.
+    gaps 8
 }
