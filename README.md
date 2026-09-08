@@ -4,6 +4,8 @@
 [niri](https://github.com/YaLTeR/niri) tiling compositor and a
 keyboard-driven terminal stack, everything in JetBrains Mono.**
 
+<img src="assets/showcase.png" alt="niri with the bar above two tiled terminals, btop on the left and Neovim on the right" width="100%">
+
 </div>
 
 Install the base system with the

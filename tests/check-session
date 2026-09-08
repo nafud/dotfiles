@@ -573,8 +573,12 @@ t_nvim_init_loads() ( set -e
 # margins and width. The bar's exclusive zone plus the gap is where a
 # window's top border sits, and the cards' top margin from that zone
 # is the same gap, so the card's corner and the border's corner share
-# a pixel (at 1.25: the bar and the border both span columns 10 to
-# 1909 of a 1920 px panel, the card and the border both start on row 45).
+# a pixel. Measured 2026-09-08 at 1.25 on the 1920 px panel by
+# differencing screenshots: the bar spans columns 10 to 1909 and rows
+# 5 to 34, an unfocused window's border spans columns 10 to 1909 and
+# rows 45 to 1069, two columns sit 10 px apart, the card is 450 px wide
+# and ends on column 1909, and the card and the border both start on
+# row 45. The focus ring, 2 logical px, lands 3 px outside the border.
 t_edges_whole_at_quarter_scales() ( set -e
     strip_jsonc | python3 -c '
 import json, re, sys
@@ -598,13 +602,11 @@ assert "margin-bottom" not in bar, "a bottom margin would move the exclusive zon
 # the cards along or goes red here. The glass stays the strip's, a
 # shade firmer (0.88 — no blur behind cards, the alpha alone carries
 # legibility), and the card's top-right corner sits on the tiled
-# window's border corner, not the focus ring's: both margins are
-# gap+1, because at the 1.25 scale the window's border lands one
-# physical row below and one column inward of the gap arithmetic
-# (top row 45, right column 1910 on the 1920 px panel, measured
-# 2026-09-05). And no blur rule: niri paints
-# blur over the surface's whole rectangle plus a rim, a hazy box
-# around a floating card.
+# window's border corner, not the focus ring's: both margins are the
+# layout gap, a multiple of 4, so card and border meet on one pixel at
+# any quarter scale (t_edges_whole_at_quarter_scales holds the numbers).
+# And no blur rule: niri paints blur over the surface's whole rectangle
+# plus a rim, a hazy box around a floating card.
 t_mako_matches_bar() ( set -e
     python3 -c '
 import re

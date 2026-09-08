@@ -7,8 +7,9 @@
 # The card's top-right corner lands on the tiled window's border
 # corner, not the focus ring's: the margin is the layout gap
 # (niri/layout.kdl) above and on the right, and both are multiples of
-# 4 so they are whole pixels at any quarter scale and meet exactly
-# (tests/check-session holds the rule). Summary in the strip's hover
+# 4 so they are whole pixels at any quarter scale and meet exactly,
+# measured at 1.25 (tests/check-session holds the rule and the
+# numbers). Summary in the strip's hover
 # white over body grey.
 # Duplicates group by app and summary instead of stacking. Text only —
 # icons stay out. Mod+Shift+D dismisses all from the keyboard
