@@ -240,7 +240,7 @@ colour — that is the configuration meaning "no change", not a leftover.
   the code; a stale sentence is a bug here. A comment that claims a
   measurement was measured; arithmetic says "by construction".
 - The README is short on purpose and will grow after the fresh-install
-  test; `assets/desk.webp` is its showcase (the empty desk, the bar
+  test; `assets/desk.jpg` is its showcase (the empty desk, the bar
   over the wallpaper). The image file name is part of its URL on
   GitHub, whose image proxy caches by path: a new picture takes a new
   name.
