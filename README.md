@@ -4,7 +4,7 @@
 [niri](https://github.com/YaLTeR/niri) tiling compositor and a
 keyboard-driven terminal stack, everything in JetBrains Mono.**
 
-<img src="assets/showcase.png" alt="the desk at rest, the bar over the wallpaper" width="100%">
+<img src="assets/desk.png" alt="the desk at rest, the bar over the wallpaper" width="100%">
 
 </div>
 
