@@ -1,32 +1,35 @@
 // Scripts (rofi-toggle, lock, powermenu, …) are bin/, named bare: the
 // session PATH carries ~/.local/bin (config/bash/profile, imported by
-// niri-session).
+// niri-session). Every spawn bind carries a hotkey-overlay-title: the
+// overlay (Mod+Shift+Slash) would otherwise print the command line,
+// and it is the first thing a newcomer opens. niri's own actions name
+// themselves. tests/check-session holds the rule.
 binds {
     Mod+Shift+Slash { show-hotkey-overlay; }
 
-    Mod+T { spawn "alacritty"; }
-    Mod+Return { spawn "alacritty" "--class" "Alacritty-floating"; }
+    Mod+T hotkey-overlay-title="Terminal" { spawn "alacritty"; }
+    Mod+Return hotkey-overlay-title="Floating terminal" { spawn "alacritty" "--class" "Alacritty-floating"; }
     // every rofi bind toggles: pressing it again dismisses (rofi-toggle)
-    Mod+D { spawn "rofi-toggle" "-show" "drun"; }
+    Mod+D hotkey-overlay-title="Launcher" { spawn "rofi-toggle" "-show" "drun"; }
     // the default browser, whichever xdg-settings names (firefox here)
-    Mod+B { spawn-sh "gtk-launch \"$(xdg-settings get default-web-browser)\""; }
-    Mod+Shift+B { spawn "alacritty" "--class" "btop-float" "-e" "btop"; }
+    Mod+B hotkey-overlay-title="Browser" { spawn-sh "gtk-launch \"$(xdg-settings get default-web-browser)\""; }
+    Mod+Shift+B hotkey-overlay-title="System monitor" { spawn "alacritty" "--class" "btop-float" "-e" "btop"; }
     // Dedicated yazi terminal. The cwd-following y() wrapper is for
     // interactive shells; here the shell would die with the window anyway.
-    Mod+Y { spawn "alacritty" "-e" "yazi"; }
+    Mod+Y hotkey-overlay-title="Files in yazi" { spawn "alacritty" "-e" "yazi"; }
     // the files session: attached if it exists, created on the files layout otherwise
-    Mod+W { spawn "alacritty" "-e" "zellij" "-l" "files" "attach" "-c" "files"; }
-    Mod+V { spawn "clip-pick"; }
+    Mod+W hotkey-overlay-title="Files session" { spawn "alacritty" "-e" "zellij" "-l" "files" "attach" "-c" "files"; }
+    Mod+V hotkey-overlay-title="Clipboard history" { spawn "clip-pick"; }
     // window switcher: fuzzy-jump to any open window by app or title
-    Mod+Space { spawn "rofi-toggle" "-show" "windows" "-modes" "windows:rofi-windows"; }
-    Mod+Shift+L { spawn "lock"; }
-    Mod+Escape { spawn "powermenu"; }
-    Mod+Shift+D { spawn "makoctl" "dismiss" "-a"; }
+    Mod+Space hotkey-overlay-title="Window switcher" { spawn "rofi-toggle" "-show" "windows" "-modes" "windows:rofi-windows"; }
+    Mod+Shift+L hotkey-overlay-title="Lock" { spawn "lock"; }
+    Mod+Escape hotkey-overlay-title="Power menu" { spawn "powermenu"; }
+    Mod+Shift+D hotkey-overlay-title="Dismiss notifications" { spawn "makoctl" "dismiss" "-a"; }
     // floating TUI popups, btop-style: network and audio
-    Mod+N { spawn "netmenu"; }
-    Mod+A { spawn "alacritty" "--class" "mixer-float" "-e" "pulsemixer"; }
-    Mod+Ctrl+B { spawn "alacritty" "--class" "bluetui-float" "-e" "bluetui"; }
-    Mod+Ctrl+R { spawn "record-toggle"; }
+    Mod+N hotkey-overlay-title="Network" { spawn "netmenu"; }
+    Mod+A hotkey-overlay-title="Audio mixer" { spawn "alacritty" "--class" "mixer-float" "-e" "pulsemixer"; }
+    Mod+Ctrl+B hotkey-overlay-title="Bluetooth" { spawn "alacritty" "--class" "bluetui-float" "-e" "bluetui"; }
+    Mod+Ctrl+R hotkey-overlay-title="Screen recording, start or stop" { spawn "record-toggle"; }
 
     Mod+O { toggle-overview; }
 
@@ -73,11 +76,11 @@ binds {
     // -l 2.0 lets the raise run to 200% (software gain above 100%
     // amplifies digitally and can clip on loud material; the bar shows
     // the same 200% ceiling)
-    XF86AudioRaiseVolume allow-when-locked=true { spawn "wpctl" "set-volume" "-l" "2.0" "@DEFAULT_AUDIO_SINK@" "0.1+"; }
-    XF86AudioLowerVolume allow-when-locked=true { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1-"; }
-    XF86AudioMute allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle"; }
-    XF86MonBrightnessUp allow-when-locked=true { spawn "brightnessctl" "set" "5%+"; }
-    XF86MonBrightnessDown allow-when-locked=true { spawn "brightnessctl" "set" "5%-"; }
+    XF86AudioRaiseVolume allow-when-locked=true hotkey-overlay-title="Volume up" { spawn "wpctl" "set-volume" "-l" "2.0" "@DEFAULT_AUDIO_SINK@" "0.1+"; }
+    XF86AudioLowerVolume allow-when-locked=true hotkey-overlay-title="Volume down" { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1-"; }
+    XF86AudioMute allow-when-locked=true hotkey-overlay-title="Mute" { spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle"; }
+    XF86MonBrightnessUp allow-when-locked=true hotkey-overlay-title="Brightness up" { spawn "brightnessctl" "set" "5%+"; }
+    XF86MonBrightnessDown allow-when-locked=true hotkey-overlay-title="Brightness down" { spawn "brightnessctl" "set" "5%-"; }
 
     Mod+Shift+E { quit; }
     // Screenshot family on S (no Print key on a 75% board); niri's built-in
@@ -86,6 +89,6 @@ binds {
     Mod+S { screenshot; }
     Mod+Ctrl+S { screenshot-screen; }
     Mod+Alt+S { screenshot-window; }
-    Mod+Shift+S { spawn "shot-annotate"; }
-    Mod+Ctrl+Shift+S { spawn "shot-ocr"; }
+    Mod+Shift+S hotkey-overlay-title="Screenshot, then annotate" { spawn "shot-annotate"; }
+    Mod+Ctrl+Shift+S hotkey-overlay-title="Screenshot to text" { spawn "shot-ocr"; }
 }

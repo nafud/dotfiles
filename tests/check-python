@@ -496,10 +496,12 @@ class CrossFileTest(unittest.TestCase):
         # the lock's layout mark sits at (0, -185) and its feedback line
         # at (0, -215): one 30px pitch apart, the same LINE = 30 the
         # splash spaces its two lines by (and monogreet's y + 30);
-        # -185 itself is monogreet's LINE_Y under the ring's centre
+        # -185 itself is monogreet's LINE_Y under the ring's centre.
+        # The mark's block is commented out with one layout
+        # (tools/check), so a commented position counts too
         line = int(re.search(r"^LINE\s*=\s*(\d+);", self.script, re.M).group(1))
         offsets = sorted(int(y) for y in
-                         re.findall(r"^\s*position\s*=\s*0,\s*-(\d+)", self.conf, re.M))
+                         re.findall(r"^\s*#?\s*position\s*=\s*0,\s*-(\d+)", self.conf, re.M))
         self.assertEqual(len(offsets), 2)
         self.assertEqual(offsets[1] - offsets[0], line)
         self.assertEqual(offsets[0], monogreet.LINE_Y)

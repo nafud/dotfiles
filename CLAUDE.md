@@ -13,10 +13,14 @@ entries, the LTS kernel as the fallback. Four things have four homes,
 and this repository is exactly one of them:
 
 - **The workspace** — this repository: `config/`, `bin/`, `icons/`,
-  `templates/`, `applications/`, `assets/`, and under `system/` only what the desktop
-  needs below the user (the boot chain, the login page, bootkeep for
-  snapshot rollbacks, oomd on the user slice, bluez's adapter policy).
-  Machine-neutral, installable on a fresh Arch in one command.
+  `templates/`, `applications/`, `assets/`, and under `system/` only
+  what the desktop needs below the user (the boot chain, the login
+  page, bootkeep for snapshot rollbacks, oomd on the user slice,
+  bluez's adapter policy). Machine-neutral, installable on a fresh
+  Arch in one command: no hardware name, no panel size, no personal
+  bind or account anywhere in the tree. The boot half presumes the
+  guide's GRUB and kernels that ship a pkgbase under
+  `/usr/lib/modules`; setup.sh keeps whichever are installed.
 - **The base system and its policy** — the guide's chapters:
   partitioning, crypttab, snapper, and every hardening step (the
   firewall, sysctls, module rules, service boundaries, journald,
@@ -28,12 +32,17 @@ and this repository is exactly one of them:
   each step lives.
 
 A policy or hardening file does not belong under `system/`, and
-`tests/check-system` fails on one. paru is bootstrapped from source (the prebuilt paru-bin links a libalpm
-soname that lags pacman's bumps — `install_paru` in setup.sh carries
-the whole story) but nothing here installs from the AUR and nothing
-downloads outside pacman. End-user applications (browser, VPN,
-messengers, media) are installed by hand afterwards and deliberately
-absent from setup.sh's one pacman transaction.
+`tests/check-system` fails on one. paru is bootstrapped from source
+(the prebuilt paru-bin links a libalpm soname that lags pacman's bumps
+— `install_paru` in setup.sh carries the whole story) but nothing here
+installs from the AUR and nothing downloads outside pacman. End-user
+applications (browser, VPN, messengers, media) are installed by hand
+afterwards and deliberately absent from setup.sh's one pacman
+transaction. What the workspace configures it also names: Files
+(nautilus) and NetworkManager are in the package list because
+`apply_desktop_prefs`, the templates, `bin/netmenu` and the bar's
+network module speak to them, not left to arrive as someone's
+dependency (`tests/check-system` holds the list).
 
 ## Boot to desktop, the whole chain
 
@@ -53,8 +62,12 @@ absent from setup.sh's one pacman transaction.
    the greeter exits, and greetd starts the chosen session.
 4. **The session** — niri (`config/niri/`, one `config.kdl` including
    six topic files). No spawns in the compositor config: the daemons
-   (waybar, mako, swaybg, swayidle, cliphist×2) are systemd
-   user units bound to `graphical-session.target`. The environment
+   (waybar, mako, swaybg, swayidle, cliphist×2, udiskie, the polkit
+   agent) are systemd user units bound to `graphical-session.target`.
+   swayidle powers the screens off after ten idle minutes and locks
+   before sleep and on the system's lock request; there is no timed
+   lock, by decision (locking is Mod+Shift+L or the power menu). The
+   environment
    flows one way: `config/bash/profile` (PATH with `~/.local/bin`,
    EDITOR) is imported whole by niri-session into the user manager;
    `config/environment.d/` adds what a login shell doesn't set;
@@ -100,6 +113,21 @@ absent from setup.sh's one pacman transaction.
   `systemctl --user enable` writes through the symlinked dir into the
   repo; it is gitignored on purpose, never committed.
 
+## The grid
+
+Every length that meets a screen edge or another surface is a
+multiple of 4 logical px, so it is a whole number of physical pixels
+at every quarter scale (1, 1.25, 1.5, 1.75, 2) and nothing rounds: the
+layout gap (8), the bar's height (24) and margins (4 above, 8 at the
+sides), the cards' margin (8) and width (360, the menu's). The bar's
+exclusive zone plus the gap is where a window's top border sits and a
+card's top margin from that zone is the same gap, so the card's corner
+and the border's corner share a pixel on any panel. Measured at 1.25
+on a 1920 px panel by screenshot differencing (the numbers are in
+`tests/check-session`'s `t_edges_whole_at_quarter_scales`, which holds
+the rule). A new number that touches an edge is a multiple of 4 or the
+suite goes red.
+
 ## The design in one paragraph
 
 One palette everywhere: ground `#0d0d0d`, rest `#c0c0c0`, lit `#e8e8e8`,
@@ -112,7 +140,7 @@ lit quadrant per keystroke, the field appearing on the first keystroke
 and fading `fade_timeout` (2s) + 800ms after it empties; the **login
 page** (`system/usr/local/bin/monogreet`, a GTK4 greetd greeter) copies
 all of that, drawing in the output's physical pixels with text sizes in
-points at 96 dpi so the two match on the 1.25-scale panel; the **boot
+points at 96 dpi so the two match on a fractionally scaled panel; the **boot
 splash** (`system/usr/share/plymouth/themes/mono/`) has no ring — only
 a two-line block on the screen's centre: the typed characters as a row
 of dots on the line 15px above it, the passphrase prompt on the line
@@ -137,10 +165,21 @@ colour — that is the configuration meaning "no change", not a leftover.
 
 ## Invariants that span files
 
-- The keyboard layout list lives in three places that cannot share one:
-  `config/niri/input.kdl`, `system/etc/greetd/niri.kdl`, and the
-  `$LAYOUT[…]` marks in `config/hypr/hyprlock.conf`. `tools/check`
-  fails if they disagree.
+- The keyboard layout list lives in two places that cannot share one:
+  `config/niri/input.kdl` and `system/etc/greetd/niri.kdl`. The mark
+  that names the current layout shows only where there is something
+  to switch: with one layout the bar's `niri/language` and the lock's
+  `$LAYOUT[…]` label stay commented out and the login page hides its
+  own; with two or more, both are live and the lock lists one mark per
+  layout in order. `tools/check` holds the lists and the rule, and
+  says which line to uncomment.
+- Every spawn bind in `config/niri/binds.kdl` carries a
+  `hotkey-overlay-title`; the overlay (Mod+Shift+Slash) would print
+  the command line otherwise. Sentence case, no repeats
+  (`tests/check-session`).
+- `config/waybar/config.jsonc` is JSONC: line comments are allowed and
+  stripped by `tools/check` and the suite, but a comment must not hold
+  a double quote (that is how a URL inside a string is told apart).
 - Geometry numbers (ring 300, edge 3, line at 185, feedback line +30,
   fonts 60/16pt) are duplicated by design across hyprlock.conf,
   monogreet, mono.script and tools/ring-screens-test — change one,
@@ -198,7 +237,16 @@ colour — that is the configuration meaning "no change", not a leftover.
 
 - Comments are prose that explains *why* and names the cross-references
   (`config/hypr/hyprlock.conf`, `bin/glass`, …). Keep them in step with
-  the code; a stale sentence is a bug here.
+  the code; a stale sentence is a bug here. A comment that claims a
+  measurement was measured; arithmetic says "by construction".
+- The README is short on purpose and will grow after the fresh-install
+  test; `assets/desk.jpg` is its showcase (the empty desk, the bar
+  over the wallpaper). The image file name is part of its URL on
+  GitHub, whose image proxy caches by path: a new picture takes a new
+  name.
+- Development tools (shellcheck, jq, python) are not the workspace's;
+  setup.sh does not install them and `tools/check` names the missing
+  one.
 - Don't add packages outside setup.sh's one pacman transaction (AUR is
   bootstrapped for later manual installs only; nothing downloads
   outside pacman).

@@ -448,6 +448,10 @@ t_setup_configure_boot_text() ( set -e
     grep -q 'system_changed_under /etc/pacman.d/hooks' <<<"$body"
     grep -q 'bootkeep backup' <<<"$body"
     grep -q 'bootkeep keep' <<<"$body"
+    # the kernels to keep are the ones installed (each ships
+    # /usr/lib/modules/<kver>/pkgbase), never a written list
+    grep -q 'modules/\*/pkgbase' <<<"$body"
+    not grep -Eq "printf '?linux" <<<"$body"
     # a hook change regenerates grub.cfg so the kept pairs show as entries
     hooks_branch="$(sed -n '/system_changed_under \/etc\/pacman.d\/hooks/,/fi/p' <<<"$body")"
     grep -q 'grub-mkconfig -o /boot/grub/grub.cfg' <<<"$hooks_branch"
@@ -456,6 +460,23 @@ t_setup_configure_boot_text() ( set -e
     initramfs_branch="$(sed -n '/system_changed_under \/etc\/mkinitcpio.conf.d/,/fi/p' <<<"$body")"
     grep -q 'mkinitcpio -P' <<<"$initramfs_branch"
     not grep -q modprobe <<<"$body"
+)
+
+# The package list names what the workspace configures: Files
+# (nautilus, gsettings and templates in apply_desktop_prefs and
+# install_templates) and NetworkManager (bin/netmenu, the bar's network
+# module) must not arrive as somebody else's dependency; 7zip is the
+# archiver's current name (p7zip is a provides that pacman still
+# resolves, and nothing more).
+t_setup_packages_named() ( set -e
+    body="$(sed -n '/^install_packages()/,/^}/p' "$SETUP")"
+    for pkg in nautilus networkmanager 7zip neovim niri; do
+        grep -Eq "(^|[[:space:]])$pkg([[:space:]]|\\\\|$)" <<<"$body" || { echo "install_packages lacks $pkg" >&2; return 1; }
+    done
+    not grep -q p7zip <<<"$body"
+    summary="$(sed -n '/^print_summary()/,/^}/p' "$SETUP")"
+    grep -q 'have nautilus' <<<"$summary"
+    grep -q 'have nmcli' <<<"$summary"
 )
 
 # install_system_files against the sudo shim: the log holds every
@@ -572,6 +593,7 @@ check "setup.sh: pacman line lists the workspace packages" t_setup_packages
 check "setup.sh: the system functions exist, the migrations do not" t_setup_functions_exist
 check "setup.sh: enable_system_units enables the set"   t_setup_enable_units_text
 check "setup.sh: configure_boot primes bootkeep"        t_setup_configure_boot_text
+check "setup.sh: Files, NetworkManager, 7zip named"     t_setup_packages_named
 check "setup.sh: install modes (755 scripts, 644 files), no removal" t_setup_install_modes
 check "configure_system_services: nothing changed"      t_services_nothing
 check "configure_system_services: no remote access"     t_services_no_remote

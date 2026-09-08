@@ -1,7 +1,7 @@
 prefer-no-csd
 
 // Nothing is spawned here. The session's daemons — the bar, notifications,
-// wallpaper, idle management, clipboard history, the battery watch — are
+// wallpaper, idle management, clipboard history, the automounter — are
 // systemd user units (the packages' own waybar.service and mako.service,
 // the repo's under config/systemd/user), bound to graphical-session.target,
 // which niri.service reaches once the compositor is up; setup.sh enables

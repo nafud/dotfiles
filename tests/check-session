@@ -484,6 +484,49 @@ t_niri_binds() ( set -e
     grep -qE '^\s*Mod\+Ctrl\+Shift\+S\s.*spawn "shot-ocr"' "$f"
 )
 
+# Every spawn bind names itself for the hotkey overlay: without a
+# hotkey-overlay-title niri prints the command line ("rofi-toggle
+# -show drun"), and the overlay is the first thing a newcomer opens.
+t_niri_spawn_binds_titled() ( set -e
+    python3 - "$REPO_DIR" <<'PY'
+import re, sys
+binds = open(sys.argv[1] + "/config/niri/binds.kdl").read()
+untitled = [l.strip() for l in binds.splitlines()
+            if re.search(r"\{\s*spawn(-sh)?\s", l) and "hotkey-overlay-title=" not in l]
+assert not untitled, "spawn binds without a title:\n" + "\n".join(untitled)
+titles = re.findall(r'hotkey-overlay-title="([^"]*)"', binds)
+assert all(t and t[0].isupper() for t in titles), "titles are sentence case: %r" % titles
+assert len(titles) == len(set(titles)), "a title repeats"
+PY
+)
+
+# The layout mark shows where there is something to switch: with one
+# layout in config/niri/input.kdl the bar's niri/language and the
+# lock's $LAYOUT label stay commented out (the login page hides its
+# mark on its own, monogreet's layout_mark); with two or more, both
+# are live and the lock lists a mark per layout. tools/check holds the
+# same rule for CI; this is the session suite's copy with the bar's
+# JSON actually parsed.
+t_layout_mark_follows_the_list() ( set -e
+    python3 - "$REPO_DIR" <<'PY'
+import json, re, sys
+repo = sys.argv[1]
+layouts = re.search(r'^\s*layout\s+"([^"]*)"', open(repo + "/config/niri/input.kdl").read(), re.M).group(1).split(",")
+bar_text = open(repo + "/config/waybar/config.jsonc").read()
+bar = json.loads(re.sub(r"^\s*//.*$", "", bar_text, flags=re.M))
+lock = open(repo + "/config/hypr/hyprlock.conf").read()
+live_marks = re.findall(r"^\s*text\s*=\s*\$LAYOUT\[([^\]]*)\]", lock, re.M)
+if len(layouts) == 1:
+    assert "niri/language" not in bar["modules-right"], "one layout: no mark on the bar"
+    assert not live_marks, "one layout: no mark on the lock"
+else:
+    assert "niri/language" in bar["modules-right"], "%d layouts: the bar shows the mark" % len(layouts)
+    assert live_marks and len(live_marks[0].split(",")) == len(layouts), "the lock lists one mark per layout"
+assert "niri/language" in bar, "the module definition stays, live or not"
+assert "$LAYOUT[" in lock, "the label block stays, live or commented"
+PY
+)
+
 t_niri_validate() ( set -e
     niri validate -c "$REPO_DIR/config/niri/config.kdl" > /dev/null 2>&1
 )
@@ -595,6 +638,25 @@ for name, n in lengths.items():
 assert "margin-bottom" not in bar, "a bottom margin would move the exclusive zone off the grid"'
 )
 
+# --------------------------------------- config/systemd/user/swayidle.service ---
+# No timed lock: the screens power off after idle and the lock runs
+# before sleep and on the system's lock request, but locking on a
+# timer is not the workspace's to decide.
+t_swayidle_no_timed_lock() ( set -e
+    python3 - "$REPO_DIR" <<'PY'
+import re, sys
+unit = open(sys.argv[1] + "/config/systemd/user/swayidle.service").read()
+exec_ = re.search(r"^ExecStart=(.*?)(?=^\S|\Z)", unit, re.M | re.S).group(1)
+timeouts = re.findall(r"timeout\s+(\d+)\s+(.*)", exec_)   # one timeout per line, its command quoted
+assert timeouts, "no idle timeout at all"
+assert not any("lock" in cmd for _, cmd in timeouts), "a timed lock: %r" % timeouts
+assert any("power-off-monitors" in cmd for _, cmd in timeouts), "the screens never power off"
+assert re.search(r"before-sleep\s+\S*/lock\b", exec_), "no lock before sleep"
+assert re.search(r"\block\s+\S*/lock\b", exec_), "loginctl lock-session unanswered"
+assert "-w" in exec_.split(), "swayidle must wait for the lock command"
+PY
+)
+
 # ------------------------------------------------------------- config/mako/config ---
 # A notification is a floating content surface and dresses like the
 # others: the terminal's face size and padding, the floating menu's
@@ -688,6 +750,9 @@ check "waybar config: recording and bluetooth modules"       t_waybar_modules
 check "waybar css: recording and bluetooth styled"           t_waybar_css
 check "niri binds: bluetui, record-toggle, shot-ocr"         t_niri_binds
 check "niri: hotkey overlay skipped at startup, still bound"  t_niri_hotkey_overlay
+check "niri binds: every spawn bind titled for the overlay"  t_niri_spawn_binds_titled
+check "swayidle: screens off on idle, no timed lock"         t_swayidle_no_timed_lock
+check "layout mark: on the bar and lock only with a choice"  t_layout_mark_follows_the_list
 if have niri; then
     check "niri validate"                                    t_niri_validate
 else

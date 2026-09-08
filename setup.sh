@@ -2,7 +2,9 @@
 #
 # setup.sh — bootstrap for the niri desktop dotfiles
 # Target: Arch Linux (base install per the Kiln guide linked in the
-# README), fresh or existing.
+# README), fresh or existing. The boot half presumes the guide's
+# choices: GRUB, and kernels that ship a pkgbase under
+# /usr/lib/modules (linux and linux-lts there; any set works).
 #
 # The repository layout is the source of truth:
 #   config/   mirrors ~/.config and is symlinked there, entry by entry —
@@ -103,7 +105,13 @@ font_ok() { fc-match "$MONO_FONT" | grep -q "JetBrainsMono Nerd Font"; }
 # upgrades are not). noto-fonts and
 # noto-fonts-emoji stand behind JetBrains Mono for the scripts and emoji
 # it lacks — without a fallback those render as hex boxes (in
-# notifications first: chat apps).
+# notifications first: chat apps). Files (nautilus) is the desktop's
+# GUI file manager and is configured below (apply_desktop_prefs,
+# install_templates, the gtk.css and icon theme), so it is named here
+# rather than left to arrive as a portal's dependency; NetworkManager
+# is the guide's network stack, named here because bin/netmenu and
+# the bar's network module speak to it — installed already on a
+# machine built per the guide, --needed makes that free.
 install_packages() {
     log "pacman packages"
     sudo pacman -Syu --needed --noconfirm \
@@ -111,12 +119,12 @@ install_packages() {
         alacritty waybar mako swaybg swayidle hyprlock rofi \
         yazi zellij cliphist starship chafa neovim btop \
         zathura zathura-pdf-poppler imv mpv \
-        openssh polkit-gnome \
+        nautilus networkmanager openssh polkit-gnome \
         bluez bluez-utils bluetui \
         grim slurp ksnip imagemagick brightnessctl pulsemixer wtype \
         tesseract tesseract-data-eng gpu-screen-recorder \
         fzf zoxide wl-clipboard fd ripgrep eza bat git-delta jq \
-        p7zip unzip xdg-user-dirs \
+        7zip unzip xdg-user-dirs \
         libnotify gcr-4 qt5-wayland udiskie exfatprogs \
         gsettings-desktop-schemas adwaita-icon-theme \
         xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-gnome \
@@ -269,10 +277,12 @@ configure_boot() {
     # the bootkeep hooks (system/etc/pacman.d/hooks) act at the next
     # kernel upgrade; prime them so today's kernels are already kept
     # under their version names, /boot is mirrored, and the menu shows
-    # the entries now
+    # the entries now. The kernels are whatever is installed: each
+    # ships its pkgbase name under its modules dir, the same file
+    # bootkeep itself reads, so no kernel list is written here
     if system_changed_under /etc/pacman.d/hooks || system_changed_under /usr/local/bin/bootkeep; then
         log "keeping the current kernels for snapshot rollback"
-        printf 'linux\nlinux-lts\n' | sudo /usr/local/bin/bootkeep keep
+        cat /usr/lib/modules/*/pkgbase 2>/dev/null | sort -u | sudo /usr/local/bin/bootkeep keep
         sudo /usr/local/bin/bootkeep backup
         sudo grub-mkconfig -o /boot/grub/grub.cfg
     fi
@@ -710,6 +720,8 @@ print_summary() {
     summary_row "Starship"      "shell prompt"                           have starship
     summary_row "Btop"          "system monitor"                         have btop
     summary_row "Neovim"        "text editor"                            have nvim
+    summary_row "Files"         "GUI file manager (nautilus)"            have nautilus
+    summary_row "NetworkMgr"    "network stack (bar module, netmenu)"    have nmcli
     summary_row "Zathura"       "PDF viewer"                             have zathura
     # the imv package ships imv-wayland/imv-x11 plus a wrapper for its
     # desktop file — probe the wayland binary, not a bare `imv`

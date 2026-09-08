@@ -6,7 +6,11 @@
     "margin-left": 8,
     "margin-right": 8,
     "modules-left": ["niri/workspaces"],
-    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "custom/recording", "bluetooth", "group/levels", "network", "niri/language", "clock"],
+    "modules-right": ["tray", "custom/updates", "privacy", "systemd-failed-units", "custom/recording", "bluetooth", "group/levels", "network", "clock"],
+    // the keyboard layout mark, niri/language, goes before the clock
+    // when config/niri/input.kdl lists two or more layouts: with one
+    // there is nothing to switch and the bar, the lock and the login
+    // page all stay silent (tools/check holds the rule)
 
     "custom/updates": {
         "exec": "~/.config/waybar/updates.sh",

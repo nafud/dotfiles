@@ -12,10 +12,17 @@
 # binary: `niri validate` on config/niri/config.kdl, which CI runs in an
 # Arch container and `setup.sh link` runs here.
 #
-# Needs: bash, shellcheck, python3 (3.11+, tomllib), jq.
+# Needs: bash, shellcheck, python3 (3.11+, tomllib), jq — development
+# tools, not the workspace's, so setup.sh does not install them:
+# `pacman -S shellcheck python jq`. Missing, this script says which.
 # shellcheck disable=SC2016  # the inline bash and python snippets are meant literally
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+
+for tool in shellcheck python3 jq; do
+    command -v "$tool" > /dev/null 2>&1 \
+        || { echo "tools/check needs $tool (pacman -S shellcheck python jq)" >&2; exit 1; }
+done
 
 failed=0
 check() {   # check NAME COMMAND... — run (its stdout dropped, failures speak on stderr), report, remember
@@ -52,7 +59,12 @@ for path in sys.argv[1:]:
         compile(fh.read(), path, "exec")' "${python_scripts[@]}"
 check "scripts are executable" bash -c 'for f; do [ -x "$f" ] || { echo "    $f is not executable" >&2; exit 1; }; done' _ \
     bootstrap.sh bin/* tools/* tests/check-* config/waybar/*.sh system/usr/local/bin/*
-check "waybar config is JSON" jq -e . config/waybar/config.jsonc
+# waybar reads JSONC: line comments (none holding a quote, so a URL in
+# a string is safe) are stripped the way tests/check-session does
+check "waybar config is JSON (comments stripped)" python3 -c '
+import json, re
+text = open("config/waybar/config.jsonc").read()
+json.loads(re.sub(r"(^|(?<=\s))//[^\"\n]*$", "", text, flags=re.M))'
 check "TOML configs parse" python3 -c '
 import glob, tomllib
 for path in sorted(glob.glob("config/**/*.toml", recursive=True)
@@ -78,21 +90,36 @@ for path in sorted(glob.glob("config/systemd/user/*.service") + glob.glob("confi
     unit.read(path, encoding="utf-8")
     assert "Unit" in unit, f"{path}: no [Unit]"
     assert "Service" in unit or "Path" in unit, f"{path}: no [Service]/[Path]"'
-# The layout list lives in config/niri/input.kdl (the session),
+# The layout list lives in config/niri/input.kdl (the session) and
 # system/etc/greetd/niri.kdl (the login page, which must type the
-# password in the same layouts) and config/hypr/hyprlock.conf (the
-# lock's $LAYOUT[...] marks, positional over that list).
-check "keyboard layout lists agree" python3 -c '
+# password in the same layouts). The mark that names the current one
+# shows only where there is something to switch: with one layout the
+# bar's niri/language and the lock's $LAYOUT[...] label stay commented
+# out (the login page hides its own); with two or more, both are live
+# and the lock's marks are positional over the list.
+check "keyboard layout lists agree, the mark follows them" python3 -c '
 import re, sys
 def layouts(path):
     return re.search(r"^\s*layout\s+\"([^\"]*)\"", open(path).read(), re.M).group(1).split(",")
 session = layouts("config/niri/input.kdl")
 greeter = layouts("system/etc/greetd/niri.kdl")
-marks = re.search(r"^\s*text\s*=\s*\$LAYOUT\[([^\]]*)\]", open("config/hypr/hyprlock.conf").read(), re.M).group(1).split(",")
 if greeter != session:
     sys.exit(f"    greeter niri.kdl has {greeter}, input.kdl has {session}")
-if len(marks) != len(session):
-    sys.exit(f"    hyprlock.conf lists {len(marks)} marks {marks} for {len(session)} layouts {session}")'
+bar = re.sub(r"^\s*//.*$", "", open("config/waybar/config.jsonc").read(), flags=re.M)
+bar_mark = "\"niri/language\"" in re.search(r"\"modules-right\":\s*\[([^\]]*)\]", bar).group(1)
+lock = open("config/hypr/hyprlock.conf").read()
+live = re.findall(r"^\s*text\s*=\s*\$LAYOUT\[([^\]]*)\]", lock, re.M)
+if len(session) == 1:
+    if bar_mark or live:
+        sys.exit("    one layout: comment out niri/language in modules-right and the $LAYOUT label in hyprlock.conf")
+else:
+    if not bar_mark:
+        sys.exit(f"    {len(session)} layouts: add \"niri/language\" before \"clock\" in modules-right")
+    if not live:
+        sys.exit(f"    {len(session)} layouts: uncomment the $LAYOUT label in hyprlock.conf")
+    marks = live[0].split(",")
+    if len(marks) != len(session):
+        sys.exit(f"    hyprlock.conf lists {len(marks)} marks {marks} for {len(session)} layouts {session}")'
 
 # The hermetic suites (tests/) — sandboxed, no sudo, no session, no
 # display, tools they cannot find skipped with a note — speak row by
