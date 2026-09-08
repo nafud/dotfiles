@@ -1,0 +1,25 @@
+# Neovim inside the terminal. The package's own nvim.desktop says
+# Terminal=true and leaves the terminal to the launcher, and GLib (what
+# Files and gio launch go through) knows no terminal but
+# xdg-terminal-exec, which no repository package ships, and a fixed
+# list of GNOME's, KDE's and X11's — alacritty is not on it, so the
+# entry fails with "Unable to find terminal required for application".
+# This copy shadows it under the same id (a user entry outranks the
+# system's by the desktop entry spec), so there is one Neovim in the
+# launcher, and it opens in alacritty. The MIME list is the package's
+# plus the code types setup.sh names, so the open-with menu offers it
+# for those too. Linked into ~/.local/share/applications by setup.sh.
+[Desktop Entry]
+Type=Application
+Name=Neovim
+GenericName=Text Editor
+Comment=Edit text files
+TryExec=nvim
+Exec=alacritty -e nvim %F
+Terminal=false
+Icon=nvim
+Categories=Utility;TextEditor;Development;
+Keywords=Text;editor;
+StartupNotify=false
+StartupWMClass=Alacritty
+MimeType=text/english;text/plain;text/x-makefile;text/x-c++hdr;text/x-c++src;text/x-chdr;text/x-csrc;text/x-java;text/x-moc;text/x-pascal;text/x-tcl;text/x-tex;application/x-shellscript;text/x-c;text/x-c++;inode/x-empty;application/json;application/toml;application/yaml;application/x-yaml;application/xml;application/javascript;

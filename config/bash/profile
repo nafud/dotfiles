@@ -14,7 +14,7 @@ case ":$PATH:" in
 esac
 
 # the editor for everything that asks: yazi's `e`, git, the shell
-export EDITOR=micro VISUAL=micro
+export EDITOR=nvim VISUAL=nvim
 
 # gcr's ssh agent (gcr-4; the socket unit setup enables). Its socket
 # unit exports SSH_AUTH_SOCK into the user manager, which a session

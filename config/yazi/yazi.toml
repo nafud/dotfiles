@@ -6,28 +6,24 @@ sort_by = "natural"
 sort_dir_first = true
 sort_sensitive = false
 
-# Text and code open in Sublime Text, detached (orphan: yazi neither
-# waits on the window nor takes it down on quit). `edit` — yazi's own
-# opener, $EDITOR, micro — stays the second choice behind the open-with
-# menu (O). $EDITOR itself is left a terminal editor for git and the
-# shell. %s is where yazi (26+) substitutes the files, quoted; the
-# older "$@" form is left empty. prepend_rules: the defaults still
-# handle everything else.
-[opener]
-sublime = [ { run = "subl %s", orphan = true, desc = "Sublime Text" } ]
-
+# Text and code open in the editor, in this terminal: `edit` is yazi's
+# own opener, $EDITOR (Neovim, config/bash/profile), run blocking so
+# yazi waits and redraws when it quits. yazi's defaults already route
+# text/*, inode/empty and json there; the rest of the code types the
+# desktop hands to Neovim (setup.sh's MIME defaults) are added so the
+# two agree. prepend_rules: the defaults still handle everything else.
 [open]
 prepend_rules = [
-	{ mime = "text/*",                  use = [ "sublime", "edit", "reveal" ] },
+	{ mime = "text/*",                  use = [ "edit", "reveal" ] },
 	# an empty file, a freshly created one most of all: yazi spells it
 	# inode/empty; file(1) and xdg say inode/x-empty, so both are listed
-	{ mime = "inode/empty",             use = [ "sublime", "edit", "reveal" ] },
-	{ mime = "inode/x-empty",           use = [ "sublime", "edit", "reveal" ] },
-	{ mime = "application/json",        use = [ "sublime", "edit", "reveal" ] },
-	{ mime = "application/toml",        use = [ "sublime", "edit", "reveal" ] },
-	{ mime = "application/yaml",        use = [ "sublime", "edit", "reveal" ] },
-	{ mime = "application/x-yaml",      use = [ "sublime", "edit", "reveal" ] },
-	{ mime = "application/xml",         use = [ "sublime", "edit", "reveal" ] },
-	{ mime = "application/x-shellscript", use = [ "sublime", "edit", "reveal" ] },
-	{ mime = "application/javascript",  use = [ "sublime", "edit", "reveal" ] },
+	{ mime = "inode/empty",             use = [ "edit", "reveal" ] },
+	{ mime = "inode/x-empty",           use = [ "edit", "reveal" ] },
+	{ mime = "application/json",        use = [ "edit", "reveal" ] },
+	{ mime = "application/toml",        use = [ "edit", "reveal" ] },
+	{ mime = "application/yaml",        use = [ "edit", "reveal" ] },
+	{ mime = "application/x-yaml",      use = [ "edit", "reveal" ] },
+	{ mime = "application/xml",         use = [ "edit", "reveal" ] },
+	{ mime = "application/x-shellscript", use = [ "edit", "reveal" ] },
+	{ mime = "application/javascript",  use = [ "edit", "reveal" ] },
 ]

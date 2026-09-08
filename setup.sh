@@ -29,6 +29,9 @@
 #             chapters and recorded on the machine by etckeeper
 #   templates/ mirrors ~/Templates (the XDG templates dir), copied file
 #             by file: what Files offers under "New Document"
+#   applications/ mirrors ~/.local/share/applications, linked file by
+#             file: the desktop entries the workspace rewrites (Neovim
+#             running inside the terminal), shadowing the packages' own
 #   assets/   the default wallpaper (wallpaper.png), copied once to
 #             ~/Pictures/wallpaper.png on a machine that has none
 #             recorded; from then on that file is the user's state
@@ -45,7 +48,7 @@
 #   setup.sh  everything a config file cannot express: packages, system
 #             glue (units, the initramfs and grub.cfg rebuilds, the
 #             greeter's state dirs and background, MIME defaults,
-#             gsettings, the ~/.bashrc hook, the btop setting), the
+#             gsettings, the ~/.bashrc hook, the btop settings), the
 #             linking itself, session reloads, and the final summary
 #
 # Everything installs from the official repositories — the workspace
@@ -107,7 +110,7 @@ install_packages() {
     sudo pacman -Syu --needed --noconfirm \
         niri xwayland-satellite \
         alacritty waybar mako swaybg swayidle hyprlock rofi \
-        yazi zellij cliphist starship chafa micro btop \
+        yazi zellij cliphist starship chafa neovim btop \
         zathura zathura-pdf-poppler imv mpv \
         tlp \
         openssh polkit-gnome \
@@ -362,13 +365,17 @@ set_mime_default() {
 }
 
 set_default_apps() {
-    log "MIME defaults (zathura for PDFs, imv for images, Sublime Text for text)"
+    log "MIME defaults (zathura for PDFs, imv for images, Neovim for text)"
     set_mime_default org.pwmt.zathura.desktop application/pdf
 
-    # Sublime Text is an end-user app installed by hand (paru -S
-    # sublime-text-4, AUR); with it present, text and code files opened
-    # through xdg-open land there. The same types yazi routes to it.
-    set_mime_default sublime_text.desktop \
+    # Text and code opened through xdg-open or from Files land in
+    # Neovim. The id is the package's, and the entry that answers to it
+    # is the repository's applications/nvim.desktop, linked over the
+    # package's own: that one says Terminal=true, and GLib finds no
+    # terminal for it here (alacritty is not on its fixed list and
+    # xdg-terminal-exec is not packaged). The same types yazi routes to
+    # its editor.
+    set_mime_default nvim.desktop \
         text/plain inode/x-empty application/json application/toml \
         application/yaml application/x-yaml application/xml \
         application/x-shellscript application/javascript
@@ -415,19 +422,18 @@ seed_wallpaper() {
 
 # ------------------------------------------------------------ 9. link tree ---
 # Symlink each top-level entry of config/ into ~/.config, each file in
-# bin/ into ~/.local/bin and each theme in icons/ into ~/.local/share/icons.
+# bin/ into ~/.local/bin, each theme in icons/ into ~/.local/share/icons
+# and each entry in applications/ into ~/.local/share/applications
+# (file by file: bin/webapp-install writes its own entries there).
 # Directory-level links keep the mapping obvious: one entry in the repo,
 # one link on disk. A real file or directory already in the way is moved
 # aside once as <name>.pre-dotfiles.
 #
-# Three programs write live state beside their configuration, so their
-# dirs are not linked whole — a whole-dir link would point those writes
-# into the repo: btop rewrites btop.conf on every exit (configure_btop
-# links its read-only themes/ and enforces the intent lines in place),
-# micro keeps buffers/ (configure_micro links the configuration files
-# only), Sublime Text keeps sessions and packages (configure_sublime
-# links Packages/User only).
-PARTIALLY_LINKED=(btop micro sublime-text)
+# One program writes live state beside its configuration, so its dir
+# is not linked whole — a whole-dir link would point those writes into
+# the repo: btop rewrites btop.conf on every exit (configure_btop links
+# its read-only themes/ and enforces the intent lines in place).
+PARTIALLY_LINKED=(btop)
 
 link_one() {
     local src="$1" dest="$2"
@@ -455,17 +461,28 @@ link_configs() {
     for src in "$REPO/bin"/*; do
         link_one "$src" "$HOME/.local/bin/$(basename "$src")"
     done
-    mkdir -p "$HOME/.local/share/icons"
+    mkdir -p "$HOME/.local/share/icons" "$HOME/.local/share/applications"
     for src in "$REPO/icons"/*; do
         link_one "$src" "$HOME/.local/share/icons/$(basename "$src")"
     done
-    # prune links left behind by entries removed from the repo
-    for link in "$CFG"/* "$HOME/.local/bin"/* "$HOME/.local/share/icons"/*; do
-        if [ -L "$link" ] && [[ "$(readlink "$link")" == "$REPO"/* ]] && [ ! -e "$link" ]; then
+    for src in "$REPO/applications"/*; do
+        link_one "$src" "$HOME/.local/share/applications/$(basename "$src")"
+    done
+    # the MIME cache Files' open-with menu reads is rebuilt when the
+    # tool is there (desktop-file-utils); the defaults need no cache
+    if have update-desktop-database; then
+        update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+    fi
+    # prune links left behind by entries removed from the repo — the
+    # top-level ones and those a part-linked dir once held below them
+    # (an editor's settings file, a Packages/User dir)
+    while IFS= read -r -d '' link; do
+        if [[ "$(readlink "$link")" == "$REPO"/* ]] && [ ! -e "$link" ]; then
             rm "$link"
             log "pruned stale link $link"
         fi
-    done
+    done < <(find "$CFG" "$HOME/.local/bin" "$HOME/.local/share/icons" "$HOME/.local/share/applications" \
+                -mindepth 1 -maxdepth 3 -type l -print0 2>/dev/null)
 }
 
 # Files builds its "New Document" menu from the XDG templates dir, one
@@ -586,40 +603,6 @@ configure_btop() {
     btop_set theme_background False
     btop_set color_theme '"mono"'
     btop_set vim_keys True
-}
-
-# micro's config dir carries live state (buffers/) next to the real
-# configuration, so only the configuration links into the repo. The
-# settings.json symlink is safe and deliberate: micro rewrites the file
-# through the link on every exit in a stable normal form (alphabetical
-# keys, 4-space indent) — the committed file is kept in that form, so
-# the routine rewrite is byte-identical and the repo stays clean, while
-# an interactive `set` lands in the repo as a visible diff to commit or
-# revert (all verified on micro 2.0.13).
-configure_micro() {
-    mkdir -p "$CFG/micro"
-    link_one "$REPO/config/micro/settings.json" "$CFG/micro/settings.json"
-    link_one "$REPO/config/micro/colorschemes" "$CFG/micro/colorschemes"
-}
-
-# Sublime Text's dir carries live state (Local/ sessions, Installed
-# Packages/, Log/) beside Packages/User, its user configuration
-# (preferences, keymap, plugins), so only Packages/User links in.
-# Sublime writes the preferences through the link when a setting
-# changes from its menus, in its own form (tabs, a trailing comma),
-# which the committed file keeps, so the repo shows a one-line diff
-# (verified on build 4200). Sublime creates an empty Packages/User on
-# first start: an empty one gives way to the link, one already in use
-# is moved aside by link_one. An end-user app installed by hand:
-# nothing is created while it is absent.
-configure_sublime() {
-    have subl || return 0
-    local user="$CFG/sublime-text/Packages/User"
-    mkdir -p "$CFG/sublime-text/Packages"
-    if [ -d "$user" ] && [ ! -L "$user" ]; then
-        rmdir --ignore-fail-on-non-empty "$user"
-    fi
-    link_one "$REPO/config/sublime-text/User" "$user"
 }
 
 # ------------------------------------------------------------- 11. desktop ---
@@ -747,7 +730,7 @@ print_summary() {
     summary_row "Udiskie"       "removable-media automount"              have udiskie
     summary_row "Starship"      "shell prompt"                           have starship
     summary_row "Btop"          "system monitor"                         have btop
-    summary_row "Micro"         "text editor"                            have micro
+    summary_row "Neovim"        "text editor"                            have nvim
     summary_row "Zathura"       "PDF viewer"                             have zathura
     # the imv package ships imv-wayland/imv-x11 plus a wrapper for its
     # desktop file — probe the wayland binary, not a bare `imv`
@@ -796,8 +779,6 @@ user_half() {
     enable_units
     install_shell_hooks
     configure_btop
-    configure_micro
-    configure_sublime
     apply_desktop_prefs
 
     niri validate

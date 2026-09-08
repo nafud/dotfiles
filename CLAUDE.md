@@ -13,7 +13,7 @@ entries, the LTS kernel as the fallback. Four things have four homes,
 and this repository is exactly one of them:
 
 - **The workspace** — this repository: `config/`, `bin/`, `icons/`,
-  `templates/`, `assets/`, and under `system/` only what the desktop
+  `templates/`, `applications/`, `assets/`, and under `system/` only what the desktop
   needs below the user (the boot chain, the login page, bootkeep for
   snapshot rollbacks, oomd on the user slice, bluez's adapter policy).
   Machine-neutral, installable on a fresh Arch in one command.
@@ -87,9 +87,15 @@ absent from setup.sh's one pacman transaction.
   `/usr/share/backgrounds/greeter.jpg`, a rendered copy).
   `assets/wallpaper.png` is the default, copied there once by
   `seed_wallpaper` when nothing is recorded, never again.
-- btop and micro are deliberately part-linked (`PARTIALLY_LINKED` in
-  setup.sh): they write live state beside their config. Do not link
-  their whole dirs.
+- btop is deliberately part-linked (`PARTIALLY_LINKED` in setup.sh):
+  it writes live state beside its config. Do not link its whole dir.
+- The editor is Neovim (`config/nvim/init.lua`, no plugins, the
+  terminal's palette): `$EDITOR` in `config/bash/profile`, yazi's
+  `edit` opener, and the desktop's text handler through
+  `applications/nvim.desktop`, which shadows the package's entry to run
+  it inside alacritty — GLib launches a `Terminal=true` entry only
+  through xdg-terminal-exec (unpackaged) or a fixed list without
+  alacritty.
 - `config/systemd/user/*.wants/` is per-machine enablement state that
   `systemctl --user enable` writes through the symlinked dir into the
   repo; it is gitignored on purpose, never committed.

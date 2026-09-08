@@ -22,8 +22,9 @@ pane_frames false
 
 // Locked by default: every Ctrl chord passes through to the app until
 // Ctrl+g unlocks zellij's own commands. The stock bindings sit on keys
-// micro lives on (Ctrl+s search, and Ctrl+q would quit zellij outright,
-// taking every pane with it).
+// Neovim lives on (Ctrl+o and Ctrl+t walk the jump list, Ctrl+n and
+// Ctrl+p complete, and Ctrl+q would quit zellij outright, taking every
+// pane with it).
 default_mode "locked"
 
 // one slim status line instead of the two hint bars

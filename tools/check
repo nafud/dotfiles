@@ -59,6 +59,15 @@ for path in sorted(glob.glob("config/**/*.toml", recursive=True)
                    + glob.glob("system/**/*.toml", recursive=True)):
     with open(path, "rb") as fh:
         tomllib.load(fh)'
+check "desktop entries are well-formed" python3 -c '
+import configparser, glob
+for path in sorted(glob.glob("applications/*.desktop")):
+    e = configparser.ConfigParser(interpolation=None)
+    e.optionxform = str
+    e.read(path, encoding="utf-8")
+    d = e["Desktop Entry"]
+    for key in ("Type", "Name", "Exec"):
+        assert key in d, f"{path}: no {key}="'
 check "systemd user units are well-formed" python3 -c '
 # the unit files carry no Exec= that CI could resolve, so this is the
 # ini shape only: sections and key=value lines, Unit and Service present
