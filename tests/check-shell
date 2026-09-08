@@ -144,9 +144,12 @@ t_summary_rows_probe() ( set -e
     done
     full="$(summary_text "$b" "$(sparse_path "$b")")"
     empty="$(summary_text "$b" "$(sparse_path "$(mkbox)")")"
-    for label in Bluetooth Recorder OCR Screenshots Archives exFAT "Polkit agent"; do
+    for label in Bluetooth Recorder OCR Screenshots Archives exFAT; do
         grep -q "\[ + \] $label" <<<"$full" || { echo "no [ + ] row for $label with the tools present" >&2; return 1; }
     done
+    # the polkit agent is probed by its absolute path (the unit spells
+    # it), not PATH, so its state here is the runner's; the row must exist
+    grep -q "\] Polkit agent" <<<"$full"
     for label in Bluetooth Recorder OCR Screenshots Archives exFAT; do
         grep -q "\[ - \] $label" <<<"$empty" || { echo "$label still [ + ] with nothing on PATH" >&2; return 1; }
     done
