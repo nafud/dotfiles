@@ -686,6 +686,24 @@ session_units_enabled() {
     done
 }
 
+# The Session units row is SESSION_UNITS itself, one stem per unit
+# (the instance and the suffix dropped, a template once), so a unit
+# added to the list is in the row without anyone remembering.
+session_units_text() {
+    local unit stem out=""
+    for unit in "${SESSION_UNITS[@]}"; do
+        stem="${unit%%@*}"; stem="${stem%.service}"
+        case ", $out, " in *", $stem, "*) continue ;; esac
+        out="${out:+$out, }$stem"
+    done
+    printf '%s' "$out"
+}
+
+bluetooth_ok() { have bluetui && have bluetoothctl; }
+shots_ok()     { have grim && have slurp; }
+archives_ok()  { have 7z && have unzip; }
+polkit_agent_ok() { test -x /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1; }
+
 summary_row() {
     local label="$1" desc="$2"; shift 2
     if "$@" >/dev/null 2>&1; then
@@ -698,14 +716,16 @@ summary_row() {
 print_summary() {
     printf '\n\033[1m[setup] installed components\033[0m\n'
     summary_row "Niri"          "scrollable-tiling Wayland compositor"   have niri
-    summary_row "Dotfiles"      "config/ linked into ~/.config"          configs_linked
-    summary_row "Session units" "waybar, mako, wallpaper, idle, cliphist, udiskie" session_units_enabled
+    summary_row "Dotfiles"      "config, bin, icons, applications linked; templates copied" configs_linked
+    summary_row "Session units" "$(session_units_text)"                  session_units_enabled
     summary_row "Xwayland-sat." "X11 bridge, auto-spawned by niri"       have xwayland-satellite
     summary_row "Plymouth"      "boot splash (mono theme)"               have plymouthd
     summary_row "Greetd"        "login page (monogreet on niri)"         have monogreet
     summary_row "PipeWire"      "audio server (pulse shim)"              have pipewire
     summary_row "Portals"       "xdg-desktop-portal gtk + gnome"         portals_ok
     summary_row "SSH agent"     "gcr-ssh-agent (gcr-4)"                  test -x /usr/lib/gcr-ssh-agent
+    summary_row "Polkit agent"  "polkit-gnome (the password dialogs)"    polkit_agent_ok
+    summary_row "Bluetooth"     "bluez + bluetui (bar module, popup)"    bluetooth_ok
     summary_row "Alacritty"     "terminal emulator"                      have alacritty
     summary_row "Rofi"          "application launcher (wayland 2.0)"     have rofi
     summary_row "Waybar"        "status bar"                             have waybar
@@ -717,6 +737,7 @@ print_summary() {
     summary_row "Zellij"        "terminal multiplexer"                   have zellij
     summary_row "Cliphist"      "clipboard history"                      have cliphist
     summary_row "Udiskie"       "removable-media automount"              have udiskie
+    summary_row "exFAT"         "exfatprogs (mounting exFAT media)"      have mkfs.exfat
     summary_row "Starship"      "shell prompt"                           have starship
     summary_row "Btop"          "system monitor"                         have btop
     summary_row "Neovim"        "text editor"                            have nvim
@@ -729,6 +750,7 @@ print_summary() {
     summary_row "Mpv"           "media player"                           have mpv
     summary_row "Paru"          "AUR helper (manual installs, updates)"  paru_ok
     summary_row "Chafa"         "terminal image renderer (yazi preview)" have chafa
+    summary_row "Archives"      "7zip + unzip (yazi preview and extract)" archives_ok
     summary_row "Fzf"           "fuzzy finder"                           have fzf
     summary_row "Zoxide"        "directory jumper"                       have zoxide
     summary_row "Eza"           "ls replacement"                         have eza
@@ -741,6 +763,9 @@ print_summary() {
     summary_row "Brightnessctl" "backlight control"                      have brightnessctl
     summary_row "Pulsemixer"    "audio mixer popup"                      have pulsemixer
     summary_row "Ksnip"         "screenshot annotator"                   have ksnip
+    summary_row "Screenshots"   "grim + slurp (shot-annotate, shot-ocr)" shots_ok
+    summary_row "OCR"           "tesseract (shot-ocr)"                   have tesseract
+    summary_row "Recorder"      "gpu-screen-recorder (record-toggle)"    have gpu-screen-recorder
     summary_row "Nerd Font"     "JetBrainsMono Nerd Font"                font_ok
     printf '\n'
 }

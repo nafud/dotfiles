@@ -14,11 +14,12 @@ binds {
     // the default browser, whichever xdg-settings names (firefox here)
     Mod+B hotkey-overlay-title="Browser" { spawn-sh "gtk-launch \"$(xdg-settings get default-web-browser)\""; }
     Mod+Shift+B hotkey-overlay-title="System monitor" { spawn "alacritty" "--class" "btop-float" "-e" "btop"; }
-    // Dedicated yazi terminal. The cwd-following y() wrapper is for
-    // interactive shells; here the shell would die with the window anyway.
-    Mod+Y hotkey-overlay-title="Files in yazi" { spawn "alacritty" "-e" "yazi"; }
-    // the files session: attached if it exists, created on the files layout otherwise
-    Mod+W hotkey-overlay-title="Files session" { spawn "alacritty" "-e" "zellij" "-l" "files" "attach" "-c" "files"; }
+    // yazi, as the files session: attached if it exists, created on the
+    // files layout (yazi beside a shell, config/zellij/layouts) otherwise.
+    // Closing the window leaves the session where it was; the next press
+    // returns to it. The cwd-following y() wrapper is for interactive
+    // shells (config/bash/bashrc); one keyboard entrance, this one.
+    Mod+Y hotkey-overlay-title="Files in yazi" { spawn "alacritty" "-e" "zellij" "-l" "files" "attach" "-c" "files"; }
     Mod+V hotkey-overlay-title="Clipboard history" { spawn "clip-pick"; }
     // window switcher: fuzzy-jump to any open window by app or title
     Mod+Space hotkey-overlay-title="Window switcher" { spawn "rofi-toggle" "-show" "windows" "-modes" "windows:rofi-windows"; }

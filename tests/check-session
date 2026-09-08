@@ -479,6 +479,12 @@ assert any({"#custom-recording.recording", "#custom-updates.updates"} <= h for h
 # ------------------------------------------------------ config/niri/binds.kdl ---
 t_niri_binds() ( set -e
     f="$REPO_DIR/config/niri/binds.kdl"
+    # one entrance to yazi from the keyboard: the attach-or-create
+    # zellij session on Mod+Y (the window closes, the session stays);
+    # a bare second yazi bind would be the same tool twice
+    grep -qE '^\s*Mod\+Y\s.*spawn "alacritty" "-e" "zellij" "-l" "files" "attach" "-c" "files"' "$f"
+    not grep -qE '^\s*Mod\+W\s' "$f"
+    [ "$(grep -c '"yazi"' "$f")" = 0 ]
     grep -qE '^\s*Mod\+Ctrl\+B\s.*spawn "alacritty" "--class" "bluetui-float" "-e" "bluetui"' "$f"
     grep -qE '^\s*Mod\+Ctrl\+R\s.*spawn "record-toggle"' "$f"
     grep -qE '^\s*Mod\+Ctrl\+Shift\+S\s.*spawn "shot-ocr"' "$f"

@@ -113,6 +113,53 @@ comma_locale() {
     return 1
 }
 
+# --------------------------------------------------- setup.sh: print_summary ---
+# The summary tells the truth or it is worse than none. Three rules:
+# the Session units row is derived from SESSION_UNITS (one stem per
+# unit, the instance dropped), so a unit added to the list appears in
+# the row without anyone remembering; every tool the transaction
+# installs for a visible job has a row whose probe really looks (all
+# rows go [ + ] under a PATH of shims and the same rows go [ - ] under
+# a PATH without them); and the Dotfiles row names the four trees the
+# link step places, not config/ alone.
+summary_text() {   # summary_text BOX PATHSPEC — print_summary's rows, colour stripped
+    with_setup "$1" "PATH='$2' print_summary" | sed 's/\x1b\[[0-9;]*m//g'
+}
+
+t_summary_units_row_derived() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin"
+    row="$(summary_text "$b" "$(sparse_path "$b")" | grep 'Session units')"
+    stems="$(with_setup "$b" 'printf "%s\n" "${SESSION_UNITS[@]}"' | sed -E 's/@.*//; s/\.service$//' | sort -u)"
+    for stem in $stems; do
+        grep -qw "$stem" <<<"$row" || { echo "Session units row lacks $stem: $row" >&2; return 1; }
+    done
+    # cliphist runs twice as an instance; the row says it once
+    [ "$(grep -o cliphist <<<"$row" | wc -l)" = 1 ]
+)
+
+t_summary_rows_probe() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin"
+    for tool in bluetui bluetoothctl gpu-screen-recorder tesseract grim slurp 7z unzip mkfs.exfat; do
+        shim "$b/bin" "$tool" 'exit 0'
+    done
+    full="$(summary_text "$b" "$(sparse_path "$b")")"
+    empty="$(summary_text "$b" "$(sparse_path "$(mkbox)")")"
+    for label in Bluetooth Recorder OCR Screenshots Archives exFAT "Polkit agent"; do
+        grep -q "\[ + \] $label" <<<"$full" || { echo "no [ + ] row for $label with the tools present" >&2; return 1; }
+    done
+    for label in Bluetooth Recorder OCR Screenshots Archives exFAT; do
+        grep -q "\[ - \] $label" <<<"$empty" || { echo "$label still [ + ] with nothing on PATH" >&2; return 1; }
+    done
+)
+
+t_summary_dotfiles_row() ( set -e
+    b="$(mkbox)"; mkdir -p "$b/bin"
+    row="$(summary_text "$b" "$(sparse_path "$b")" | grep 'Dotfiles')"
+    for tree in config bin icons applications templates; do
+        grep -qw "$tree" <<<"$row" || { echo "Dotfiles row lacks $tree: $row" >&2; return 1; }
+    done
+)
+
 # ------------------------------------------------- setup.sh: seed_wallpaper ---
 t_seed_wallpaper_fresh() ( set -e
     b="$(mkbox)"
@@ -547,6 +594,9 @@ check "set_default_apps skips Neovim when absent"      t_mime_nvim_absent_leaves
 check "MIME types: the desktop and yazi agree"       t_mime_types_match_yazi
 check "link_configs links applications/, prunes deep" t_link_applications_and_prune
 check "btop is the only part-linked dir"             t_btop_only_partial
+check "summary: the units row is SESSION_UNITS itself" t_summary_units_row_derived
+check "summary: a row for every tool, probes real"    t_summary_rows_probe
+check "summary: the Dotfiles row names every tree"    t_summary_dotfiles_row
 check "wallset records and restarts in a session"    t_wallset_active_session
 check "wallset skips the restart without a session"  t_wallset_no_session
 if have magick; then
