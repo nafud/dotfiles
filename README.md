@@ -92,11 +92,22 @@ What one run of setup.sh installs and links, as it reports at the end.
   [ + ] Nerd Font      JetBrainsMono Nerd Font
 ```
 
-Install the base system with the
-[Arch Linux guide](https://nafud.github.io/kiln/guides/arch-linux/),
-then deploy the workspace with one command. The repository is the
+Install the base system from the live ISO with the guide's script,
+which asks seven answers and performs the guide's chapters, then
+verify it after the first boot.
+
+```
+curl -fsSLO https://nafud.github.io/kiln/assets/arch-linux/install
+bash install
+```
+
+```
+sudo bash install verify
+```
+
+Then deploy the workspace with one command. The repository is the
 workspace alone: the base system, its policy and its hardening are
-chapters of the guide, applied on the machine and recorded there.
+chapters of the guide, applied by the script and recorded there.
 
 ```
 curl -fsSL https://raw.githubusercontent.com/nafud/dotfiles/main/bootstrap.sh | bash
