@@ -241,7 +241,12 @@ colour — that is the configuration meaning "no change", not a leftover.
   measurement was measured; arithmetic says "by construction".
 - The README is short on purpose and will grow after the fresh-install
   test; `assets/desk.jpg` is its showcase (the empty desk, the bar
-  over the wallpaper). The image file name is part of its URL on
+  over the wallpaper). Below it, two tables: the closing table of the
+  Kiln guide's installer (copied from a run of Kiln's
+  `tests/arch-install-vm.py`, so its disk, hostname, user and timezone
+  are the test machine's; refresh it when that installer's rows
+  change) and setup.sh's own summary, which `tools/check` diffs
+  against the real one. The image file name is part of its URL on
   GitHub, whose image proxy caches by path: a new picture takes a new
   name.
 - Development tools (shellcheck, jq, python) are not the workspace's;
